@@ -16,7 +16,7 @@ const TemplateSnapshotSchema = z.object({
     .array(
       z.object({
         name: z.string(),
-        type: z.enum(["TEXT", "TEXTAREA", "NUMBER", "SELECT", "DATE", "COPYWRITE"]),
+        type: z.enum(["TEXT", "TEXTAREA", "NUMBER", "SELECT", "DATE", "COPYWRITE", "IMAGE"]),
         required: z.boolean(),
         options: z.array(z.string()),
       }),
@@ -39,6 +39,12 @@ export async function POST(request: NextRequest) {
     return failure("FORBIDDEN", "无权提交该任务", 403)
   if (task.deadline < new Date())
     return failure("VALIDATION_ERROR", "任务已超过截止时间", 400)
+  if (task.status !== "PENDING" && task.status !== "RETURNED")
+    return failure(
+      "VALIDATION_ERROR",
+      task.status === "SUBMITTED" ? "任务已提交，请勿重复提交" : "该任务当前不可提交",
+      400,
+    )
   const template = TemplateSnapshotSchema.parse(task.templateSnapshot)
   const check = validateFieldPayload(template.fields, parsed.data.data)
   if (!check.valid)

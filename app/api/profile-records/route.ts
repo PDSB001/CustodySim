@@ -15,6 +15,7 @@ import {
 import { getSessionUser } from "@/lib/session"
 import { getSupervisedUserIdsForActor } from "@/lib/supervision-scope"
 import { isEditableProfileRecord } from "@/lib/profile-record"
+import { applyComputedProfileAge } from "@/lib/profile-age"
 import {
   decryptHandwrittenSignature,
   encryptHandwrittenSignature,
@@ -126,6 +127,7 @@ export async function POST(request: NextRequest) {
         options: field.options,
       })),
     }
+    const data = applyComputedProfileAge(parsed.data.data, fields)
     const [existing] = await db
       .select({ id: profileRecords.id, status: profileRecords.status })
       .from(profileRecords)
@@ -161,7 +163,7 @@ export async function POST(request: NextRequest) {
       ? await db
           .update(profileRecords)
           .set({
-            data: parsed.data.data,
+            data,
             photoData: parsed.data.photoData ?? null,
             ...signature,
             officialSealData: null,
@@ -174,7 +176,7 @@ export async function POST(request: NextRequest) {
           .values({
             userId: actor.id,
             formId: form.id,
-            data: parsed.data.data,
+            data,
             formSnapshot: snapshot,
             photoData: parsed.data.photoData ?? null,
             ...signature,

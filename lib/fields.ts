@@ -1,5 +1,8 @@
 import { z } from "zod"
 
+import { validateTaskImageDataUrl } from "@/lib/task-image"
+import { hasComputedProfileAge } from "@/lib/profile-age"
+
 export const FIELD_TYPES = [
   "TEXT",
   "TEXTAREA",
@@ -7,6 +10,7 @@ export const FIELD_TYPES = [
   "SELECT",
   "DATE",
   "COPYWRITE",
+  "IMAGE",
 ] as const
 export type FieldType = (typeof FIELD_TYPES)[number]
 export type FieldDef = {
@@ -21,12 +25,21 @@ export function getCopywriteSource(field: FieldDef) {
   return (field.options?.[0] ?? "").trim()
 }
 
+function isValidDate(value: unknown) {
+  const text = String(value)
+  if (!/^\d{4}-(0[1-9]|1[0-2])-\d{2}$/.test(text)) return false
+  const date = new Date(`${text}T00:00:00Z`)
+  return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === text
+}
+
 export function validateFieldPayload(
   fields: FieldDef[],
   payload: Record<string, unknown>,
 ) {
   const errors: Record<string, string> = {}
+  const ageIsComputed = hasComputedProfileAge(fields)
   for (const field of fields) {
+    if (ageIsComputed && field.name === "年龄") continue
     const value = payload[field.name]
     if (
       field.required &&
@@ -46,6 +59,8 @@ export function validateFieldPayload(
       !/^\d{4}-(0[1-9]|1[0-2])$/.test(String(value))
     )
       errors[field.name] = "出生年月格式应为 YYYY-MM"
+    if (field.type === "DATE" && field.name !== "出生年月" && !isValidDate(value))
+      errors[field.name] = "日期格式不合法"
     if (field.type === "SELECT" && !field.options.includes(String(value)))
       errors[field.name] = "选项不合法"
     if (field.name === "罩杯" && payload["性别"] !== "女")
@@ -58,7 +73,21 @@ export function validateFieldPayload(
       else if (written !== source)
         errors[field.name] = "抄写内容与原文不一致"
     }
+    if (field.type === "IMAGE") {
+      const error = validateTaskImageDataUrl(value)
+      if (error) errors[field.name] = error
+    }
   }
+  const sentenceStart = payload["刑期起始日期"]
+  const sentenceEnd = payload["刑期截止日期"]
+  if (
+    sentenceStart &&
+    sentenceEnd &&
+    isValidDate(sentenceStart) &&
+    isValidDate(sentenceEnd) &&
+    String(sentenceEnd) < String(sentenceStart)
+  )
+    errors["刑期截止日期"] = "刑期截止日期不能早于起始日期"
   return { valid: Object.keys(errors).length === 0, errors }
 }
 

@@ -1,5 +1,5 @@
-const fs = require("node:fs")
-const path = require("node:path")
+const fs = module.require("node:fs")
+const path = module.require("node:path")
 
 // Load variables from .env.local so the standalone server has AUTH_SECRET,
 // DATABASE_URL etc. at runtime (standalone mode does not load .env.local itself).

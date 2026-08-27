@@ -18,6 +18,11 @@ import { z } from "zod"
 
 import { requestApi } from "@/components/shared/api-client"
 import { MetricCell } from "@/components/shared/metric-cell"
+import {
+  ErrorState,
+  LoadingBlock,
+  QueryStateView,
+} from "@/components/shared/query-state-view"
 import { PageHeader } from "@/components/shared/page-header"
 import { StatusPill } from "@/components/shared/status-pill"
 import type { SessionUser } from "@/lib/session"
@@ -26,6 +31,7 @@ const DashboardSummary = z.object({
   pendingTasks: z.number(),
   pendingMakeups: z.number(),
   pendingCheckins: z.number(),
+  myPendingTasks: z.number(),
   inCustodyPersons: z.number(),
   enabledRules: z.number(),
   custodyStatus: z.string(),
@@ -118,16 +124,24 @@ export function DashboardHome({ user }: Readonly<{ user: SessionUser }>) {
       />
 
       <section className="metric-grid page-enter" aria-label="运行概览">
-        {summaries.map(({ label, value, detail, icon, tone }) => (
-          <MetricCell
-            key={label}
-            label={label}
-            value={value}
-            detail={detail}
-            icon={icon}
-            tone={tone}
-          />
-        ))}
+        <QueryStateView
+          isLoading={summary.isLoading}
+          error={summary.error}
+          onRetry={() => summary.refetch()}
+          loading={<LoadingBlock className="col-span-full h-32" />}
+          errorFallback={<div className="col-span-full"><ErrorState onRetry={() => summary.refetch()} title="概览加载失败" description="运行指标暂不可用，刷新页面或稍后重试。" /></div>}
+        >
+          {summaries.map(({ label, value, detail, icon, tone }) => (
+            <MetricCell
+              key={label}
+              label={label}
+              value={value}
+              detail={detail}
+              icon={icon}
+              tone={tone}
+            />
+          ))}
+        </QueryStateView>
       </section>
 
       <section className="grid gap-4 page-enter lg:grid-cols-[minmax(0,1.35fr)_minmax(16rem,0.65fr)]">

@@ -62,6 +62,31 @@ describe("task template payload validation", () => {
     })
   })
 
+  it("requires sentence dates and rejects an inverted sentence range", () => {
+    const sentenceFields = [
+      { name: "刑期起始日期", type: "DATE" as const, required: true, options: [] },
+      { name: "刑期截止日期", type: "DATE" as const, required: true, options: [] },
+    ]
+    expect(
+      validateFieldPayload(sentenceFields, {
+        刑期起始日期: "2026-02-30",
+        刑期截止日期: "2026-03-01",
+      }).errors,
+    ).toEqual({ 刑期起始日期: "日期格式不合法" })
+    expect(
+      validateFieldPayload(sentenceFields, {
+        刑期起始日期: "2027-01-01",
+        刑期截止日期: "2026-12-31",
+      }).errors,
+    ).toEqual({ 刑期截止日期: "刑期截止日期不能早于起始日期" })
+    expect(
+      validateFieldPayload(sentenceFields, {
+        刑期起始日期: "2026-01-01",
+        刑期截止日期: "2026-12-31",
+      }),
+    ).toEqual({ valid: true, errors: {} })
+  })
+
   it("only accepts a cup size for female records", () => {
     const cup = [
       {
@@ -84,5 +109,24 @@ describe("task template payload validation", () => {
       validateFieldPayload(fields, { 心得: "完成", 时长: 30, 状态: "未知" })
         .errors,
     ).toEqual({ 状态: "选项不合法" })
+  })
+
+  it("accepts only bounded image data URLs", () => {
+    const image = [
+      { name: "现场图片", type: "IMAGE" as const, required: true, options: [] },
+    ]
+    expect(
+      validateFieldPayload(image, {
+        现场图片: "data:image/jpeg;base64,/9j/4AAQSkZJRg==",
+      }),
+    ).toEqual({ valid: true, errors: {} })
+    expect(
+      validateFieldPayload(image, { 现场图片: "https://example.com/photo.jpg" })
+        .errors,
+    ).toEqual({ 现场图片: "图片格式不合法" })
+    const oversized = `data:image/jpeg;base64,${"A".repeat(1_333_336)}`
+    expect(validateFieldPayload(image, { 现场图片: oversized }).errors).toEqual({
+      现场图片: "压缩后的图片不能超过 1 MB",
+    })
   })
 })

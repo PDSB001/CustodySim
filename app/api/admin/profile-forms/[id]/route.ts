@@ -8,11 +8,15 @@ import { failure, success } from "@/lib/api-response"
 import { writeAuditLog } from "@/lib/audit"
 import { db } from "@/lib/db"
 import {
+  numberingRules,
   profileFields,
   profileForms,
   profileRecordReviews,
   profileRecords,
 } from "@/lib/db/schema"
+import { getHighestSequentialCodeNumber } from "@/lib/numbering"
+
+const PROFILE_RECORD_DOC_TYPE = "PROFILE_RECORD"
 
 const ParamsSchema = z.object({ id: z.string().uuid() })
 type RouteContext = { params: Promise<{ id: string }> }
@@ -94,6 +98,28 @@ export async function DELETE(_: NextRequest, context: RouteContext) {
         await tx
           .delete(profileRecords)
           .where(eq(profileRecords.formId, params.data.id))
+        const [rule] = await tx
+          .select()
+          .from(numberingRules)
+          .where(eq(numberingRules.docType, PROFILE_RECORD_DOC_TYPE))
+          .limit(1)
+        if (rule?.generationMode === "SEQUENTIAL") {
+          const remainingRecords = await tx
+            .select({ code: profileRecords.code })
+            .from(profileRecords)
+          const currentSeq = getHighestSequentialCodeNumber({
+            codes: remainingRecords.flatMap((record) =>
+              record.code ? [record.code] : [],
+            ),
+            prefix: rule.prefix,
+            dateFormat: rule.dateFormat,
+            minLength: rule.minLength,
+          })
+          await tx
+            .update(numberingRules)
+            .set({ currentSeq, updatedAt: new Date() })
+            .where(eq(numberingRules.id, rule.id))
+        }
       }
       const [form] = await tx
         .delete(profileForms)

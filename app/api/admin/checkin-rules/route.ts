@@ -1,6 +1,7 @@
 import { asc, eq } from "drizzle-orm"
 import { NextRequest } from "next/server"
 
+import { writeAuditLog } from "@/lib/audit"
 import { failure, success } from "@/lib/api-response"
 import { getAdminUser } from "@/lib/admin-api"
 import { CheckinRuleSchema } from "@/lib/admin-schemas"
@@ -32,8 +33,8 @@ export async function GET() {
 }
 
 export async function POST(request: NextRequest) {
-  if (!(await getAdminUser()))
-    return failure("FORBIDDEN", "仅管理员可管理打卡规则", 403)
+  const actor = await getAdminUser()
+  if (!actor) return failure("FORBIDDEN", "仅管理员可管理打卡规则", 403)
   const parsed = CheckinRuleSchema.safeParse(await request.json())
   if (!parsed.success)
     return failure(
@@ -66,6 +67,14 @@ export async function POST(request: NextRequest) {
           .values(scopes.map((scope) => ({ ...scope, ruleId: rule.id })))
           .returning()
       : []
+    await writeAuditLog({
+      actor,
+      action: "CREATE",
+      actionLabel: "创建打卡规则",
+      entityType: "checkin_rule",
+      entityId: rule.id,
+      detail: { name: ruleData.name, custodyLevel: ruleData.custodyLevel },
+    })
     return success({ ...rule, scopes: insertedScopes }, { status: 201 })
   } catch (error) {
     console.error("[API checkin-rules POST]", error)

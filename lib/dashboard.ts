@@ -2,6 +2,7 @@ import { and, count, eq, gt, gte, inArray, lt, ne } from "drizzle-orm"
 
 import { getDayRange } from "@/lib/checkin"
 import { getCustodyProfileForUser } from "@/lib/custody-checkin"
+import { PRISONER_CUSTODY_STATUS_LABELS } from "@/lib/constants"
 import { db } from "@/lib/db"
 import {
   checkinMakeups,
@@ -20,6 +21,8 @@ export type DashboardSummary = {
   pendingMakeups: number
   /** 待打卡时段（本人今日未过期） */
   pendingCheckins: number
+  /** 待完成任务（被监管人本人未提交） */
+  myPendingTasks: number
   /** 在押人员总数（管理员） */
   inCustodyPersons: number
   /** 已启用的非打卡规则数（管理员） */
@@ -39,6 +42,7 @@ export async function getDashboardSummary(
     scopedTasks,
     scopedMakeups,
     pendingCheckins,
+    myPendingTasks,
     inCustodyPersons,
     enabledRules,
   ] = await Promise.all([
@@ -78,6 +82,15 @@ export async function getDashboardSummary(
       ),
     db
       .select({ n: count() })
+      .from(reportTasks)
+      .where(
+        and(
+          eq(reportTasks.supervisedId, actor.id),
+          eq(reportTasks.status, "PENDING"),
+        ),
+      ),
+    db
+      .select({ n: count() })
       .from(persons)
       .where(eq(persons.custodyStatus, "IN_CUSTODY")),
     db
@@ -89,18 +102,16 @@ export async function getDashboardSummary(
   let custodyStatus = "未知"
   if (actor.role === "SUPERVISED") {
     const profile = await getCustodyProfileForUser(actor.id)
-    custodyStatus =
-      profile?.custodyStatus === "IN_CUSTODY"
-        ? "在押"
-        : profile?.custodyStatus === "ON_LEAVE"
-          ? "离所"
-          : "正常"
+    custodyStatus = profile
+      ? PRISONER_CUSTODY_STATUS_LABELS[profile.custodyStatus]
+      : "未知"
   }
 
   return {
     pendingTasks: scopedTasks[0]?.n ?? 0,
     pendingMakeups: scopedMakeups[0]?.n ?? 0,
     pendingCheckins: pendingCheckins[0]?.n ?? 0,
+    myPendingTasks: myPendingTasks[0]?.n ?? 0,
     inCustodyPersons: inCustodyPersons[0]?.n ?? 0,
     enabledRules: enabledRules[0]?.n ?? 0,
     custodyStatus,

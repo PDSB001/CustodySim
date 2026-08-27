@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest"
 
-import { buildCode, formatDatePart } from "@/lib/numbering"
+import {
+  buildCode,
+  extractSequentialCodeNumber,
+  formatDatePart,
+  getHighestSequentialCodeNumber,
+} from "@/lib/numbering"
 
 const date = new Date("2026-08-25T00:00:00.000Z")
 
@@ -31,5 +36,54 @@ describe("numbering", () => {
     expect(
       buildCode({ prefix: "X", date, sequence: 12345, minLength: 4 }),
     ).toBe("X20260812345")
+  })
+
+  it("extracts a sequential archive number only when it matches the active rule", () => {
+    expect(
+      extractSequentialCodeNumber({
+        code: "ARC2026080012",
+        prefix: "ARC",
+        dateFormat: "yyyyMM",
+        minLength: 4,
+      }),
+    ).toBe(12)
+    expect(
+      extractSequentialCodeNumber({
+        code: "OTHER2026080012",
+        prefix: "ARC",
+        dateFormat: "yyyyMM",
+        minLength: 4,
+      }),
+    ).toBeNull()
+  })
+
+  it("recalculates the next sequence from remaining records after deletion", () => {
+    expect(
+      getHighestSequentialCodeNumber({
+        codes: ["ARC2026080002", "ARC2026080011", "invalid"],
+        prefix: "ARC",
+        dateFormat: "yyyyMM",
+        minLength: 4,
+      }),
+    ).toBe(11)
+    expect(
+      getHighestSequentialCodeNumber({
+        codes: [],
+        prefix: "ARC",
+        dateFormat: "yyyyMM",
+        minLength: 4,
+      }),
+    ).toBe(0)
+  })
+
+  it("keeps a long remaining sequence when recalculating", () => {
+    expect(
+      getHighestSequentialCodeNumber({
+        codes: ["ARC2026089999", "ARC20260810000"],
+        prefix: "ARC",
+        dateFormat: "yyyyMM",
+        minLength: 4,
+      }),
+    ).toBe(10000)
   })
 })

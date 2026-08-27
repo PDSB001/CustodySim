@@ -6,17 +6,30 @@ This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-
 
 | 层级       | 覆盖内容                                         | 命令                              |
 | ---------- | ------------------------------------------------ | --------------------------------- |
-| 单元测试   | 组织层级、编号、密码、规则周期、任务表单载荷校验 | `npx --yes pnpm@11.19.0 test`     |
-| 端到端测试 | 三类角色登录、工作台跳转、管理区权限隔离         | `npx --yes pnpm@11.19.0 test:e2e` |
-| 全量测试   | 依次执行上述两类测试                             | `npx --yes pnpm@11.19.0 test:all` |
+| 静态检查   | 所有受维护源码的 ESLint 零警告检查                | `npx --yes pnpm@11.19.0 lint` |
+| 类型检查   | 全项目 TypeScript 类型检查                       | `npx --yes pnpm@11.19.0 typecheck` |
+| 单元测试   | 组织层级、编号、密码、规则周期、表单载荷、档案及申请审批状态机 | `npx --yes pnpm@11.19.0 test` |
+| 监听测试   | 修改领域规则时持续运行单元测试                   | `npx --yes pnpm@11.19.0 test:watch` |
+| 端到端测试 | 三类角色登录、角色路由、申请入口及权限隔离       | `npx --yes pnpm@11.19.0 test:e2e` |
+| 全量验证   | 依次执行静态、类型、单元与端到端检查             | `npx --yes pnpm@11.19.0 test:all` |
 
-端到端测试默认使用 `http://127.0.0.1:3000`。有已启动的开发服务时会复用它；否则会自行启动。首次运行若提示缺少浏览器，请执行：
+端到端测试默认使用独立的 `http://127.0.0.1:3100`，避免占用日常开发的 3000 端口；可通过 `E2E_BASE_URL` 覆盖。首次运行若提示缺少浏览器，请执行：
 
 ```powershell
 npx playwright install chromium
 ```
 
 后续数据库写入、任务生成和审核流的集成测试将固定使用独立的 `custodysim_test` 数据库，不会使用 `.env.local` 的业务库。
+
+## 电子围栏
+
+电子围栏通过腾讯地图 JavaScript API GL 展示与选点。请在 `.env.local` 配置
+`NEXT_PUBLIC_TENCENT_MAP_KEY`，并在腾讯位置服务控制台把该 Key 限制到实际部署域名。围栏坐标统一使用腾讯地图的 `GCJ-02` 坐标系。
+
+当前版本在同一张 `electronic_fences` 表中保存围栏配置与移动端定位上报；网页端不采集位置。移动端可调用
+`POST /api/mobile/geofence/evaluate` 提交 `latitude`、`longitude`、`accuracyMeters`、
+`capturedAt` 与 `coordinateSystem: "GCJ02"` 做即时判定；只有在押人员参与。越界会创建
+一条当天的原因说明任务。服务端会根据上一次和本次定位判定首次进入、离开或持续在围栏外。
 
 ## 本地 IP 粗略定位
 

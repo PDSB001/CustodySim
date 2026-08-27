@@ -10,7 +10,7 @@ import { profileRecordReviews, profileRecords } from "@/lib/db/schema"
 import { generateProfileRecordCode } from "@/lib/numbering-server"
 import { resolveProfileReviewTransition } from "@/lib/profile-record"
 import { getSessionUser } from "@/lib/session"
-import { generateOfficialSealData } from "@/lib/signature-server"
+import { getOfficialSealData } from "@/lib/seal-server"
 
 const ParamsSchema = z.object({ id: z.string().uuid() })
 type RouteContext = { params: Promise<{ id: string }> }
@@ -91,13 +91,13 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
           .where(eq(profileRecordReviews.id, nextReview.id))
       } else if (transition.recordStatus === "LOCKED") {
         const code = await generateProfileRecordCode()
+        const officialSealData = await getOfficialSealData("PROFILE")
         await db
           .update(profileRecords)
           .set({
             status: "LOCKED",
             code,
-            officialSealData:
-              actor.role === "ADMIN" ? generateOfficialSealData() : null,
+            officialSealData,
             lockedAt: new Date(),
             updatedAt: new Date(),
           })

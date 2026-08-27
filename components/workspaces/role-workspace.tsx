@@ -23,6 +23,11 @@ import { requestApi } from "@/components/shared/api-client"
 import { EmptyState } from "@/components/shared/empty-state"
 import { MetricCell } from "@/components/shared/metric-cell"
 import { PageHeader } from "@/components/shared/page-header"
+import {
+  ErrorState,
+  LoadingBlock,
+  QueryStateView,
+} from "@/components/shared/query-state-view"
 import { StatusPill } from "@/components/shared/status-pill"
 import type { SessionUser } from "@/lib/session"
 
@@ -39,6 +44,7 @@ const DashboardSummarySchema = z.object({
   pendingTasks: z.number(),
   pendingMakeups: z.number(),
   pendingCheckins: z.number(),
+  myPendingTasks: z.number(),
   inCustodyPersons: z.number(),
   enabledRules: z.number(),
   custodyStatus: z.string(),
@@ -262,6 +268,18 @@ function ProfileSummaryCard() {
     },
     { label: "刑期起止", value: sentence, icon: CalendarRange },
   ]
+  if (summary.isLoading)
+    return <LoadingBlock className="surface-panel motion-item h-40" />
+  if (summary.error)
+    return (
+      <div className="surface-panel motion-item">
+        <ErrorState
+          onRetry={() => summary.refetch()}
+          title="我的监管信息加载失败"
+          description="编号、监室、刑期等档案摘要暂不可用，请稍后重试。"
+        />
+      </div>
+    )
 
   return (
     <section
@@ -311,6 +329,18 @@ function RoommateSummaryCard() {
     queryFn: () => requestApi("/api/my/roommates", RoommateSummarySchema),
   })
   const data = summary.data
+  if (summary.isLoading)
+    return <LoadingBlock className="surface-panel motion-item h-40" />
+  if (summary.error)
+    return (
+      <div className="surface-panel motion-item">
+        <ErrorState
+          onRetry={() => summary.refetch()}
+          title="同监室人员加载失败"
+          description="同监室人员列表暂不可用，请稍后重试。"
+        />
+      </div>
+    )
 
   return (
     <section
@@ -385,7 +415,7 @@ export function RoleWorkspaceHome({
           补卡申请: String(summary.data?.pendingMakeups ?? 0),
         }
       : {
-          待完成任务: String(summary.data?.pendingCheckins ?? 0),
+          待完成任务: String(summary.data?.myPendingTasks ?? 0),
           档案状态: summary.data?.custodyStatus ?? "正常",
         }
   const homeTitle = (uiConfig.data?.homeTitle ?? "你好，{name}").replace(
@@ -414,16 +444,32 @@ export function RoleWorkspaceHome({
       />
 
       <section className="metric-grid page-enter" aria-label="今日概览">
-        {content.cards.map(({ label, value, detail, icon, tone }) => (
-          <MetricCell
-            key={label}
-            label={label}
-            value={dynamicValues[label] ?? value}
-            detail={detail}
-            icon={icon}
-            tone={tone}
-          />
-        ))}
+        <QueryStateView
+          isLoading={summary.isLoading}
+          error={summary.error}
+          onRetry={() => summary.refetch()}
+          loading={<LoadingBlock className="col-span-full h-32" />}
+          errorFallback={
+            <div className="col-span-full">
+              <ErrorState
+                onRetry={() => summary.refetch()}
+                title="今日概览加载失败"
+                description="任务/打卡数量暂不可用，请稍后重试。"
+              />
+            </div>
+          }
+        >
+          {content.cards.map(({ label, value, detail, icon, tone }) => (
+            <MetricCell
+              key={label}
+              label={label}
+              value={dynamicValues[label] ?? value}
+              detail={detail}
+              icon={icon}
+              tone={tone}
+            />
+          ))}
+        </QueryStateView>
       </section>
 
       {kind === "SUPERVISED" ? <ProfileSummaryCard /> : null}

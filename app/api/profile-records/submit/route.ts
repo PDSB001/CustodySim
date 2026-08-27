@@ -16,6 +16,7 @@ import {
   buildProfileReviewerIds,
   isEditableProfileRecord,
 } from "@/lib/profile-record"
+import { applyComputedProfileAge } from "@/lib/profile-age"
 
 const SubmissionSchema = z.object({ recordId: z.string().uuid() })
 const SnapshotSchema = z.object({
@@ -29,6 +30,7 @@ const SnapshotSchema = z.object({
         "SELECT",
         "DATE",
         "COPYWRITE",
+        "IMAGE",
       ]),
       required: z.boolean(),
       options: z.array(z.string()),
@@ -67,7 +69,11 @@ export async function POST(request: NextRequest) {
     const data = z.record(z.string(), z.unknown()).safeParse(record.data)
     if (!data.success)
       return failure("VALIDATION_ERROR", "档案数据无效，请重新填写", 400)
-    const validation = validateFieldPayload(snapshot.data.fields, data.data)
+    const normalizedData = applyComputedProfileAge(
+      data.data,
+      snapshot.data.fields,
+    )
+    const validation = validateFieldPayload(snapshot.data.fields, normalizedData)
     if (!validation.valid)
       return failure("VALIDATION_ERROR", JSON.stringify(validation.errors), 400)
     const [supervisorIds, adminId] = await Promise.all([
@@ -99,6 +105,7 @@ export async function POST(request: NextRequest) {
       await tx
         .update(profileRecords)
         .set({
+          data: normalizedData,
           status: "PENDING_REVIEW",
           submittedAt: new Date(),
           updatedAt: new Date(),

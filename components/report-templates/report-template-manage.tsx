@@ -62,6 +62,7 @@ const fieldTypeLabels: Record<string, string> = {
   DATE: "日期",
   SELECT: "下拉选项",
   COPYWRITE: "逐字抄写",
+  IMAGE: "图片上传",
 }
 
 export function ReportTemplateManage() {
@@ -222,6 +223,7 @@ export function ReportTemplateManage() {
                     <SelectItem value="DATE">日期</SelectItem>
                     <SelectItem value="SELECT">下拉选项</SelectItem>
                     <SelectItem value="COPYWRITE">逐字抄写</SelectItem>
+                    <SelectItem value="IMAGE">图片上传</SelectItem>
                   </SelectContent>
                 </Select>
                 <label className="flex items-center gap-2 text-sm text-muted-foreground">

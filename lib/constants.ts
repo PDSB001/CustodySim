@@ -16,6 +16,7 @@ export const CUSTODY_LEVEL_LABELS: Record<CustodyLevel, string> = {
 export const PRISONER_CUSTODY_STATUSES = [
   "IN_CUSTODY",
   "ON_LEAVE",
+  "TEMPORARY_OUT_OF_CUSTODY",
   "OUT_OF_CUSTODY",
 ] as const
 export type PrisonerCustodyStatus = (typeof PRISONER_CUSTODY_STATUSES)[number]
@@ -25,8 +26,9 @@ export const PRISONER_CUSTODY_STATUS_LABELS: Record<
   string
 > = {
   IN_CUSTODY: "在押",
-  ON_LEAVE: "请假",
-  OUT_OF_CUSTODY: "离监",
+  ON_LEAVE: "请假状态",
+  TEMPORARY_OUT_OF_CUSTODY: "离监",
+  OUT_OF_CUSTODY: "未在押",
 }
 
 export const AUTH_COOKIE_NAME = "custodysim_session"

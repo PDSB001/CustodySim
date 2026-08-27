@@ -1,8 +1,9 @@
-import { and, eq } from "drizzle-orm"
+import { and, desc, eq, inArray } from "drizzle-orm"
 
 import type { CustodyLevel, PrisonerCustodyStatus } from "@/lib/constants"
+import { isLeaveActive, isTemporaryReleaseActive } from "@/lib/application"
 import { db } from "@/lib/db"
-import { persons, rules } from "@/lib/db/schema"
+import { applications, persons, rules } from "@/lib/db/schema"
 
 export type CheckinSlotSetting = {
   label: string
@@ -74,15 +75,126 @@ export async function getCustodyProfileForUser(userId: string) {
       and(eq(persons.userId, userId), eq(persons.personType, "SUPERVISED")),
     )
     .limit(1)
-  return profile as
-    | { custodyLevel: CustodyLevel; custodyStatus: PrisonerCustodyStatus }
-    | undefined
+  if (!profile) return undefined
+  const status = await syncScheduledCustodyStatus(
+    userId,
+    profile.custodyStatus as PrisonerCustodyStatus,
+  )
+  return {
+    custodyLevel: profile.custodyLevel as CustodyLevel,
+    custodyStatus: status,
+  }
 }
+
+export async function syncScheduledCustodyStatus(
+  userId: string,
+  currentStatus?: PrisonerCustodyStatus,
+  now = new Date(),
+) {
+  let status = currentStatus
+  if (!status) {
+    const [profile] = await db
+      .select({ custodyStatus: persons.custodyStatus })
+      .from(persons)
+      .where(and(eq(persons.userId, userId), eq(persons.personType, "SUPERVISED")))
+      .limit(1)
+    if (!profile) return "OUT_OF_CUSTODY" as PrisonerCustodyStatus
+    status = profile.custodyStatus as PrisonerCustodyStatus
+  }
+  if (
+    status !== "IN_CUSTODY" &&
+    status !== "ON_LEAVE" &&
+    status !== "TEMPORARY_OUT_OF_CUSTODY"
+  )
+    return status
+  const approvedAbsences = await db
+    .select({ type: applications.type, payload: applications.payload })
+    .from(applications)
+    .where(
+      and(
+        eq(applications.userId, userId),
+        inArray(applications.type, ["LEAVE", "TEMPORARY_OUT_OF_CUSTODY"]),
+        eq(applications.status, "APPROVED"),
+      ),
+    )
+    .orderBy(desc(applications.decidedAt))
+  const temporaryReleaseActive = approvedAbsences.some(
+    (item) =>
+      item.type === "TEMPORARY_OUT_OF_CUSTODY" &&
+      isTemporaryReleaseActive(item.payload, now),
+  )
+  const leaveActive = approvedAbsences.some(
+    (item) => item.type === "LEAVE" && isLeaveActive(item.payload, now),
+  )
+  const nextStatus: PrisonerCustodyStatus = temporaryReleaseActive
+    ? "TEMPORARY_OUT_OF_CUSTODY"
+    : leaveActive
+      ? "ON_LEAVE"
+      : status === "TEMPORARY_OUT_OF_CUSTODY" || status === "ON_LEAVE"
+        ? "IN_CUSTODY"
+        : status
+  if (nextStatus !== status)
+    await db
+      .update(persons)
+      .set({ custodyStatus: nextStatus, updatedAt: now })
+      .where(eq(persons.userId, userId))
+  return nextStatus
+}
+
+export const syncTemporaryReleaseCustodyStatus = syncScheduledCustodyStatus
 
 export async function isUserInCustody(userId: string) {
   return (
     (await getCustodyProfileForUser(userId))?.custodyStatus === "IN_CUSTODY"
   )
+}
+
+export async function syncAllScheduledCustodyStatuses(now = new Date()) {
+  const profiles = await db
+    .select({ userId: persons.userId, custodyStatus: persons.custodyStatus })
+    .from(persons)
+    .where(
+      and(
+        eq(persons.personType, "SUPERVISED"),
+        inArray(persons.custodyStatus, [
+          "IN_CUSTODY",
+          "ON_LEAVE",
+          "TEMPORARY_OUT_OF_CUSTODY",
+        ]),
+      ),
+    )
+  for (const profile of profiles) {
+    if (!profile.userId) continue
+    await syncScheduledCustodyStatus(
+      profile.userId,
+      profile.custodyStatus as PrisonerCustodyStatus,
+      now,
+    )
+  }
+  return profiles.length
+}
+
+const custodyStatusSchedulerKey = Symbol.for(
+  "custodysim.scheduled-custody-status-scheduler",
+)
+
+export function startScheduledCustodyStatusScheduler() {
+  const runtime = globalThis as typeof globalThis & {
+    [custodyStatusSchedulerKey]?: ReturnType<typeof setInterval>
+  }
+  if (runtime[custodyStatusSchedulerKey]) return
+  void syncAllScheduledCustodyStatuses().catch((error: unknown) =>
+    console.error("[custody status] initial absence-status sync failed", error),
+  )
+  const timer = setInterval(
+    () =>
+      void syncAllScheduledCustodyStatuses().catch((error: unknown) =>
+        console.error("[custody status] scheduled absence-status sync failed", error),
+      ),
+    5 * 60 * 1000,
+  )
+  timer.unref?.()
+  runtime[custodyStatusSchedulerKey] = timer
 }
 
 export async function ensureCustodyCheckinPresets() {

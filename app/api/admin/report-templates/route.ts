@@ -1,9 +1,10 @@
 import { asc } from "drizzle-orm"
 import { NextRequest } from "next/server"
 
-import { failure, success } from "@/lib/api-response"
+import { writeAuditLog } from "@/lib/audit"
 import { getAdminUser } from "@/lib/admin-api"
 import { ReportTemplateSchema } from "@/lib/admin-schemas"
+import { failure, success } from "@/lib/api-response"
 import { db } from "@/lib/db"
 import { reportTemplateFields, reportTemplates } from "@/lib/db/schema"
 
@@ -23,8 +24,8 @@ export async function GET() {
 }
 
 export async function POST(request: NextRequest) {
-  if (!(await getAdminUser()))
-    return failure("FORBIDDEN", "仅管理员可管理任务模板", 403)
+  const actor = await getAdminUser()
+  if (!actor) return failure("FORBIDDEN", "仅管理员可管理任务模板", 403)
   const parsed = ReportTemplateSchema.safeParse(await request.json())
   if (!parsed.success)
     return failure(
@@ -52,6 +53,14 @@ export async function POST(request: NextRequest) {
         })),
       )
       .returning()
+    await writeAuditLog({
+      actor,
+      action: "CREATE",
+      actionLabel: "创建任务模板",
+      entityType: "report_template",
+      entityId: template.id,
+      detail: { name: template.name, kind: template.kind },
+    })
     return success(
       {
         ...template,

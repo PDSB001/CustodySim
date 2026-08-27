@@ -50,6 +50,7 @@ export const CHECKIN_TASK_STATUSES = [
   "MAKEUP_PENDING",
   "MAKEUP_APPROVED",
   "MAKEUP_REJECTED",
+  "SYSTEM_MAKEUP",
 ] as const
 
 export type CheckinTaskStatus = (typeof CHECKIN_TASK_STATUSES)[number]
@@ -106,7 +107,11 @@ export function getRecordStatus(scheduleAt: Date, deadline: Date, now: Date) {
 
 export async function getCheckinRulesForUser(userId: string, now = new Date()) {
   const profile = await getCustodyProfileForUser(userId)
-  if (!profile || profile.custodyStatus !== "IN_CUSTODY") return []
+  if (
+    !profile ||
+    !["IN_CUSTODY", "ON_LEAVE"].includes(profile.custodyStatus)
+  )
+    return []
   await ensureCustodyCheckinPresets()
   const [
     activeRules,
@@ -231,6 +236,56 @@ export async function ensureTodayCheckinTasks(
   return tasks
 }
 
+async function ensureLeaveSystemMakeups(
+  userId: string,
+  now: Date,
+) {
+  const { start, end } = getDayRange(now)
+  const tasks = await db
+    .select({
+      id: checkinTasks.id,
+      slotIndex: checkinTasks.slotIndex,
+      scheduleAt: checkinTasks.scheduleAt,
+      status: checkinTasks.status,
+    })
+    .from(checkinTasks)
+    .where(
+      and(
+        eq(checkinTasks.supervisedId, userId),
+        gte(checkinTasks.scheduleAt, start),
+        lt(checkinTasks.scheduleAt, end),
+      ),
+    )
+  for (const task of tasks) {
+    if (task.status !== "PENDING" || task.scheduleAt > now) continue
+    await db.transaction(async (tx) => {
+      await tx
+        .insert(checkinRecords)
+        .values({
+          taskId: task.id,
+          userId,
+          checkinAt: now,
+          status: "SYSTEM_MAKEUP",
+          slotIndex: task.slotIndex,
+          location: { source: "LEAVE_SYSTEM_MAKEUP" },
+          locationSource: "SYSTEM",
+          clientType: "SYSTEM",
+          remark: "请假有效期内系统补卡",
+        })
+        .onConflictDoNothing()
+      await tx
+        .update(checkinTasks)
+        .set({ status: "SYSTEM_MAKEUP", updatedAt: now })
+        .where(
+          and(
+            eq(checkinTasks.id, task.id),
+            eq(checkinTasks.status, "PENDING"),
+          ),
+        )
+    })
+  }
+}
+
 async function markExpiredCheckins(userId: string, now: Date) {
   await db
     .update(checkinTasks)
@@ -246,8 +301,15 @@ async function markExpiredCheckins(userId: string, now: Date) {
 
 export async function getTodayCheckinRecords(userId: string, now = new Date()) {
   await purgeExpiredGpsCheckinData(now)
-  if (!(await isUserInCustody(userId))) return []
+  const profile = await getCustodyProfileForUser(userId)
+  if (
+    !profile ||
+    !["IN_CUSTODY", "ON_LEAVE"].includes(profile.custodyStatus)
+  )
+    return []
   await ensureTodayCheckinTasks(userId, now)
+  if (profile.custodyStatus === "ON_LEAVE")
+    await ensureLeaveSystemMakeups(userId, now)
   await markExpiredCheckins(userId, now)
   const { start, end } = getDayRange(now)
   const rows = await db

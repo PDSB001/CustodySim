@@ -1,5 +1,6 @@
 import { asc } from "drizzle-orm"
 import { NextRequest } from "next/server"
+import { writeAuditLog } from "@/lib/audit"
 import { failure, success } from "@/lib/api-response"
 import { getAdminUser } from "@/lib/admin-api"
 import { RuleSchema } from "@/lib/admin-schemas"
@@ -23,8 +24,8 @@ export async function GET() {
   }
 }
 export async function POST(request: NextRequest) {
-  if (!(await getAdminUser()))
-    return failure("FORBIDDEN", "仅管理员可管理规则", 403)
+  const actor = await getAdminUser()
+  if (!actor) return failure("FORBIDDEN", "仅管理员可管理规则", 403)
   const parsed = RuleSchema.safeParse(await request.json())
   if (!parsed.success)
     return failure(
@@ -50,6 +51,14 @@ export async function POST(request: NextRequest) {
           .values(scopes.map((scope) => ({ ...scope, ruleId: rule.id })))
           .returning()
       : []
+    await writeAuditLog({
+      actor,
+      action: "CREATE",
+      actionLabel: "创建任务规则",
+      entityType: "rule",
+      entityId: rule.id,
+      detail: { name: ruleData.name, type: ruleData.type },
+    })
     return success({ ...rule, scopes: insertedScopes }, { status: 201 })
   } catch (error) {
     console.error("[API rules POST]", error)

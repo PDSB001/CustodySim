@@ -28,6 +28,7 @@ export async function GET() {
         content: reportSubmissions.content,
         data: reportSubmissions.data,
         submissionStatus: reportSubmissions.status,
+        officialSealData: reportSubmissions.officialSealData,
       })
       .from(reportTasks)
       .leftJoin(reportSubmissions, eq(reportSubmissions.taskId, reportTasks.id))

@@ -1,13 +1,19 @@
 "use client"
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import Image from "next/image"
 import { CheckCircle2, ClipboardCheck, Send, Star } from "lucide-react"
 import { useState } from "react"
 import { z } from "zod"
 
+import { compressTaskImage } from "@/lib/task-image-client"
 import { requestApi } from "@/components/shared/api-client"
 import { EmptyState } from "@/components/shared/empty-state"
 import { PageHeader } from "@/components/shared/page-header"
+import {
+  LoadingBlock,
+  QueryStateView,
+} from "@/components/shared/query-state-view"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -24,7 +30,7 @@ import { toast } from "@/components/ui/toast"
 
 const TemplateField = z.object({
   name: z.string(),
-  type: z.enum(["TEXT", "TEXTAREA", "NUMBER", "SELECT", "DATE", "COPYWRITE"]),
+  type: z.enum(["TEXT", "TEXTAREA", "NUMBER", "SELECT", "DATE", "COPYWRITE", "IMAGE"]),
   required: z.boolean(),
   options: z.array(z.string()),
 })
@@ -44,6 +50,7 @@ const Task = z.object({
   submissionId: z.string().nullable(),
   content: z.string().nullable(),
   data: z.record(z.string(), z.unknown()).nullable(),
+  officialSealData: z.string().nullable(),
 })
 const Tasks = z.array(Task)
 
@@ -158,6 +165,69 @@ function CopywriteField({
   )
 }
 
+function TaskImageField({
+  field,
+  value,
+  onChange,
+}: {
+  field: z.infer<typeof TemplateField>
+  value: string
+  onChange: (value: string) => void
+}) {
+  const [error, setError] = useState<string | null>(null)
+  const [compressing, setCompressing] = useState(false)
+  return (
+    <div className="space-y-2">
+      <Label>{field.required ? "* " : ""}{field.name}</Label>
+      <Input
+        type="file"
+        accept="image/jpeg,image/png,image/webp"
+        disabled={compressing}
+        onChange={async (event) => {
+          const file = event.target.files?.[0]
+          event.target.value = ""
+          if (!file) return
+          setError(null)
+          setCompressing(true)
+          try {
+            onChange(await compressTaskImage(file))
+          } catch (uploadError) {
+            setError(uploadError instanceof Error ? uploadError.message : "图片处理失败")
+          } finally {
+            setCompressing(false)
+          }
+        }}
+      />
+      <p className="text-muted-foreground text-xs">
+        支持 JPG、PNG、WebP；原图最大 5 MB，浏览器会压缩后以不超过 1 MB 的图片写入任务记录。
+      </p>
+      {compressing ? <p className="text-brand-700 text-xs">正在压缩图片…</p> : null}
+      {error ? <p className="text-destructive text-xs">{error}</p> : null}
+      {value ? (
+        <div className="border-border/70 relative max-w-sm overflow-hidden rounded-lg border bg-muted/30 p-2">
+          <Image
+            src={value}
+            alt={`${field.name}预览`}
+            width={640}
+            height={480}
+            unoptimized
+            className="max-h-64 w-full rounded object-contain"
+          />
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="mt-2"
+            onClick={() => onChange("")}
+          >
+            移除图片
+          </Button>
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
 function TaskPayloadForm({ task }: { task: z.infer<typeof Task> }) {
   const client = useQueryClient()
   const [data, setData] = useState<Record<string, unknown>>(task.data ?? {})
@@ -206,6 +276,15 @@ function TaskPayloadForm({ task }: { task: z.infer<typeof Task> }) {
       {task.templateSnapshot.fields.map((field) =>
         field.type === "COPYWRITE" ? (
           <CopywriteField
+            key={field.name}
+            field={field}
+            value={String(data[field.name] ?? "")}
+            onChange={(value) =>
+              setData((current) => ({ ...current, [field.name]: value }))
+            }
+          />
+        ) : field.type === "IMAGE" ? (
+          <TaskImageField
             key={field.name}
             field={field}
             value={String(data[field.name] ?? "")}
@@ -295,37 +374,55 @@ export function SupervisedTasks() {
         title="我的任务"
         description="按任务表单完成填写，并在截止时间前提交。"
       />
-      {tasks.data?.map((task) => (
-        <Card key={task.id} className="motion-item">
-          <CardHeader>
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <CardTitle>{task.title}</CardTitle>
-                <p className="mt-2 text-xs text-slate-500">
-                  截止：{dateText(task.deadline)}
-                </p>
+      <QueryStateView
+        isLoading={tasks.isLoading}
+        error={tasks.error}
+        isEmpty={(tasks.data?.length ?? 0) === 0}
+        onRetry={() => tasks.refetch()}
+        loading={<LoadingBlock className="h-48" />}
+        empty={
+          <div className="surface-panel motion-item">
+            <EmptyState
+              icon={ClipboardCheck}
+              title="当前没有待完成任务"
+              description="新任务生成后会按截止时间显示在这里。"
+            />
+          </div>
+        }
+      >
+        {tasks.data?.map((task) => (
+          <Card key={task.id} className="motion-item">
+            <CardHeader>
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <CardTitle>{task.title}</CardTitle>
+                  <p className="mt-2 text-xs text-slate-500">
+                    截止：{dateText(task.deadline)}
+                  </p>
+                </div>
+                <span
+                  className={`rounded-full px-2.5 py-1 text-xs font-medium ${statusClass(task.status)}`}
+                >
+                  {statusLabel(task.status)}
+                </span>
               </div>
-              <span
-                className={`rounded-full px-2.5 py-1 text-xs font-medium ${statusClass(task.status)}`}
-              >
-                {statusLabel(task.status)}
-              </span>
-            </div>
-          </CardHeader>
-          <CardContent>
-            <TaskPayloadForm task={task} />
-          </CardContent>
-        </Card>
-      ))}
-      {tasks.data?.length === 0 && (
-        <div className="surface-panel motion-item">
-          <EmptyState
-            icon={ClipboardCheck}
-            title="当前没有待完成任务"
-            description="新任务生成后会按截止时间显示在这里。"
-          />
-        </div>
-      )}
+            </CardHeader>
+            <CardContent>
+              <TaskPayloadForm task={task} />
+              {task.officialSealData ? (
+                <Image
+                  src={task.officialSealData}
+                  alt="任务办结印章"
+                  width={80}
+                  height={80}
+                  unoptimized
+                  className="mt-4 size-20 object-contain"
+                />
+              ) : null}
+            </CardContent>
+          </Card>
+        ))}
+      </QueryStateView>
     </div>
   )
 }
@@ -362,8 +459,7 @@ export function SupervisorTasks() {
     onError: (error) =>
       toast.error(error instanceof Error ? error.message : "审核失败"),
   })
-  const pending =
-    tasks.data?.filter((task) => task.status === "SUBMITTED") ?? []
+  const pending = tasks.data?.filter((task) => task.status === "SUBMITTED") ?? []
   return (
     <div className="workspace-stack mx-auto max-w-5xl">
       <PageHeader
@@ -371,129 +467,159 @@ export function SupervisorTasks() {
         title="执行任务审核"
         description="仅展示监管范围内已提交、等待审核的任务。"
       />
-      {pending.map((task) => (
-        <Card key={task.id} className="motion-item">
-          <CardHeader>
-            <CardTitle>
-              {task.title} · {task.supervisedName ?? "被监管人"}
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="space-y-3 rounded-lg bg-slate-50 p-3">
-              {task.templateSnapshot.fields.map((field) => {
-                const value = task.data?.[field.name]
-                if (field.type === "COPYWRITE") {
-                  const source = (field.options?.[0] ?? "").trim()
-                  const written = String(value ?? "").trim()
-                  const exact = written === source
+      <QueryStateView
+        isLoading={tasks.isLoading}
+        error={tasks.error}
+        isEmpty={!tasks.isLoading && pending.length === 0}
+        onRetry={() => tasks.refetch()}
+        loading={<LoadingBlock className="h-48" />}
+        empty={
+          <div className="surface-panel motion-item">
+            <EmptyState
+              icon={Star}
+              title="暂无待审核任务"
+              description="被监管者提交任务后，会进入这里等待审核。"
+            />
+          </div>
+        }
+      >
+        {pending.map((task) => (
+          <Card key={task.id} className="motion-item">
+            <CardHeader>
+              <CardTitle>
+                {task.title} · {task.supervisedName ?? "被监管人"}
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-3 rounded-lg bg-slate-50 p-3">
+                {task.templateSnapshot.fields.map((field) => {
+                  const value = task.data?.[field.name]
+                  if (field.type === "COPYWRITE") {
+                    const source = (field.options?.[0] ?? "").trim()
+                    const written = String(value ?? "").trim()
+                    const exact = written === source
+                    return (
+                      <div key={field.name}>
+                        <p className="text-xs font-semibold text-slate-500">
+                          {field.name}
+                        </p>
+                        <p className="mt-1 text-xs text-slate-400">原文：{source}</p>
+                        <p className="mt-1 text-sm whitespace-pre-wrap text-slate-700">
+                          {written || "（未填写）"}
+                        </p>
+                        <p className="mt-1 text-xs">
+                          {written ? (
+                            exact ? (
+                              <span className="font-medium text-emerald-600">
+                                ✓ 逐字一致
+                              </span>
+                            ) : (
+                              <span className="font-medium text-amber-600">
+                                ⚠ 抄写与原文不一致
+                              </span>
+                            )
+                          ) : (
+                            <span className="text-slate-400">未填写</span>
+                          )}
+                        </p>
+                      </div>
+                    )
+                  }
+                  if (field.type === "IMAGE") {
+                    const image = typeof value === "string" ? value : ""
+                    return (
+                      <div key={field.name}>
+                        <p className="text-xs font-semibold text-slate-500">
+                          {field.name}
+                        </p>
+                        {image ? (
+                          <Image
+                            src={image}
+                            alt={`${field.name}提交图片`}
+                            width={640}
+                            height={480}
+                            unoptimized
+                            className="mt-2 max-h-72 w-full max-w-md rounded border object-contain"
+                          />
+                        ) : (
+                          <p className="mt-1 text-sm text-slate-400">（未上传）</p>
+                        )}
+                      </div>
+                    )
+                  }
                   return (
                     <div key={field.name}>
                       <p className="text-xs font-semibold text-slate-500">
                         {field.name}
                       </p>
-                      <p className="mt-1 text-xs text-slate-400">原文：{source}</p>
                       <p className="mt-1 text-sm whitespace-pre-wrap text-slate-700">
-                        {written || "（未填写）"}
-                      </p>
-                      <p className="mt-1 text-xs">
-                        {written ? (
-                          exact ? (
-                            <span className="font-medium text-emerald-600">
-                              ✓ 逐字一致
-                            </span>
-                          ) : (
-                            <span className="font-medium text-amber-600">
-                              ⚠ 抄写与原文不一致
-                            </span>
-                          )
-                        ) : (
-                          <span className="text-slate-400">未填写</span>
-                        )}
+                        {String(value ?? "") || "（未填写）"}
                       </p>
                     </div>
                   )
-                }
-                return (
-                  <div key={field.name}>
-                    <p className="text-xs font-semibold text-slate-500">
-                      {field.name}
-                    </p>
-                    <p className="mt-1 text-sm whitespace-pre-wrap text-slate-700">
-                      {String(value ?? "") || "（未填写）"}
-                    </p>
-                  </div>
-                )
-              })}
-            </div>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="space-y-2">
-                <Label>评分（可选）</Label>
-                <Input
-                  type="number"
-                  min="0"
-                  max="100"
-                  value={grades[task.submissionId ?? ""] ?? ""}
-                  onChange={(event) =>
-                    setGrades((current) => ({
-                      ...current,
-                      [task.submissionId ?? ""]: event.target.value,
-                    }))
-                  }
-                />
+                })}
               </div>
-              <div className="space-y-2">
-                <Label>审核评语</Label>
-                <Input
-                  value={comments[task.submissionId ?? ""] ?? ""}
-                  onChange={(event) =>
-                    setComments((current) => ({
-                      ...current,
-                      [task.submissionId ?? ""]: event.target.value,
-                    }))
-                  }
-                />
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <Label>评分（可选）</Label>
+                  <Input
+                    type="number"
+                    min="0"
+                    max="100"
+                    value={grades[task.submissionId ?? ""] ?? ""}
+                    onChange={(event) =>
+                      setGrades((current) => ({
+                        ...current,
+                        [task.submissionId ?? ""]: event.target.value,
+                      }))
+                    }
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>审核评语</Label>
+                  <Input
+                    value={comments[task.submissionId ?? ""] ?? ""}
+                    onChange={(event) =>
+                      setComments((current) => ({
+                        ...current,
+                        [task.submissionId ?? ""]: event.target.value,
+                      }))
+                    }
+                  />
+                </div>
               </div>
-            </div>
-            <div className="flex gap-2">
-              <Button
-                disabled={!task.submissionId || review.isPending}
-                onClick={() =>
-                  task.submissionId &&
-                  review.mutate({
-                    submissionId: task.submissionId,
-                    result: "APPROVED",
-                  })
-                }
-              >
-                <CheckCircle2 />
-                通过
-              </Button>
-              <Button
-                variant="outline"
-                disabled={!task.submissionId || review.isPending}
-                onClick={() =>
-                  task.submissionId &&
-                  review.mutate({
-                    submissionId: task.submissionId,
-                    result: "RETURNED",
-                  })
-                }
-              >
-                退回修改
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      ))}
-      {pending.length === 0 && (
-        <div className="surface-panel motion-item">
-          <EmptyState
-            icon={Star}
-            title="暂无待审核任务"
-            description="被监管者提交任务后，会进入这里等待审核。"
-          />
-        </div>
-      )}
+              <div className="flex gap-2">
+                <Button
+                  disabled={!task.submissionId || review.isPending}
+                  onClick={() =>
+                    task.submissionId &&
+                    review.mutate({
+                      submissionId: task.submissionId,
+                      result: "APPROVED",
+                    })
+                  }
+                >
+                  <CheckCircle2 />
+                  通过
+                </Button>
+                <Button
+                  variant="outline"
+                  disabled={!task.submissionId || review.isPending}
+                  onClick={() =>
+                    task.submissionId &&
+                    review.mutate({
+                      submissionId: task.submissionId,
+                      result: "RETURNED",
+                    })
+                  }
+                >
+                  退回修改
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        ))}
+      </QueryStateView>
     </div>
   )
 }

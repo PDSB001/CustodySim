@@ -23,6 +23,11 @@ import { z } from "zod"
 import { requestApi } from "@/components/shared/api-client"
 import { EmptyState } from "@/components/shared/empty-state"
 import { MetricCell } from "@/components/shared/metric-cell"
+import {
+  ErrorState,
+  LoadingBlock,
+  QueryStateView,
+} from "@/components/shared/query-state-view"
 import { PageHeader } from "@/components/shared/page-header"
 import { StatusPill, type StatusTone } from "@/components/shared/status-pill"
 import { Button } from "@/components/ui/button"
@@ -60,7 +65,12 @@ const Checkins = z.array(Checkin)
 
 const CustodyProfile = z.object({
   custodyLevel: z.string(),
-  custodyStatus: z.enum(["IN_CUSTODY", "ON_LEAVE", "OUT_OF_CUSTODY"]),
+  custodyStatus: z.enum([
+    "IN_CUSTODY",
+    "ON_LEAVE",
+    "TEMPORARY_OUT_OF_CUSTODY",
+    "OUT_OF_CUSTODY",
+  ]),
   canCheckin: z.boolean(),
   leaveWorkflowEligible: z.boolean(),
   geofenceApplicable: z.boolean(),
@@ -142,6 +152,7 @@ function statusText(status: string) {
       MAKEUP_PENDING: "补卡审核中",
       MAKEUP_APPROVED: "补卡已通过",
       MAKEUP_REJECTED: "补卡未通过",
+      SYSTEM_MAKEUP: "系统补卡",
       ON_TIME: "准时",
       APPROVED: "已通过",
       REJECTED: "已拒绝",
@@ -150,7 +161,7 @@ function statusText(status: string) {
 }
 
 function statusTone(status: string): StatusTone {
-  if (["COMPLETED", "MAKEUP_APPROVED", "ON_TIME", "APPROVED"].includes(status))
+  if (["COMPLETED", "MAKEUP_APPROVED", "SYSTEM_MAKEUP", "ON_TIME", "APPROVED"].includes(status))
     return "success"
   if (["MISSED", "MAKEUP_REJECTED", "REJECTED"].includes(status))
     return "danger"
@@ -223,10 +234,12 @@ function CheckinCard({
   task,
   compact = false,
   variant = "action",
+  systemManaged = false,
 }: {
   task: CheckinTask
   compact?: boolean
   variant?: "action" | "record"
+  systemManaged?: boolean
 }) {
   const client = useQueryClient()
   const [remark, setRemark] = useState("")
@@ -311,7 +324,7 @@ function CheckinCard({
         </div>
       </CardHeader>
       <CardContent className={compact ? "space-y-3" : "space-y-4"}>
-        {task.status === "PENDING" && variant === "record" && (
+        {task.status === "PENDING" && variant === "record" && !systemManaged && (
           <Button variant="brand" asChild>
             <Link href="/my">
               <ArrowLeft className="size-4" />
@@ -504,7 +517,9 @@ export function CheckinPanel() {
   const checkins = useQuery({
     queryKey: ["checkins"],
     queryFn: () => requestApi("/api/checkins", Checkins),
-    enabled: custodyProfile.data?.canCheckin === true,
+    enabled:
+      custodyProfile.data?.canCheckin === true ||
+      custodyProfile.data?.custodyStatus === "ON_LEAVE",
   })
   const total = checkins.data?.length ?? 0
   const completed =
@@ -516,7 +531,7 @@ export function CheckinPanel() {
       <PageHeader
         eyebrow="每日执行档案"
         title="打卡记录"
-        description="按时间查看全天打卡状态；逾期可提交补卡申请。"
+        description="按时间查看全天打卡状态；请假有效期内的已到时段由系统独立补卡。"
         action={
           <Button variant="outline" asChild>
             <Link href="/my">
@@ -526,6 +541,57 @@ export function CheckinPanel() {
           </Button>
         }
       />
+      <QueryStateView
+        isLoading={custodyProfile.isLoading || checkins.isLoading}
+        error={custodyProfile.error || checkins.error}
+        isEmpty={
+          !custodyProfile.isLoading &&
+          !checkins.isLoading &&
+          (checkins.data?.length ?? 0) === 0
+        }
+        onRetry={() => {
+          custodyProfile.refetch()
+          checkins.refetch()
+        }}
+        loading={<LoadingBlock className="h-48" />}
+        empty={
+          custodyProfile.data?.custodyStatus === "ON_LEAVE" ? (
+            <div className="surface-panel surface-panel--brand page-enter p-5 sm:p-6">
+              <p className="text-foreground font-medium">
+                当前监管状态：
+                {PRISONER_CUSTODY_STATUS_LABELS[
+                  custodyProfile.data.custodyStatus
+                ] ?? "请假"}
+                ，已到时段由系统自动补卡
+              </p>
+              <p className="text-muted-foreground mt-2 text-sm">
+                请假期间无需手动打卡或申请补卡；已到时段会以「系统补卡」记录；状态恢复为在押后，将按监管级别自动生成当日打卡。
+              </p>
+            </div>
+          ) : custodyProfile.data && !custodyProfile.data.canCheckin ? (
+            <div className="surface-panel surface-panel--brand page-enter p-5 sm:p-6">
+              <p className="text-foreground font-medium">
+                当前监管状态：
+                {PRISONER_CUSTODY_STATUS_LABELS[
+                  custodyProfile.data.custodyStatus
+                ] ?? "未知"}
+                ，今日无需执行打卡
+              </p>
+              <p className="text-muted-foreground mt-2 text-sm">
+                当前状态下无需执行打卡任务；状态恢复为在押后，会按监管级别自动生成当日打卡时段。
+              </p>
+            </div>
+          ) : (
+            <div className="surface-panel surface-panel--interactive">
+              <EmptyState
+                icon={MapPin}
+                title="今日暂无需要打卡的时段"
+                description="新时段生成后会按时间顺序显示在这里。"
+              />
+            </div>
+          )
+        }
+      >
       <section className="metric-grid page-enter" aria-label="打卡概览">
         {[
           { label: "今日时段", value: total },
@@ -548,23 +614,8 @@ export function CheckinPanel() {
         ))}
       </section>
       <div className="grid gap-4">
-        {custodyProfile.data && !custodyProfile.data.canCheckin && (
-          <div className="surface-panel surface-panel--brand page-enter p-5 sm:p-6">
-            <p className="text-foreground font-medium">
-              当前为
-              {
-                PRISONER_CUSTODY_STATUS_LABELS[
-                  custodyProfile.data.custodyStatus
-                ]
-              }
-              状态，无需执行打卡
-            </p>
-            <p className="text-muted-foreground mt-2 text-sm">
-              囚犯状态已作为请假审批和地理围栏判定的统一接口预留；状态恢复为在押后，将按监管级别自动生成当日打卡。
-            </p>
-          </div>
-        )}
-        {custodyProfile.data?.canCheckin &&
+        {(custodyProfile.data?.canCheckin ||
+          custodyProfile.data?.custodyStatus === "ON_LEAVE") &&
           checkins.data &&
           checkins.data.length > 0 && (
             <section>
@@ -583,21 +634,18 @@ export function CheckinPanel() {
               </div>
               <div className="grid gap-3">
                 {checkins.data.map((task) => (
-                  <CheckinCard key={task.id} task={task} variant="record" />
+                  <CheckinCard
+                    key={task.id}
+                    task={task}
+                    variant="record"
+                    systemManaged={custodyProfile.data?.custodyStatus === "ON_LEAVE"}
+                  />
                 ))}
               </div>
             </section>
           )}
       </div>
-      {custodyProfile.data?.canCheckin && checkins.data?.length === 0 && (
-        <div className="surface-panel surface-panel--interactive">
-          <EmptyState
-            icon={MapPin}
-            title="今日暂无需要打卡的时段"
-            description="新时段生成后会按时间顺序显示在这里。"
-          />
-        </div>
-      )}
+    </QueryStateView>
     </div>
   )
 }
@@ -627,14 +675,63 @@ export function CheckinHomeCard() {
       )
     })[0]
 
-  if (custodyProfile.data && !custodyProfile.data.canCheckin) return null
-  if (!currentTask) return null
+  if (custodyProfile.isLoading || checkins.isLoading)
+    return <LoadingBlock className="h-24" />
+  if (custodyProfile.error)
+    return (
+      <ErrorState
+        compact
+        title="打卡档案不可用"
+        description="无法读取当前监管状态，请稍后重试。"
+        onRetry={() => custodyProfile.refetch()}
+      />
+    )
+
+  const custody = custodyProfile.data
+  if (!custody) return null
+
+  const statusLabel =
+    PRISONER_CUSTODY_STATUS_LABELS[custody.custodyStatus] ?? "未知"
+  const onLeave = custody.custodyStatus === "ON_LEAVE"
+  const showGpsHint = !onLeave && custody.canCheckin
+  let body: React.ReactNode
+  if (onLeave) {
+    body = (
+      <div className="surface-panel surface-panel--brand p-4 text-sm">
+        <p className="text-foreground font-medium">
+          当前监管状态：{statusLabel}，已到时段由系统自动补卡
+        </p>
+        <p className="text-muted-foreground mt-1.5 text-xs leading-5">
+          请假期间无需手动打卡或申请补卡；恢复在押后将按监管级别自动生成当日打卡时段。
+        </p>
+      </div>
+    )
+  } else if (!custody.canCheckin) {
+    body = (
+      <div className="surface-panel surface-panel--brand p-4 text-sm">
+        <p className="text-foreground font-medium">
+          当前监管状态：{statusLabel}，今日无需执行打卡
+        </p>
+        <p className="text-muted-foreground mt-1.5 text-xs leading-5">
+          当前状态下无需执行打卡任务；状态恢复为在押后，会按监管级别自动生成当日打卡时段。
+        </p>
+      </div>
+    )
+  } else if (!currentTask) {
+    body = (
+      <div className="text-muted-foreground rounded-lg border border-dashed border-border/60 bg-muted/30 px-4 py-6 text-center text-xs">
+        今日暂无待打卡时段
+      </div>
+    )
+  } else {
+    body = <CheckinCard task={currentTask} compact />
+  }
 
   return (
     <section className="space-y-3" aria-label="今日打卡">
       <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
         <p className="text-muted-foreground text-xs">
-          定位默认 IP，可在下方切换 GPS
+          {showGpsHint ? "定位默认 IP，可在下方切换 GPS" : `当前监管状态：${statusLabel}`}
         </p>
         <Link
           href="/my/checkins"
@@ -643,7 +740,7 @@ export function CheckinHomeCard() {
           查看记录 →
         </Link>
       </div>
-      <CheckinCard task={currentTask} compact />
+      {body}
     </section>
   )
 }
@@ -725,18 +822,26 @@ export function MakeupReview() {
         title="补卡审核"
         description="仅展示你监管范围内等待处理的补卡申请。"
       />
-      {makeups.data?.map((makeup) => (
-        <MakeupReviewCard key={makeup.id} makeup={makeup} />
-      ))}
-      {makeups.data?.length === 0 && (
-        <div className="surface-panel motion-item">
-          <EmptyState
-            icon={TimerReset}
-            title="暂无待审核补卡申请"
-            description="新的补卡申请会按提交时间出现在这里。"
-          />
-        </div>
-      )}
+      <QueryStateView
+        isLoading={makeups.isLoading}
+        error={makeups.error}
+        isEmpty={(makeups.data?.length ?? 0) === 0}
+        onRetry={() => makeups.refetch()}
+        loading={<LoadingBlock className="h-48" />}
+        empty={
+          <div className="surface-panel motion-item">
+            <EmptyState
+              icon={TimerReset}
+              title="暂无待审核补卡申请"
+              description="新的补卡申请会按提交时间出现在这里。"
+            />
+          </div>
+        }
+      >
+        {makeups.data?.map((makeup) => (
+          <MakeupReviewCard key={makeup.id} makeup={makeup} />
+        ))}
+      </QueryStateView>
     </div>
   )
 }
@@ -753,67 +858,74 @@ export function DailyCheckins() {
         title="日常打卡"
         description="集中查看今日各时段打卡状态与位置。"
       />
-      <Card className="page-enter">
-        <CardContent className="p-0">
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[680px] text-sm">
-              <thead className="bg-muted/60 text-muted-foreground text-left text-xs">
-                <tr>
-                  <th className="px-5 py-3">被监管人</th>
-                  <th className="px-5 py-3">打卡规则</th>
-                  <th className="px-5 py-3">时段</th>
-                  <th className="px-5 py-3">截止</th>
-                  <th className="px-5 py-3">打卡位置</th>
-                  <th className="px-5 py-3">状态</th>
-                </tr>
-              </thead>
-              <tbody className="divide-border/60 divide-y">
-                {checkins.data?.map((task) => (
-                  <tr key={task.id} className="hover:bg-muted/30">
-                    <td className="text-foreground px-5 py-4 font-medium">
-                      {task.supervisedName}
-                    </td>
-                    <td className="text-muted-foreground px-5 py-4">
-                      {task.ruleName}
-                    </td>
-                    <td className="font-numeric text-muted-foreground px-5 py-4">
-                      {timeText(task.scheduleAt)}
-                    </td>
-                    <td className="font-numeric text-muted-foreground/80 px-5 py-4">
-                      {timeText(task.deadline)}
-                    </td>
-                    <td className="text-muted-foreground max-w-[16rem] px-5 py-4">
-                      {locationLine(task) ? (
-                        <span className="flex items-center gap-1.5">
-                          <MapPin className="size-3.5 shrink-0" />
-                          <span className="truncate">{locationLine(task)}</span>
-                        </span>
-                      ) : (
-                        <span className="text-muted-foreground/50">—</span>
-                      )}
-                    </td>
-                    <td className="px-5 py-4">
-                      <StatusPill tone={statusTone(task.status)}>
-                        {statusText(task.status)}
-                      </StatusPill>
-                    </td>
-                  </tr>
-                ))}
-                {checkins.data?.length === 0 && (
-                  <tr>
-                    <td
-                      colSpan={6}
-                      className="text-muted-foreground p-10 text-center"
-                    >
-                      今日暂无打卡任务
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
+      <QueryStateView
+        isLoading={checkins.isLoading}
+        error={checkins.error}
+        isEmpty={(checkins.data?.length ?? 0) === 0}
+        onRetry={() => checkins.refetch()}
+        loading={<LoadingBlock className="h-64" />}
+        empty={
+          <div className="surface-panel motion-item">
+            <EmptyState
+              icon={CalendarCheck2}
+              title="今日暂无打卡任务"
+              description="被监管者当日打卡记录会按时间顺序出现在这里。"
+            />
           </div>
-        </CardContent>
-      </Card>
+        }
+      >
+        <Card className="page-enter">
+          <CardContent className="p-0">
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[680px] text-sm">
+                <thead className="bg-muted/60 text-muted-foreground text-left text-xs">
+                  <tr>
+                    <th className="px-5 py-3">被监管人</th>
+                    <th className="px-5 py-3">打卡规则</th>
+                    <th className="px-5 py-3">时段</th>
+                    <th className="px-5 py-3">截止</th>
+                    <th className="px-5 py-3">打卡位置</th>
+                    <th className="px-5 py-3">状态</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-border/60 divide-y">
+                  {checkins.data?.map((task) => (
+                    <tr key={task.id} className="hover:bg-muted/30">
+                      <td className="text-foreground px-5 py-4 font-medium">
+                        {task.supervisedName}
+                      </td>
+                      <td className="text-muted-foreground px-5 py-4">
+                        {task.ruleName}
+                      </td>
+                      <td className="font-numeric text-muted-foreground px-5 py-4">
+                        {timeText(task.scheduleAt)}
+                      </td>
+                      <td className="font-numeric text-muted-foreground/80 px-5 py-4">
+                        {timeText(task.deadline)}
+                      </td>
+                      <td className="text-muted-foreground max-w-[16rem] px-5 py-4">
+                        {locationLine(task) ? (
+                          <span className="flex items-center gap-1.5">
+                            <MapPin className="size-3.5 shrink-0" />
+                            <span className="truncate">{locationLine(task)}</span>
+                          </span>
+                        ) : (
+                          <span className="text-muted-foreground/50">—</span>
+                        )}
+                      </td>
+                      <td className="px-5 py-4">
+                        <StatusPill tone={statusTone(task.status)}>
+                          {statusText(task.status)}
+                        </StatusPill>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
+      </QueryStateView>
     </div>
   )
 }

@@ -6,6 +6,7 @@ import {
   CalendarCheck2,
   ClipboardCheck,
   FileText,
+  MapPinned,
   Menu,
   ShieldCheck,
   TimerReset,
@@ -44,6 +45,8 @@ const workspaceConfig = {
       { href: "/supervisor/checkins", label: "日常打卡", icon: CalendarCheck2 },
       { href: "/supervisor/makeups", label: "补卡审核", icon: TimerReset },
       { href: "/supervisor/reports", label: "执行汇报", icon: FileText },
+      { href: "/supervisor/notices", label: "通知公告", icon: BellRing },
+      { href: "/supervisor/applications", label: "申请审核", icon: ClipboardCheck },
       {
         href: "/supervisor/profile-reviews",
         label: "档案会签",
@@ -60,8 +63,10 @@ const workspaceConfig = {
       { href: "/my", label: "我的首页", icon: UserRound },
       { href: "/my/tasks", label: "我的任务", icon: ClipboardCheck },
       { href: "/my/checkins", label: "打卡记录", icon: CalendarCheck2 },
+      { href: "/my/electronic-fence", label: "电子围栏", icon: MapPinned },
       { href: "/my/notices", label: "通知公告", icon: BellRing },
       { href: "/my/profile", label: "个人档案", icon: FileText },
+      { href: "/my/applications", label: "我的申请", icon: ClipboardCheck },
     ],
   },
 } as const

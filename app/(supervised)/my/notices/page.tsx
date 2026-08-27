@@ -1,5 +1,5 @@
-import { RoleWorkspacePlaceholder } from "@/components/workspaces/role-workspace"
+import { NoticesWorkspace } from "@/components/notices/notice-workspaces"
 
 export default function MyNoticesPage() {
-  return <RoleWorkspacePlaceholder kind="SUPERVISED" title="通知公告" />
+  return <NoticesWorkspace />
 }

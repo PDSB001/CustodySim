@@ -9,6 +9,7 @@ import { requestApi } from "@/components/shared/api-client"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { DatePicker, MonthPicker } from "@/components/ui/date-picker"
 import {
   Select,
   SelectContent,
@@ -19,6 +20,11 @@ import {
 import { Textarea } from "@/components/ui/textarea"
 import { toast } from "@/components/ui/toast"
 import { ProfileSignatureField } from "@/components/profile-records/profile-signature-field"
+import {
+  applyComputedProfileAge,
+  calculateAgeFromBirthMonth,
+  hasComputedProfileAge,
+} from "@/lib/profile-age"
 
 export const ProfileFieldSchema = z.object({
   id: z.string().optional(),
@@ -52,7 +58,9 @@ export function ProfileRecordEditor({
   } | null
   onSaved: () => void
 }) {
-  const [data, setData] = useState<Record<string, unknown>>(record?.data ?? {})
+  const [data, setData] = useState<Record<string, unknown>>(() =>
+    applyComputedProfileAge(record?.data ?? {}, form.fields),
+  )
   const [photoData, setPhotoData] = useState<string | null>(
     record?.photoData ?? null,
   )
@@ -65,15 +73,35 @@ export function ProfileRecordEditor({
   const [saving, setSaving] = useState(false)
 
   useEffect(() => {
-    setData(record?.data ?? {})
+    setData(applyComputedProfileAge(record?.data ?? {}, form.fields))
     setPhotoData(record?.photoData ?? null)
     setSignatureMode(record?.signatureMode ?? "GENERATED")
     setHandwrittenSignatureData(
       record?.signatureMode === "HANDWRITTEN" ? record.signatureData : null,
     )
-  }, [record, form.id])
+  }, [record, form.id, form.fields])
 
   const editable = !record || ["DRAFT", "RETURNED"].includes(record.status)
+  const ageIsComputed = hasComputedProfileAge(form.fields)
+  const computedAge = calculateAgeFromBirthMonth(data["出生年月"])
+  const fieldsInDisplayOrder = [...form.fields]
+  const ageIndex = fieldsInDisplayOrder.findIndex(
+    (field) => field.name === "年龄",
+  )
+  const birthMonthIndex = fieldsInDisplayOrder.findIndex(
+    (field) => field.name === "出生年月",
+  )
+  if (
+    ageIsComputed &&
+    ageIndex >= 0 &&
+    birthMonthIndex >= 0 &&
+    ageIndex < birthMonthIndex
+  ) {
+    const ageField = fieldsInDisplayOrder[ageIndex]
+    const birthMonthField = fieldsInDisplayOrder[birthMonthIndex]
+    fieldsInDisplayOrder[ageIndex] = birthMonthField
+    fieldsInDisplayOrder[birthMonthIndex] = ageField
+  }
   const save = async (submit: boolean) => {
     setSaving(true)
     try {
@@ -184,115 +212,148 @@ export function ProfileRecordEditor({
                 </div>
               </td>
             </tr>
-            {form.fields.map((field) => {
+            {fieldsInDisplayOrder.map((field) => {
               if (field.name === "罩杯" && data["性别"] !== "女") return null
               return (
                 <Fragment key={field.name}>
-                {field.name === "身高（cm）" ? (
-                  <tr>
-                    <th
-                      colSpan={2}
-                      className="bg-brand-500/8 text-brand-800 border-border/70 border-y px-3 py-2 text-left text-xs font-semibold tracking-wide"
-                    >
-                      体态特征
-                      <span className="text-muted-foreground ml-2 font-normal">
-                        选填，可按实际情况补充
-                      </span>
-                    </th>
-                  </tr>
-                ) : null}
-                <tr className="align-top">
-                <th className="bg-muted/45 border-border/70 text-muted-foreground w-28 border-r px-3 py-3 text-left text-xs font-semibold sm:w-36">
-                  {field.required ? (
-                    <span className="text-destructive">* </span>
+                  {field.name === "身高（cm）" ? (
+                    <tr>
+                      <th
+                        colSpan={2}
+                        className="bg-brand-500/8 text-brand-800 border-border/70 border-y px-3 py-2 text-left text-xs font-semibold tracking-wide"
+                      >
+                        体态特征
+                        <span className="text-muted-foreground ml-2 font-normal">
+                          选填，可按实际情况补充
+                        </span>
+                      </th>
+                    </tr>
                   ) : null}
-                  {field.name}
-                </th>
-                <td className="p-3">
-                  {field.type === "COPYWRITE" ? (
-                    <div className="space-y-2">
-                      <p className="bg-muted/60 text-muted-foreground rounded-md px-3 py-2 text-sm leading-6">
-                        {field.options[0] || "此字段未设置抄写原文"}
-                      </p>
-                      <Textarea
-                        disabled={!editable}
-                        value={String(data[field.name] ?? "")}
-                        onChange={(event) =>
-                          setData((current) => ({
-                            ...current,
-                            [field.name]: event.target.value,
-                          }))
-                        }
-                        placeholder="请逐字抄写上方内容"
-                      />
-                    </div>
-                  ) : field.type === "TEXTAREA" ? (
-                    <Textarea
-                      disabled={!editable}
-                      value={String(data[field.name] ?? "")}
-                      onChange={(event) =>
-                        setData((current) => ({
-                          ...current,
-                          [field.name]: event.target.value,
-                        }))
-                      }
-                    />
-                  ) : field.type === "SELECT" ? (
-                    <Select
-                      disabled={!editable}
-                      value={String(data[field.name] ?? "")}
-                      onValueChange={(value) =>
-                        setData((current) => {
-                          const nextValue = value === "__none__" ? "" : value
-                          return field.name === "性别" && nextValue !== "女"
-                            ? { ...current, 性别: nextValue, 罩杯: "" }
-                            : { ...current, [field.name]: nextValue }
-                        })
-                      }
-                    >
-                      <SelectTrigger className="w-full">
-                        <SelectValue placeholder="请选择" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="__none__">请选择</SelectItem>
-                        {field.options.map((option) => (
-                          <SelectItem key={option} value={option}>
-                            {option}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  ) : (
-                    <Input
-                      disabled={!editable}
-                      type={
-                        field.type === "NUMBER"
-                          ? "number"
-                          : field.type === "DATE"
-                            ? field.name === "出生年月"
-                              ? "month"
-                              : "date"
-                            : "text"
-                      }
-                      min={field.name === "出生日" ? 1 : undefined}
-                      max={field.name === "出生日" ? 31 : undefined}
-                      step={field.name === "出生日" ? 1 : undefined}
-                      value={String(data[field.name] ?? "")}
-                      onChange={(event) =>
-                        setData((current) => {
-                          const value = event.target.value
-                          if (field.name !== "出生日" || value === "")
-                            return { ...current, [field.name]: value }
-                          const day = Number(value)
-                          return day >= 1 && day <= 31
-                            ? { ...current, [field.name]: value }
-                            : current
-                        })
-                      }
-                    />
-                  )}
-                </td>
-                </tr>
+                  <tr className="align-top">
+                    <th className="bg-muted/45 border-border/70 text-muted-foreground w-28 border-r px-3 py-3 text-left text-xs font-semibold sm:w-36">
+                      {field.required &&
+                      !(field.name === "年龄" && ageIsComputed) ? (
+                        <span className="text-destructive">* </span>
+                      ) : null}
+                      {field.name}
+                    </th>
+                    <td className="p-3">
+                      {field.type === "COPYWRITE" ? (
+                        <div className="space-y-2">
+                          <p className="bg-muted/60 text-muted-foreground rounded-md px-3 py-2 text-sm leading-6">
+                            {field.options[0] || "此字段未设置抄写原文"}
+                          </p>
+                          <Textarea
+                            disabled={!editable}
+                            value={String(data[field.name] ?? "")}
+                            onChange={(event) =>
+                              setData((current) => ({
+                                ...current,
+                                [field.name]: event.target.value,
+                              }))
+                            }
+                            placeholder="请逐字抄写上方内容"
+                          />
+                        </div>
+                      ) : field.type === "TEXTAREA" ? (
+                        <Textarea
+                          disabled={!editable}
+                          value={String(data[field.name] ?? "")}
+                          onChange={(event) =>
+                            setData((current) => ({
+                              ...current,
+                              [field.name]: event.target.value,
+                            }))
+                          }
+                        />
+                      ) : field.type === "SELECT" ? (
+                        <Select
+                          disabled={!editable}
+                          value={String(data[field.name] ?? "")}
+                          onValueChange={(value) =>
+                            setData((current) => {
+                              const nextValue =
+                                value === "__none__" ? "" : value
+                              return field.name === "性别" && nextValue !== "女"
+                                ? { ...current, 性别: nextValue, 罩杯: "" }
+                                : { ...current, [field.name]: nextValue }
+                            })
+                          }
+                        >
+                          <SelectTrigger className="w-full">
+                            <SelectValue placeholder="请选择" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="__none__">请选择</SelectItem>
+                            {field.options.map((option) => (
+                              <SelectItem key={option} value={option}>
+                                {option}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      ) : field.name === "年龄" && ageIsComputed ? (
+                        <div className="space-y-1.5">
+                          <Input
+                            readOnly
+                            aria-label="年龄（由出生年月自动计算）"
+                            value={
+                              computedAge === null ? "" : String(computedAge)
+                            }
+                            placeholder="请先选择出生年月"
+                          />
+                          <p className="text-muted-foreground text-xs">
+                            根据出生年月自动计算，无需填写
+                          </p>
+                        </div>
+                      ) : field.name === "出生年月" ? (
+                        <MonthPicker
+                          disabled={!editable}
+                          value={String(data[field.name] ?? "")}
+                          onValueChange={(value) =>
+                            setData((current) =>
+                              applyComputedProfileAge(
+                                { ...current, [field.name]: value },
+                                form.fields,
+                              ),
+                            )
+                          }
+                        />
+                      ) : field.type === "DATE" ? (
+                        <DatePicker
+                          ariaLabel={field.name}
+                          disabled={!editable}
+                          value={String(data[field.name] ?? "")}
+                          onValueChange={(value) =>
+                            setData((current) => ({
+                              ...current,
+                              [field.name]: value,
+                            }))
+                          }
+                        />
+                      ) : (
+                        <Input
+                          disabled={!editable}
+                          type={field.type === "NUMBER" ? "number" : "text"}
+                          min={field.name === "出生日" ? 1 : undefined}
+                          max={field.name === "出生日" ? 31 : undefined}
+                          step={field.name === "出生日" ? 1 : undefined}
+                          value={String(data[field.name] ?? "")}
+                          onChange={(event) =>
+                            setData((current) => {
+                              const value = event.target.value
+                              if (field.name !== "出生日" || value === "")
+                                return { ...current, [field.name]: value }
+                              const day = Number(value)
+                              return day >= 1 && day <= 31
+                                ? { ...current, [field.name]: value }
+                                : current
+                            })
+                          }
+                        />
+                      )}
+                    </td>
+                  </tr>
                 </Fragment>
               )
             })}

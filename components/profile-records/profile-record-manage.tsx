@@ -1,7 +1,7 @@
 "use client"
 
-import { useQuery, useQueryClient } from "@tanstack/react-query"
-import { Archive, BookOpenCheck, FileText, LockKeyhole } from "lucide-react"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { Archive, BookOpenCheck, FileText, LockKeyhole, Trash2 } from "lucide-react"
 import { useState } from "react"
 import { z } from "zod"
 
@@ -11,6 +11,7 @@ import { MetricCell } from "@/components/shared/metric-cell"
 import { PageHeader } from "@/components/shared/page-header"
 import { StatusPill, type StatusTone } from "@/components/shared/status-pill"
 import { Card, CardContent } from "@/components/ui/card"
+import { toast } from "@/components/ui/toast"
 import {
   ProfileFieldSchema,
   ProfileRecordEditor,
@@ -241,9 +242,22 @@ export function MyProfileRecordManage() {
 }
 
 export function ProfileRecordManage() {
+  const client = useQueryClient()
   const records = useQuery({
     queryKey: ["profile-records", "admin"],
     queryFn: () => requestApi("/api/profile-records", RecordsSchema),
+  })
+  const remove = useMutation({
+    mutationFn: (id: string) =>
+      requestApi(`/api/admin/profile-records/${id}`, z.object({ id: z.string() }), {
+        method: "DELETE",
+      }),
+    onSuccess: () => {
+      client.invalidateQueries({ queryKey: ["profile-records", "admin"] })
+      toast.success("已删除归档档案")
+    },
+    onError: (error) =>
+      toast.error(error instanceof Error ? error.message : "删除归档档案失败"),
   })
   return (
     <div className="workspace-stack">
@@ -262,6 +276,7 @@ export function ProfileRecordManage() {
                 <th className="px-5 py-3">状态</th>
                 <th className="px-5 py-3">档案编号</th>
                 <th className="px-5 py-3">更新时间</th>
+                <th className="px-5 py-3 text-right">操作</th>
               </tr>
             </thead>
             <tbody className="divide-border/60 divide-y">
@@ -282,11 +297,30 @@ export function ProfileRecordManage() {
                   <td className="text-muted-foreground px-5 py-4">
                     {formatDate(record.updatedAt)}
                   </td>
+                  <td className="px-5 py-4 text-right">
+                    {record.status === "LOCKED" ? (
+                      <button
+                        type="button"
+                        aria-label={`删除归档档案：${record.userName} · ${record.formName}`}
+                        title="删除归档档案"
+                        className="text-muted-foreground hover:text-destructive inline-flex size-8 items-center justify-center rounded-md transition-colors"
+                        disabled={remove.isPending}
+                        onClick={() => {
+                          if (!window.confirm(`确定删除“${record.userName} · ${record.formName}”这份已归档档案吗？删除后不可恢复。`)) return
+                          remove.mutate(record.id)
+                        }}
+                      >
+                        <Trash2 className="size-4" />
+                      </button>
+                    ) : (
+                      <span className="text-muted-foreground/50">—</span>
+                    )}
+                  </td>
                 </tr>
               ))}
               {records.data?.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="p-0">
+                  <td colSpan={6} className="p-0">
                     <EmptyState
                       icon={Archive}
                       title="暂无档案记录"

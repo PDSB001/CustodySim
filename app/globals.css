@@ -1,5 +1,6 @@
 @import "tailwindcss";
 @import "tw-animate-css";
+@import "react-datepicker/dist/react-datepicker.css";
 
 @custom-variant dark (&:where(.dark, .dark *));
 
@@ -55,8 +56,9 @@
   --color-chart-6: var(--chart-6);
 
   /* 字体 */
-  --font-sans: "Inter", "PingFang SC", "Microsoft YaHei", system-ui,
-    -apple-system, "Segoe UI", sans-serif;
+  --font-sans:
+    "Inter", "PingFang SC", "Microsoft YaHei", system-ui, -apple-system,
+    "Segoe UI", sans-serif;
   --font-display: "Inter", "PingFang SC", system-ui, sans-serif;
   --font-mono: "JetBrains Mono", "SF Mono", "Menlo", "Consolas", monospace;
   --font-numeric: "Inter", "SF Pro Display", system-ui, sans-serif;
@@ -70,8 +72,10 @@
 
   /* 收紧阴影（去掉牛皮癬光泽） */
   --shadow-soft: 0 1px 2px rgba(15, 23, 42, 0.03);
-  --shadow-elev: 0 1px 1px rgba(15, 23, 42, 0.04), 0 4px 14px rgba(15, 23, 42, 0.05);
-  --shadow-pop: 0 4px 12px rgba(15, 23, 42, 0.06), 0 16px 40px rgba(15, 23, 42, 0.08);
+  --shadow-elev:
+    0 1px 1px rgba(15, 23, 42, 0.04), 0 4px 14px rgba(15, 23, 42, 0.05);
+  --shadow-pop:
+    0 4px 12px rgba(15, 23, 42, 0.06), 0 16px 40px rgba(15, 23, 42, 0.08);
 }
 
 /* =============  LIGHT 主题  ============= */
@@ -226,12 +230,192 @@
   }
 }
 
+/* =============  私有日期控件（react-datepicker）  ============= */
+.app-date-picker__wrapper {
+  display: block;
+  width: 100%;
+}
+.app-date-picker__input {
+  width: 100%;
+  min-height: 2.5rem;
+  border: 1px solid var(--input);
+  border-radius: var(--radius-xl);
+  background: var(--background);
+  color: var(--foreground);
+  padding: 0.5rem 2.45rem 0.5rem 0.875rem;
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  outline: none;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+.app-date-picker__input::placeholder {
+  color: var(--muted-foreground);
+}
+.app-date-picker__input:hover {
+  border-color: color-mix(in oklab, var(--brand-500) 40%, var(--border));
+}
+.app-date-picker__input:focus {
+  border-color: var(--ring);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--ring) 34%, transparent);
+}
+.react-datepicker-wrapper,
+.react-datepicker__input-container {
+  display: block;
+  width: 100%;
+}
+.react-datepicker__close-icon {
+  right: 0.45rem;
+}
+.react-datepicker__close-icon::after {
+  background: var(--muted-foreground);
+  color: var(--background);
+  font-size: 0.875rem;
+  line-height: 1.1rem;
+  height: 1.1rem;
+  width: 1.1rem;
+}
+.app-date-picker__calendar {
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--popover);
+  color: var(--popover-foreground);
+  box-shadow: var(--shadow-pop);
+  font-family: var(--font-sans);
+}
+.app-date-picker__popper .app-date-picker__calendar {
+  animation: date-picker-pop-in 180ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  transform-origin: top center;
+}
+@keyframes date-picker-pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(-0.35rem) scale(0.975);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .app-date-picker__popper .app-date-picker__calendar {
+    animation: none;
+  }
+}
+.app-date-picker__calendar--with-time {
+  min-width: 21.25rem;
+}
+.app-date-picker__calendar--with-time .react-datepicker__time-container {
+  right: 0;
+}
+.app-date-picker__calendar .react-datepicker__header {
+  border-bottom-color: var(--border);
+  background: color-mix(in oklab, var(--muted) 62%, var(--popover));
+  padding-top: 0.75rem;
+}
+.app-date-picker__calendar .react-datepicker__current-month,
+.app-date-picker__calendar .react-datepicker-time__header,
+.app-date-picker__calendar .react-datepicker-year-header {
+  color: var(--foreground);
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+.app-date-picker__calendar .react-datepicker__day-name,
+.app-date-picker__calendar .react-datepicker__day,
+.app-date-picker__calendar .react-datepicker__time-name {
+  color: var(--foreground);
+  width: 2rem;
+  line-height: 2rem;
+  margin: 0.08rem;
+}
+.app-date-picker__calendar .react-datepicker__day-name {
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+.app-date-picker__calendar .react-datepicker__day:hover,
+.app-date-picker__calendar .react-datepicker__month-text:hover,
+.app-date-picker__calendar .react-datepicker__year-text:hover,
+.app-date-picker__calendar .react-datepicker__time-list-item:hover {
+  border-radius: 0.45rem;
+  background: var(--accent);
+}
+.app-date-picker__calendar .react-datepicker__day--selected,
+.app-date-picker__calendar .react-datepicker__day--keyboard-selected,
+.app-date-picker__calendar .react-datepicker__month-text--selected,
+.app-date-picker__calendar .react-datepicker__time-list-item--selected {
+  border-radius: 0.45rem;
+  background: var(--primary);
+  color: var(--primary-foreground);
+}
+.app-date-picker__calendar .react-datepicker__day--outside-month {
+  color: color-mix(in oklab, var(--muted-foreground) 55%, transparent);
+}
+.app-date-picker__calendar .react-datepicker__navigation-icon::before {
+  border-color: var(--muted-foreground);
+}
+.app-date-picker__calendar .react-datepicker__today-button {
+  border-top-color: var(--border);
+  background: var(--popover);
+  color: var(--primary);
+  font-weight: 600;
+}
+.app-date-picker__calendar .react-datepicker__time-container {
+  border-left-color: var(--border);
+}
+.app-date-picker__calendar .react-datepicker__time-box,
+.app-date-picker__calendar .react-datepicker__time-list {
+  background: var(--popover);
+}
+.app-date-picker__calendar .react-datepicker__time-list-item {
+  color: var(--foreground);
+}
+@media (max-width: 640px) {
+  .react-datepicker-popper {
+    z-index: 50;
+  }
+  .app-date-picker__calendar .react-datepicker__month-container {
+    float: none;
+  }
+  .app-date-picker__calendar--with-time {
+    min-width: 0;
+  }
+  .app-date-picker__calendar .react-datepicker__time-container {
+    position: static;
+    float: none;
+    width: 100%;
+    border-top: 1px solid var(--border);
+    border-left: 0;
+  }
+  .app-date-picker__calendar
+    .react-datepicker__time-container
+    .react-datepicker__time
+    .react-datepicker__time-box {
+    width: 100%;
+  }
+  .app-date-picker__calendar .react-datepicker__time-list {
+    height: 8.5rem !important;
+  }
+  .app-date-picker__calendar .react-datepicker__day-name,
+  .app-date-picker__calendar .react-datepicker__day {
+    width: 1.8rem;
+    line-height: 1.8rem;
+  }
+}
+
 /* =============  滚动条（统一）  ============= */
 @layer base {
   /* Firefox */
   * {
     scrollbar-width: thin;
-    scrollbar-color: color-mix(in oklab, var(--muted-foreground) 30%, transparent) transparent;
+    scrollbar-color: color-mix(
+        in oklab,
+        var(--muted-foreground) 30%,
+        transparent
+      )
+      transparent;
   }
   /* WebKit */
   ::-webkit-scrollbar {
@@ -267,7 +451,12 @@
 /* =============  装饰工具（保留少量，克制）  ============= */
 @layer utilities {
   .text-gradient-brand {
-    background: linear-gradient(120deg, var(--brand-600), var(--chart-5) 65%, var(--info));
+    background: linear-gradient(
+      120deg,
+      var(--brand-600),
+      var(--chart-5) 65%,
+      var(--info)
+    );
     background-clip: text;
     -webkit-background-clip: text;
     color: transparent;
@@ -290,10 +479,26 @@
   .mesh-bg-strong {
     background-color: oklch(0.14 0.04 271);
     background-image:
-      radial-gradient(at 14% 18%, color-mix(in oklab, var(--brand-500) 50%, transparent) 0px, transparent 48%),
-      radial-gradient(at 86% 10%, color-mix(in oklab, var(--chart-5) 44%, transparent) 0px, transparent 55%),
-      radial-gradient(at 76% 86%, color-mix(in oklab, var(--chart-3) 36%, transparent) 0px, transparent 55%),
-      radial-gradient(at 12% 88%, color-mix(in oklab, var(--info) 38%, transparent) 0px, transparent 55%);
+      radial-gradient(
+        at 14% 18%,
+        color-mix(in oklab, var(--brand-500) 50%, transparent) 0px,
+        transparent 48%
+      ),
+      radial-gradient(
+        at 86% 10%,
+        color-mix(in oklab, var(--chart-5) 44%, transparent) 0px,
+        transparent 55%
+      ),
+      radial-gradient(
+        at 76% 86%,
+        color-mix(in oklab, var(--chart-3) 36%, transparent) 0px,
+        transparent 55%
+      ),
+      radial-gradient(
+        at 12% 88%,
+        color-mix(in oklab, var(--info) 38%, transparent) 0px,
+        transparent 55%
+      );
   }
 }
 
@@ -326,7 +531,8 @@
     flex-direction: column;
     gap: 0.85rem;
     scrollbar-width: thin;
-    scrollbar-color: color-mix(in oklab, oklch(1 0 0) 14%, transparent) transparent;
+    scrollbar-color: color-mix(in oklab, oklch(1 0 0) 14%, transparent)
+      transparent;
   }
 
   /* 侧栏品牌 */
@@ -390,7 +596,9 @@
     color: color-mix(in oklab, oklch(1 0 0) 72%, transparent);
     font-size: 0.85rem;
     font-weight: 500;
-    transition: color 0.12s ease, background-color 0.12s ease;
+    transition:
+      color 0.12s ease,
+      background-color 0.12s ease;
     text-decoration: none;
     line-height: 1.2;
   }
@@ -724,16 +932,32 @@
     animation: workspace-enter 0.28s ease both;
   }
   @keyframes page-enter {
-    from { opacity: 0; transform: translateY(3px); }
-    to { opacity: 1; transform: translateY(0); }
+    from {
+      opacity: 0;
+      transform: translateY(3px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
   }
   @keyframes workspace-enter {
-    from { opacity: 0; transform: translateY(5px); }
-    to { opacity: 1; transform: translateY(0); }
+    from {
+      opacity: 0;
+      transform: translateY(5px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
   }
   @keyframes marquee {
-    0% { transform: translateX(0); }
-    100% { transform: translateX(-50%); }
+    0% {
+      transform: translateX(0);
+    }
+    100% {
+      transform: translateX(-50%);
+    }
   }
 
   /* 老的 utility 选择器保留向后兼容 */
@@ -795,9 +1019,21 @@
     position: absolute;
     inset: 0;
     background-image:
-      radial-gradient(at 14% 14%, color-mix(in oklab, var(--brand-500) 50%, transparent) 0px, transparent 50%),
-      radial-gradient(at 88% 8%, color-mix(in oklab, var(--chart-5) 40%, transparent) 0px, transparent 55%),
-      radial-gradient(at 70% 86%, color-mix(in oklab, var(--info) 30%, transparent) 0px, transparent 55%);
+      radial-gradient(
+        at 14% 14%,
+        color-mix(in oklab, var(--brand-500) 50%, transparent) 0px,
+        transparent 50%
+      ),
+      radial-gradient(
+        at 88% 8%,
+        color-mix(in oklab, var(--chart-5) 40%, transparent) 0px,
+        transparent 55%
+      ),
+      radial-gradient(
+        at 70% 86%,
+        color-mix(in oklab, var(--info) 30%, transparent) 0px,
+        transparent 55%
+      );
     pointer-events: none;
   }
   .login-showcase > * {

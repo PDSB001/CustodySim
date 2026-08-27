@@ -95,6 +95,53 @@ export const persons = pgTable(
   ],
 )
 
+export const electronicFences = pgTable(
+  "electronic_fences",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    entryType: varchar("entry_type", { length: 20 })
+      .notNull()
+      .default("CONFIG"),
+    name: varchar("name", { length: 100 }).notNull(),
+    latitude: varchar("latitude", { length: 32 }).notNull(),
+    longitude: varchar("longitude", { length: 32 }).notNull(),
+    radiusMeters: integer("radius_meters").notNull(),
+    coordinateSystem: varchar("coordinate_system", { length: 20 })
+      .notNull()
+      .default("GCJ02"),
+    enabled: boolean("enabled").notNull().default(true),
+    userId: uuid("user_id").references(() => users.id, {
+      onDelete: "cascade",
+    }),
+    fenceId: uuid("fence_id").references(
+      (): AnyPgColumn => electronicFences.id,
+      { onDelete: "cascade" },
+    ),
+    reportedAt: timestamp("reported_at", { withTimezone: true }),
+    accuracyMeters: integer("accuracy_meters"),
+    verdict: varchar("verdict", { length: 30 }),
+    transition: varchar("transition", { length: 30 }),
+    updatedBy: uuid("updated_by").references(() => users.id),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index("electronic_fences_enabled_idx").on(table.enabled),
+    index("electronic_fences_type_updated_idx").on(
+      table.entryType,
+      table.updatedAt,
+    ),
+    index("electronic_fences_user_reported_idx").on(
+      table.userId,
+      table.reportedAt,
+    ),
+  ],
+)
+
 export const uiConfigs = pgTable(
   "ui_configs",
   {
@@ -420,6 +467,7 @@ export const reportSubmissions = pgTable(
     content: text("content").notNull(),
     data: jsonb("data").notNull().default({}),
     status: varchar("status", { length: 30 }).notNull().default("SUBMITTED"),
+    officialSealData: text("official_seal_data"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -688,6 +736,133 @@ export const profileRecordReviews = pgTable(
       table.reviewerId,
     ),
     index("profile_record_reviews_reviewer_result_idx").on(
+      table.reviewerId,
+      table.result,
+    ),
+  ],
+)
+
+export const applications = pgTable(
+  "applications",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id),
+    type: varchar("type", { length: 40 }).notNull(),
+    title: varchar("title", { length: 160 }).notNull(),
+    reason: text("reason").notNull(),
+    payload: jsonb("payload").notNull().default({}),
+    archiveRecordId: uuid("archive_record_id").references(() => profileRecords.id, {
+      onDelete: "set null",
+    }),
+    archiveSnapshot: jsonb("archive_snapshot"),
+    officialSealData: text("official_seal_data"),
+    status: varchar("status", { length: 30 }).notNull().default("DRAFT"),
+    submittedAt: timestamp("submitted_at", { withTimezone: true }),
+    decidedAt: timestamp("decided_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index("applications_user_status_idx").on(table.userId, table.status),
+    index("applications_archive_idx").on(table.archiveRecordId),
+  ],
+)
+
+export const officialSeals = pgTable(
+  "official_seals",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    kind: varchar("kind", { length: 30 }).notNull(),
+    organizationName: varchar("organization_name", { length: 100 })
+      .notNull()
+      .default("第一监狱"),
+    sealText: varchar("seal_text", { length: 100 }).notNull(),
+    active: boolean("active").notNull().default(true),
+    updatedBy: uuid("updated_by").references(() => users.id),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [uniqueIndex("official_seals_kind_unique").on(table.kind)],
+)
+
+export const notices = pgTable(
+  "notices",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    title: varchar("title", { length: 200 }).notNull(),
+    content: text("content").notNull(),
+    targetRole: varchar("target_role", { length: 20 }).notNull().default("ALL"),
+    priority: varchar("priority", { length: 20 }).notNull().default("NORMAL"),
+    published: boolean("published").notNull().default(true),
+    publishedAt: timestamp("published_at", { withTimezone: true }),
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
+    createdBy: uuid("created_by").references(() => users.id),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index("notices_published_idx").on(table.published, table.publishedAt),
+  ],
+)
+
+export const noticeReads = pgTable(
+  "notice_reads",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    noticeId: uuid("notice_id")
+      .notNull()
+      .references(() => notices.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    readAt: timestamp("read_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("notice_reads_notice_user_unique").on(table.noticeId, table.userId),
+    index("notice_reads_user_idx").on(table.userId, table.readAt),
+  ],
+)
+
+export const applicationReviews = pgTable(
+  "application_reviews",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    applicationId: uuid("application_id")
+      .notNull()
+      .references(() => applications.id, { onDelete: "cascade" }),
+    reviewerId: uuid("reviewer_id")
+      .notNull()
+      .references(() => users.id),
+    step: integer("step").notNull().default(0),
+    result: varchar("result", { length: 20 }).notNull().default("WAITING"),
+    comment: text("comment"),
+    reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("application_reviews_application_reviewer_unique").on(
+      table.applicationId,
+      table.reviewerId,
+    ),
+    index("application_reviews_reviewer_result_idx").on(
       table.reviewerId,
       table.result,
     ),

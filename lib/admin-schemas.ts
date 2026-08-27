@@ -5,6 +5,9 @@ import {
   ORGANIZATION_CATEGORIES,
   PRISONER_CUSTODY_STATUSES,
 } from "@/lib/constants"
+import { APPLICATION_TYPES } from "@/lib/application"
+import { OFFICIAL_SEAL_KINDS } from "@/lib/official-seal"
+import { parseIso } from "@/lib/shanghai-datetime"
 
 export const OrganizationSchema = z.object({
   name: z.string().trim().min(1, "请输入组织名称").max(100),
@@ -170,6 +173,7 @@ export const ReportTemplateSchema = z.object({
           "SELECT",
           "DATE",
           "COPYWRITE",
+          "IMAGE",
         ]),
         required: z.boolean().default(false),
         options: z.array(z.string().trim().min(1).max(2000)).default([]),
@@ -180,7 +184,7 @@ export const ReportTemplateSchema = z.object({
 
 const ProfileFieldSchema = z.object({
   name: z.string().trim().min(1).max(100),
-  type: z.enum(["TEXT", "TEXTAREA", "NUMBER", "SELECT", "DATE", "COPYWRITE"]),
+  type: z.enum(["TEXT", "TEXTAREA", "NUMBER", "SELECT", "DATE", "COPYWRITE", "IMAGE"]),
   required: z.boolean().default(false),
   options: z.array(z.string().trim().min(1).max(2000)).default([]),
 })
@@ -217,7 +221,98 @@ export const ProfileReviewSchema = z.object({
   comment: z.string().trim().max(2000).nullable().optional(),
 })
 
+// 私有日期时间控件输出格式：YYYY-MM-DDTHH:mm[:ss]（无时区，后端视为上海 +08:00）
+const DATETIME_LOCAL_REGEX = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?$/
+
+export const ApplicationDraftSchema = z
+  .object({
+    type: z.enum(APPLICATION_TYPES),
+    reason: z.string().trim().min(1, "请填写申请事由").max(2000),
+    leaveStartAt: z.string().regex(DATETIME_LOCAL_REGEX).nullable().optional(),
+    leaveEndAt: z.string().regex(DATETIME_LOCAL_REGEX).nullable().optional(),
+    temporaryReleaseStartAt: z.string().regex(DATETIME_LOCAL_REGEX).nullable().optional(),
+    temporaryReleaseEndAt: z.string().regex(DATETIME_LOCAL_REGEX).nullable().optional(),
+    archiveRecordId: z.string().uuid().nullable().optional(),
+  })
+  .superRefine((value, context) => {
+    if (value.type === "LEAVE") {
+      const startAt = parseIso(
+        typeof value.leaveStartAt === "string"
+          ? `${value.leaveStartAt}+08:00`
+          : null,
+      )
+      const endAt = parseIso(
+        typeof value.leaveEndAt === "string" ? `${value.leaveEndAt}+08:00` : null,
+      )
+      if (!value.leaveStartAt || !value.leaveEndAt) {
+        context.addIssue({ code: "custom", message: "请填写请假起止时间" })
+      } else if (!startAt || !endAt) {
+        context.addIssue({ code: "custom", message: "请假时间格式不正确" })
+      } else if (endAt.getTime() <= startAt.getTime()) {
+        context.addIssue({ code: "custom", message: "请假结束时间必须晚于开始时间" })
+      }
+    }
+    if (value.type === "TEMPORARY_OUT_OF_CUSTODY") {
+      const startAt = parseIso(
+        typeof value.temporaryReleaseStartAt === "string"
+          ? `${value.temporaryReleaseStartAt}+08:00`
+          : null,
+      )
+      const endAt = parseIso(
+        typeof value.temporaryReleaseEndAt === "string"
+          ? `${value.temporaryReleaseEndAt}+08:00`
+          : null,
+      )
+      if (!value.temporaryReleaseStartAt || !value.temporaryReleaseEndAt) {
+        context.addIssue({ code: "custom", message: "请填写临时离监起止时间" })
+      } else if (!startAt || !endAt) {
+        context.addIssue({ code: "custom", message: "离监时间格式不正确" })
+      } else if (endAt.getTime() <= startAt.getTime()) {
+        context.addIssue({ code: "custom", message: "离监结束时间必须晚于开始时间" })
+      }
+    }
+    if (value.type === "SENTENCE_REDUCTION" && !value.archiveRecordId)
+      context.addIssue({ code: "custom", message: "减刑申请必须关联已归档档案" })
+  })
+
+export const ElectronicFenceSchema = z.object({
+  name: z.string().trim().min(1, "请输入围栏名称").max(100),
+  latitude: z.coerce.number().min(-90).max(90),
+  longitude: z.coerce.number().min(-180).max(180),
+  radiusMeters: z.coerce.number().int().min(50).max(50_000),
+  enabled: z.boolean().default(true),
+})
+
+export const GeofenceEvaluationSchema = z.object({
+  latitude: z.coerce.number().min(-90).max(90),
+  longitude: z.coerce.number().min(-180).max(180),
+  accuracyMeters: z.coerce.number().min(0).max(10_000),
+  capturedAt: z.string().datetime({ offset: true }),
+  coordinateSystem: z.literal("GCJ02"),
+})
+
+export const ApplicationReviewSchema = z.object({
+  result: z.enum(["APPROVED", "RETURNED", "REJECTED"]),
+  comment: z.string().trim().max(2000).nullable().optional(),
+})
+
 export const ArchiveBoxSchema = z.object({
   name: z.string().trim().min(1).max(100),
   remark: z.string().trim().max(1000).nullable().optional(),
+})
+
+export const OfficialSealSchema = z.object({
+  kind: z.enum(OFFICIAL_SEAL_KINDS),
+  organizationName: z.string().trim().min(1).max(100),
+  sealText: z.string().trim().min(1).max(100),
+  active: z.boolean().default(true),
+})
+
+export const NoticeSchema = z.object({
+  title: z.string().trim().min(1).max(200),
+  content: z.string().trim().min(1).max(5000),
+  targetRole: z.enum(["ALL", "SUPERVISED", "SUPERVISOR"]),
+  priority: z.enum(["NORMAL", "IMPORTANT", "URGENT"]).default("NORMAL"),
+  published: z.boolean().default(true),
+  expiresAt: z.string().datetime().nullable().optional(),
 })

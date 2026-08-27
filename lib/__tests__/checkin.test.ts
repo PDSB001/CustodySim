@@ -36,6 +36,7 @@ describe("checkin timing", () => {
     ["MAKEUP_PENDING", new Date(2026, 7, 26, 12), "MAKEUP_PENDING"],
     ["MAKEUP_APPROVED", new Date(2026, 7, 26, 12), "MAKEUP_APPROVED"],
     ["MAKEUP_REJECTED", new Date(2026, 7, 26, 12), "MAKEUP_REJECTED"],
+    ["SYSTEM_MAKEUP", new Date(2026, 7, 26, 12), "SYSTEM_MAKEUP"],
   ] as const)(
     "maps %s status at the correct moment",
     (status, now, expected) => {

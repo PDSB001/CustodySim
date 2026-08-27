@@ -18,6 +18,7 @@ import { PageHeader } from "@/components/shared/page-header"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
+import { DatePicker } from "@/components/ui/date-picker"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { TimePicker } from "@/components/ui/time-picker"
@@ -113,7 +114,7 @@ export function RuleManage() {
           scheduleDays: freq === "DAILY" ? [] : scheduleDays,
           timeSlots: [slot],
           timeoutMinutes,
-          startDate: `${startDate}T${slot}:00+08:00`,
+          startDate: new Date(`${startDate}T${slot}:00`).toISOString(),
           ruleGroupId: groupId || null,
           templateId: templateId || null,
           enabled: true,
@@ -292,10 +293,10 @@ export function RuleManage() {
                     <Label>
                       {freq === "ONCE" ? "发出日期" : "开始生效日期"}
                     </Label>
-                    <Input
-                      type="date"
+                    <DatePicker
+                      ariaLabel={freq === "ONCE" ? "发出日期" : "开始生效日期"}
                       value={startDate}
-                      onChange={(event) => setStartDate(event.target.value)}
+                      onValueChange={setStartDate}
                     />
                   </div>
                 </div>
