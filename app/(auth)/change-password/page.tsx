@@ -6,7 +6,7 @@ import { ChangePasswordForm } from "@/components/auth/change-password-form"
 import { getSessionUser } from "@/lib/session"
 
 export default async function ChangePasswordPage() {
-  const user = await getSessionUser()
+  const user = await getSessionUser({ allowPasswordChange: true })
   if (!user) redirect("/login")
 
   return (
@@ -34,11 +34,13 @@ export default async function ChangePasswordPage() {
               修改密码
             </h1>
             <p className="mt-3 text-sm leading-6 text-muted-foreground">
-              为保障账号安全，请设置不少于 8 位的新密码。
+              {user.mustChangePassword
+                ? "这是首次登录，请先设置新密码后再继续使用系统。"
+                : "为保障账号安全，可随时在这里更新密码。"}
             </p>
 
             <div className="mt-8">
-              <ChangePasswordForm />
+              <ChangePasswordForm forceChange={user.mustChangePassword} />
             </div>
           </div>
         </section>

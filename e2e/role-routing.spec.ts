@@ -60,6 +60,16 @@ test("移动端头像菜单提供退出登录", async ({ page }) => {
   await expect(page.getByRole("menuitem", { name: "退出登录" })).toBeVisible()
 })
 
+test("每个账号可从账号菜单进入修改密码", async ({ page }) => {
+  await login(page, "user", "user12345")
+  await page.getByLabel("打开账号菜单").click()
+  await page.getByRole("menuitem", { name: "修改密码" }).click()
+  await expect(page).toHaveURL("/change-password")
+  await expect(page.getByLabel("当前密码", { exact: true })).toBeVisible()
+  await expect(page.getByLabel("新密码", { exact: true })).toBeVisible()
+  await expect(page.getByLabel("确认新密码", { exact: true })).toBeVisible()
+})
+
 test("被监管者可以进入打卡记录", async ({ page }) => {
   await login(page, "user", "user12345")
   await page.goto("/my/checkins")
@@ -151,6 +161,13 @@ test("监管者可以查看辖区日常打卡", async ({ page }) => {
   await page.goto("/supervisor/checkins")
   await expect(page).toHaveURL("/supervisor/checkins")
   await expect(page.getByRole("heading", { name: "日常打卡" })).toBeVisible()
+  await expect(
+    page.getByRole("heading", { name: "历史打卡记录" }),
+  ).toBeVisible()
+  const picker = page.getByLabel("查询历史打卡日期")
+  await picker.click()
+  await expect(page.locator(".app-date-picker__popper")).toBeVisible()
+  await expect(page.locator('input[type="date"]')).toHaveCount(0)
 })
 
 test("监管者可以进入申请审核页", async ({ page }) => {
@@ -188,6 +205,92 @@ test("管理员可以进入电子围栏配置", async ({ page }) => {
   await expect(page).toHaveURL("/electronic-fences")
   await expect(page.getByRole("heading", { name: "电子围栏" })).toBeVisible()
   await expect(page.getByText("围栏配置")).toBeVisible()
+})
+
+test("管理员可按人员切换电子围栏配置对象", async ({ page }) => {
+  await login(page, "admin", "admin123")
+  await page.goto("/electronic-fences")
+  await page.getByRole("combobox").click()
+  await expect(
+    page.getByRole("option", { name: "默认围栏（未单独设置人员使用）" }),
+  ).toBeVisible()
+  await expect(
+    page.getByRole("option", { name: /示范被监管人 · (使用默认|已单独设置)/ }),
+  ).toBeVisible()
+})
+
+test("管理员可查看并编辑电子围栏越界说明系统模板", async ({ page }) => {
+  await login(page, "admin", "admin123")
+  await page.goto("/report-templates")
+  await expect(
+    page.getByRole("heading", { name: "任务表单模板" }),
+  ).toBeVisible()
+
+  const templateName = "电子围栏越界说明"
+  await expect(page.getByText(templateName, { exact: true })).toBeVisible()
+  await page.getByLabel(`编辑模板：${templateName}`).click()
+  await expect(page.locator("input").first()).toHaveValue(templateName)
+  await expect(page.locator("input").first()).toBeDisabled()
+  await expect(page.getByRole("button", { name: "保存模板修改" })).toBeVisible()
+  await expect(page.getByLabel(`删除模板：${templateName}`)).toBeDisabled()
+})
+
+test("填写任务会自动保存草稿", async ({ page }) => {
+  await login(page, "user", "user12345")
+  const taskId = "11111111-1111-4111-8111-111111111111"
+  let savedDraft: unknown
+  await page.route("**/api/tasks", async (route) => {
+    await route.fulfill({
+      json: {
+        success: true,
+        data: [
+          {
+            id: taskId,
+            title: "草稿保存验证",
+            supervisedName: "示范被监管人",
+            scheduleAt: "2026-08-27T08:00:00.000Z",
+            deadline: "2099-08-28T08:00:00.000Z",
+            status: "PENDING",
+            templateSnapshot: {
+              name: "草稿测试模板",
+              content: null,
+              fields: [
+                {
+                  name: "填写说明",
+                  type: "TEXT",
+                  required: true,
+                  options: [],
+                },
+              ],
+            },
+            submissionId: null,
+            content: null,
+            data: null,
+            officialSealData: null,
+          },
+        ],
+      },
+    })
+  })
+  await page.route("**/api/submissions/draft", async (route) => {
+    savedDraft = route.request().postDataJSON()
+    await route.fulfill({
+      json: {
+        success: true,
+        data: { id: "22222222-2222-4222-8222-222222222222" },
+      },
+    })
+  })
+
+  await page.goto("/my/tasks")
+  await page.locator('input[type="text"]').first().fill("已填写的原因")
+  await expect
+    .poll(() => savedDraft)
+    .toEqual({
+      taskId,
+      data: { 填写说明: "已填写的原因" },
+    })
+  await expect(page.getByText("草稿已自动保存")).toBeVisible()
 })
 
 test("被监管者可以进入正式通知页", async ({ page }) => {

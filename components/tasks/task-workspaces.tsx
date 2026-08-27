@@ -3,7 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import Image from "next/image"
 import { CheckCircle2, ClipboardCheck, Send, Star } from "lucide-react"
-import { useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { z } from "zod"
 
 import { compressTaskImage } from "@/lib/task-image-client"
@@ -16,6 +16,7 @@ import {
 } from "@/components/shared/query-state-view"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { DatePicker } from "@/components/ui/date-picker"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import {
@@ -30,7 +31,15 @@ import { toast } from "@/components/ui/toast"
 
 const TemplateField = z.object({
   name: z.string(),
-  type: z.enum(["TEXT", "TEXTAREA", "NUMBER", "SELECT", "DATE", "COPYWRITE", "IMAGE"]),
+  type: z.enum([
+    "TEXT",
+    "TEXTAREA",
+    "NUMBER",
+    "SELECT",
+    "DATE",
+    "COPYWRITE",
+    "IMAGE",
+  ]),
   required: z.boolean(),
   options: z.array(z.string()),
 })
@@ -92,8 +101,7 @@ function CopywriteField({
   const source = (field.options?.[0] ?? "").trim()
   const written = value ?? ""
   const typedCount = written.length
-  const exact =
-    written.trim().length > 0 && written.trim() === source
+  const exact = written.trim().length > 0 && written.trim() === source
   if (!source)
     return (
       <p className="text-sm text-red-500">
@@ -101,26 +109,29 @@ function CopywriteField({
       </p>
     )
   const chars = source.split("")
-  const extra = written.length > source.length ? written.slice(source.length) : ""
+  const extra =
+    written.length > source.length ? written.slice(source.length) : ""
   const mismatchCount =
     chars.reduce(
-      (count, ch, i) =>
-        count + (written[i] && written[i] !== ch ? 1 : 0),
+      (count, ch, i) => count + (written[i] && written[i] !== ch ? 1 : 0),
       0,
     ) + (extra ? 1 : 0)
   return (
     <div className="space-y-2">
-      <Label>{field.required ? "* " : ""}{field.name}</Label>
-      <div className="rounded-lg border border-border/70 bg-muted/40 p-3">
-        <p className="mb-1.5 text-[11px] font-semibold tracking-[0.12em] text-muted-foreground uppercase">
+      <Label>
+        {field.required ? "* " : ""}
+        {field.name}
+      </Label>
+      <div className="border-border/70 bg-muted/40 rounded-lg border p-3">
+        <p className="text-muted-foreground mb-1.5 text-[11px] font-semibold tracking-[0.12em] uppercase">
           抄写原文
         </p>
-        <p className="text-sm leading-7 whitespace-pre-wrap text-foreground">
+        <p className="text-foreground text-sm leading-7 whitespace-pre-wrap">
           {source}
         </p>
       </div>
-      <div className="rounded-lg border border-border/70 p-3">
-        <p className="mb-1.5 text-[11px] font-semibold tracking-[0.12em] text-muted-foreground uppercase">
+      <div className="border-border/70 rounded-lg border p-3">
+        <p className="text-muted-foreground mb-1.5 text-[11px] font-semibold tracking-[0.12em] uppercase">
           对照抄写
         </p>
         <p className="min-h-[3.5rem] text-sm leading-7 whitespace-pre-wrap">
@@ -156,9 +167,7 @@ function CopywriteField({
         ) : exact ? (
           <span className="text-emerald-600">✓ 抄写一致，可以提交</span>
         ) : (
-          <span className="text-red-500">
-            ✗ 尚有 {mismatchCount} 处不一致
-          </span>
+          <span className="text-red-500">✗ 尚有 {mismatchCount} 处不一致</span>
         )}
       </p>
     </div>
@@ -178,7 +187,10 @@ function TaskImageField({
   const [compressing, setCompressing] = useState(false)
   return (
     <div className="space-y-2">
-      <Label>{field.required ? "* " : ""}{field.name}</Label>
+      <Label>
+        {field.required ? "* " : ""}
+        {field.name}
+      </Label>
       <Input
         type="file"
         accept="image/jpeg,image/png,image/webp"
@@ -192,19 +204,26 @@ function TaskImageField({
           try {
             onChange(await compressTaskImage(file))
           } catch (uploadError) {
-            setError(uploadError instanceof Error ? uploadError.message : "图片处理失败")
+            setError(
+              uploadError instanceof Error
+                ? uploadError.message
+                : "图片处理失败",
+            )
           } finally {
             setCompressing(false)
           }
         }}
       />
       <p className="text-muted-foreground text-xs">
-        支持 JPG、PNG、WebP；原图最大 5 MB，浏览器会压缩后以不超过 1 MB 的图片写入任务记录。
+        支持 JPG、PNG、WebP；原图最大 5 MB，浏览器会压缩后以不超过 1 MB
+        的图片写入任务记录。
       </p>
-      {compressing ? <p className="text-brand-700 text-xs">正在压缩图片…</p> : null}
+      {compressing ? (
+        <p className="text-brand-700 text-xs">正在压缩图片…</p>
+      ) : null}
       {error ? <p className="text-destructive text-xs">{error}</p> : null}
       {value ? (
-        <div className="border-border/70 relative max-w-sm overflow-hidden rounded-lg border bg-muted/30 p-2">
+        <div className="border-border/70 bg-muted/30 relative max-w-sm overflow-hidden rounded-lg border p-2">
           <Image
             src={value}
             alt={`${field.name}预览`}
@@ -231,6 +250,10 @@ function TaskImageField({
 function TaskPayloadForm({ task }: { task: z.infer<typeof Task> }) {
   const client = useQueryClient()
   const [data, setData] = useState<Record<string, unknown>>(task.data ?? {})
+  const lastSavedData = useRef(JSON.stringify(task.data ?? {}))
+  const [draftState, setDraftState] = useState<
+    "idle" | "saving" | "saved" | "error"
+  >(task.data && Object.keys(task.data).length ? "saved" : "idle")
   const copywriteIncomplete = task.templateSnapshot.fields.some((field) => {
     if (field.type !== "COPYWRITE") return false
     const source = (field.options?.[0] ?? "").trim()
@@ -249,6 +272,35 @@ function TaskPayloadForm({ task }: { task: z.infer<typeof Task> }) {
     onError: (error) =>
       toast.error(error instanceof Error ? error.message : "提交失败"),
   })
+  const saveDraft = useMutation({
+    mutationFn: ({
+      nextData,
+    }: {
+      nextData: Record<string, unknown>
+      serialized: string
+    }) =>
+      requestApi("/api/submissions/draft", z.object({ id: z.string() }), {
+        method: "POST",
+        body: JSON.stringify({ taskId: task.id, data: nextData }),
+      }),
+    onSuccess: (_, variables) => {
+      lastSavedData.current = variables.serialized
+      setDraftState("saved")
+    },
+    onError: () => setDraftState("error"),
+  })
+  const serializedData = JSON.stringify(data)
+  useEffect(() => {
+    if (serializedData === lastSavedData.current) return
+    // 首次打开一个空表单不建草稿；但已保存过草稿时，清空最后一项也要同步。
+    if (!Object.keys(data).length && lastSavedData.current === "{}") return
+
+    setDraftState("saving")
+    const timer = window.setTimeout(() => {
+      saveDraft.mutate({ nextData: data, serialized: serializedData })
+    }, 800)
+    return () => window.clearTimeout(timer)
+  }, [data, saveDraft, serializedData])
   if (task.status !== "PENDING" && task.status !== "RETURNED")
     return (
       <p className="rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-500">
@@ -268,6 +320,15 @@ function TaskPayloadForm({ task }: { task: z.infer<typeof Task> }) {
     )
   return (
     <div className="mt-5 space-y-4">
+      <p aria-live="polite" className="text-muted-foreground text-xs">
+        {draftState === "saving"
+          ? "正在自动保存草稿…"
+          : draftState === "saved"
+            ? "草稿已自动保存"
+            : draftState === "error"
+              ? "草稿保存失败，将在下次编辑时重试"
+              : "开始填写后将自动保存草稿"}
+      </p>
       {task.templateSnapshot.content && (
         <p className="rounded-lg bg-slate-50 px-3 py-2 text-sm leading-6 text-slate-600">
           {task.templateSnapshot.content}
@@ -330,15 +391,17 @@ function TaskPayloadForm({ task }: { task: z.infer<typeof Task> }) {
                   ))}
                 </SelectContent>
               </Select>
+            ) : field.type === "DATE" ? (
+              <DatePicker
+                ariaLabel={field.name}
+                value={String(data[field.name] ?? "")}
+                onValueChange={(value) =>
+                  setData((current) => ({ ...current, [field.name]: value }))
+                }
+              />
             ) : (
               <Input
-                type={
-                  field.type === "NUMBER"
-                    ? "number"
-                    : field.type === "DATE"
-                      ? "date"
-                      : "text"
-                }
+                type={field.type === "NUMBER" ? "number" : "text"}
                 value={String(data[field.name] ?? "")}
                 onChange={(event) =>
                   setData((current) => ({
@@ -459,7 +522,8 @@ export function SupervisorTasks() {
     onError: (error) =>
       toast.error(error instanceof Error ? error.message : "审核失败"),
   })
-  const pending = tasks.data?.filter((task) => task.status === "SUBMITTED") ?? []
+  const pending =
+    tasks.data?.filter((task) => task.status === "SUBMITTED") ?? []
   return (
     <div className="workspace-stack mx-auto max-w-5xl">
       <PageHeader
@@ -503,7 +567,9 @@ export function SupervisorTasks() {
                         <p className="text-xs font-semibold text-slate-500">
                           {field.name}
                         </p>
-                        <p className="mt-1 text-xs text-slate-400">原文：{source}</p>
+                        <p className="mt-1 text-xs text-slate-400">
+                          原文：{source}
+                        </p>
                         <p className="mt-1 text-sm whitespace-pre-wrap text-slate-700">
                           {written || "（未填写）"}
                         </p>
@@ -542,7 +608,9 @@ export function SupervisorTasks() {
                             className="mt-2 max-h-72 w-full max-w-md rounded border object-contain"
                           />
                         ) : (
-                          <p className="mt-1 text-sm text-slate-400">（未上传）</p>
+                          <p className="mt-1 text-sm text-slate-400">
+                            （未上传）
+                          </p>
                         )}
                       </div>
                     )

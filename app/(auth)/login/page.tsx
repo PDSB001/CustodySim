@@ -6,7 +6,7 @@ import { LoginForm } from "@/components/auth/login-form"
 import { getSessionUser } from "@/lib/session"
 
 export default async function LoginPage() {
-  const user = await getSessionUser()
+  const user = await getSessionUser({ allowPasswordChange: true })
   if (user) redirect(user.mustChangePassword ? "/change-password" : "/")
 
   return (

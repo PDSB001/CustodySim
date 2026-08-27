@@ -22,6 +22,8 @@ export function clearAuthCookie(response: NextResponse) {
   response.cookies.set(AUTH_COOKIE_NAME, "", {
     httpOnly: true,
     path: "/",
+    sameSite: "lax",
+    secure: shouldUseSecureCookie(),
     maxAge: 0,
   })
 }

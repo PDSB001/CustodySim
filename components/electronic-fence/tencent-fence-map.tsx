@@ -8,6 +8,7 @@ type FenceMapData = {
   latitude: number
   longitude: number
   radiusMeters: number
+  boundaryPoints?: Array<{ latitude: number; longitude: number }>
 }
 
 type TencentMapEvent = {
@@ -19,13 +20,16 @@ type TencentMapInstance = {
   destroy?: () => void
 }
 
+type TencentPolygonLayer = { setGeometries?: (geometries: Array<Record<string, unknown>>) => void; destroy?: () => void }
+
 type TencentMapApi = {
   Map: new (
     element: HTMLElement,
     options: { center: unknown; zoom: number },
   ) => TencentMapInstance
   LatLng: new (latitude: number, longitude: number) => unknown
-  MultiCircle: new (options: Record<string, unknown>) => unknown
+  MultiPolygon: new (options: Record<string, unknown>) => unknown
+  PolygonStyle: new (options: Record<string, unknown>) => unknown
   CircleStyle: new (options: Record<string, unknown>) => unknown
   MultiMarker: new (options: Record<string, unknown>) => unknown
   MarkerStyle: new (options: Record<string, unknown>) => unknown
@@ -66,10 +70,15 @@ export function TencentFenceMap({
   onPick?: (point: Pick<FenceMapData, "latitude" | "longitude">) => void
 }) {
   const container = useRef<HTMLDivElement>(null)
+  const mapRef = useRef<TencentMapInstance | null>(null)
+  const polygonRef = useRef<TencentPolygonLayer | null>(null)
+  const markerRef = useRef<TencentPolygonLayer | null>(null)
+  const apiRef = useRef<TencentMapApi | null>(null)
   const onPickRef = useRef(onPick)
   const [state, setState] = useState<"loading" | "ready" | "unavailable">(
     "loading",
   )
+  const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const key = process.env.NEXT_PUBLIC_TENCENT_MAP_KEY
   onPickRef.current = onPick
 
@@ -78,65 +87,118 @@ export function TencentFenceMap({
       setState("unavailable")
       return
     }
+    setErrorMessage(null)
     let map: TencentMapInstance | undefined
     let disposed = false
     void loadTencentMapSdk(key)
       .then((api) => {
         if (disposed || !container.current) return
         const center = new api.LatLng(fence.latitude, fence.longitude)
-        map = new api.Map(container.current, { center, zoom: 16 })
-        new api.MultiCircle({
-          map,
-          styles: {
-            fence: new api.CircleStyle({
-              color: "rgba(37, 99, 235, 0.14)",
-              showBorder: true,
-              borderColor: "#2563eb",
-              borderWidth: 2,
-            }),
-          },
-          geometries: [
-            {
-              id: "electronic-fence",
-              styleId: "fence",
-              center,
-              radius: fence.radiusMeters,
-            },
-          ],
-        })
-        new api.MultiMarker({
-          map,
-          styles: {
-            marker: new api.MarkerStyle({ width: 28, height: 38 }),
-          },
-          geometries: [{ id: "fence-center", styleId: "marker", position: center }],
-        })
-        if (editable && onPickRef.current)
-          map.on("click", (event) =>
-            onPickRef.current?.({
-              latitude: Number(event.latLng.getLat().toFixed(6)),
-              longitude: Number(event.latLng.getLng().toFixed(6)),
-            }),
-          )
+        map = new api.Map(container.current, {
+          center,
+          zoom: 16,
+          dragEnable: true,
+          scrollWheel: true,
+        } as { center: unknown; zoom: number })
         setState("ready")
+        mapRef.current = map
+        apiRef.current = api
+        if (editable && onPickRef.current) {
+          try {
+            map.on("click", (event) =>
+              onPickRef.current?.({
+                latitude: Number(event.latLng.getLat().toFixed(6)),
+                longitude: Number(event.latLng.getLng().toFixed(6)),
+              }),
+            )
+          } catch {
+            // Some SDK builds expose a different event API; the base map remains usable.
+          }
+        }
       })
-      .catch(() => setState("unavailable"))
+      .catch((error: unknown) => {
+        console.error("[TencentFenceMap] SDK 初始化失败", error)
+        setErrorMessage(error instanceof Error ? error.message : String(error))
+        setState("unavailable")
+      })
     return () => {
       disposed = true
+      polygonRef.current?.destroy?.()
+      polygonRef.current = null
+      markerRef.current?.destroy?.()
+      markerRef.current = null
+      mapRef.current = null
       map?.destroy?.()
     }
-  }, [editable, fence.latitude, fence.longitude, fence.radiusMeters, key])
+  }, [
+    editable,
+    fence.latitude,
+    fence.longitude,
+    fence.radiusMeters,
+    key,
+  ])
+
+  useEffect(() => {
+    const api = apiRef.current
+    const map = mapRef.current
+    if (!api || !map) return
+    const points = (fence.boundaryPoints ?? []).map(
+      (point) => new api.LatLng(point.latitude, point.longitude),
+    )
+    try {
+      const markerGeometries = points.map((position, index) => ({
+        id: `electronic-fence-point-${index + 1}`,
+        styleId: "point",
+        position,
+      }))
+      if (!markerRef.current) {
+        markerRef.current = new api.MultiMarker({
+          map,
+          styles: {
+            point: new api.MarkerStyle({
+              width: 25,
+              height: 35,
+              anchor: { x: 12, y: 35 },
+              src: "https://mapapi.qq.com/web/lbs/javascriptGL/demo/img/markerDefault.png",
+            }),
+          },
+          geometries: markerGeometries,
+        }) as TencentPolygonLayer
+      } else {
+        markerRef.current.setGeometries?.(markerGeometries)
+      }
+      if (points.length < 3) {
+        polygonRef.current?.setGeometries?.([])
+        return
+      }
+      if (!polygonRef.current) {
+        polygonRef.current = new api.MultiPolygon({
+          map,
+          styles: { fence: new api.PolygonStyle({ color: "rgba(37, 99, 235, 0.14)", showBorder: true, borderColor: "#2563eb", borderWidth: 2 }) },
+          geometries: [{ id: "electronic-fence", styleId: "fence", paths: [points] }],
+        }) as TencentPolygonLayer
+        return
+      }
+      polygonRef.current.setGeometries?.(
+        [{ id: "electronic-fence", styleId: "fence", paths: [points] }],
+      )
+    } catch (error) {
+      console.error("[TencentFenceMap] 多边形图层初始化失败", error)
+    }
+  }, [fence.boundaryPoints])
 
   return (
     <div className="relative min-h-64 overflow-hidden rounded-lg border bg-sky-50">
       <div ref={container} className="absolute inset-0" />
-      {state !== "ready" ? (
+      {state !== "ready" && !key ? (
         <div className="absolute inset-0 grid place-items-center bg-sky-50/95 p-6 text-center">
           <div>
             <MapPinned className="text-brand-600 mx-auto mb-3 size-7" />
             <p className="text-sm font-semibold">电子围栏坐标</p>
             <p className="text-muted-foreground mt-1 text-xs">
-              {fence.latitude.toFixed(6)}, {fence.longitude.toFixed(6)} · 半径 {fence.radiusMeters} 米
+              {fence.boundaryPoints && fence.boundaryPoints.length >= 3
+                ? `多边形 ${fence.boundaryPoints.length} 个点`
+                : `${fence.latitude.toFixed(6)}, ${fence.longitude.toFixed(6)} · 半径 ${fence.radiusMeters} 米`}
             </p>
             <p className="text-muted-foreground mt-3 max-w-sm text-xs leading-5">
               {key
@@ -146,9 +208,14 @@ export function TencentFenceMap({
           </div>
         </div>
       ) : null}
+      {state !== "ready" && key ? (
+        <div className="absolute inset-x-3 top-3 rounded bg-white/90 px-3 py-2 text-center text-xs shadow-sm">
+          地图初始化失败：{errorMessage ?? "未知错误"}
+        </div>
+      ) : null}
       {editable && state === "ready" ? (
         <p className="bg-background/90 text-muted-foreground absolute right-3 bottom-3 rounded px-2.5 py-1.5 text-xs shadow-sm">
-          点击地图可更新围栏中心点
+          点击地图添加边界点（至少 3 个点）
         </p>
       ) : null}
     </div>

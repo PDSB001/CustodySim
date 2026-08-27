@@ -35,19 +35,21 @@ describe("archive signature storage", () => {
 
   it("creates a self-contained official seal image", () => {
     const data = generateOfficialSealData()
-    expect(data).toMatch(
-      /^data:image\/svg\+xml;base64,/,
-    )
+    expect(data).toMatch(/^data:image\/svg\+xml;base64,/)
     const svg = Buffer.from(data.split(",")[1], "base64").toString("utf8")
     expect(svg).toContain("rotate(")
     expect(svg).not.toContain("<textPath")
     expect(svg.match(/<circle /g)).toHaveLength(1)
+    expect(svg).toContain('r="142"')
     expect(svg).not.toContain("CUSTODYSIM")
   })
 
   it("creates distinct seal snapshots for different business records", () => {
     expect(
-      generateOfficialSealData({ kind: "APPLICATION", sealText: "申请审批专用章" }),
+      generateOfficialSealData({
+        kind: "APPLICATION",
+        sealText: "申请审批专用章",
+      }),
     ).not.toBe(
       generateOfficialSealData({ kind: "REPORT", sealText: "执行汇报专用章" }),
     )

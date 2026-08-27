@@ -4,7 +4,10 @@ export async function register() {
       await import("@/lib/privacy-retention")
     const { startScheduledCustodyStatusScheduler } =
       await import("@/lib/custody-checkin")
+    const { startLeaveSystemMakeupScheduler } =
+      await import("@/lib/checkin")
     startGpsPrivacyRetentionScheduler()
     startScheduledCustodyStatusScheduler()
+    startLeaveSystemMakeupScheduler()
   }
 }

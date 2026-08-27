@@ -32,6 +32,7 @@ import { PageHeader } from "@/components/shared/page-header"
 import { StatusPill, type StatusTone } from "@/components/shared/status-pill"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { DatePicker } from "@/components/ui/date-picker"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
@@ -90,11 +91,17 @@ const Makeup = z.object({
 })
 const Makeups = z.array(Makeup)
 
-const SupervisionCheckin = Checkin.extend({
-  supervisedId: z.string(),
-  supervisedName: z.string(),
-})
-const SupervisionCheckins = z.array(SupervisionCheckin)
+const SupervisionCheckinHistory = z.array(
+  z.object({
+    supervisedId: z.string(),
+    supervisedName: z.string(),
+    scheduledCount: z.number(),
+    completedCount: z.number(),
+    exceptionCount: z.number(),
+    pendingCount: z.number(),
+    latestCheckinAt: z.string().nullable(),
+  }),
+)
 
 function timeText(value: string) {
   return new Intl.DateTimeFormat("zh-CN", {
@@ -161,7 +168,15 @@ function statusText(status: string) {
 }
 
 function statusTone(status: string): StatusTone {
-  if (["COMPLETED", "MAKEUP_APPROVED", "SYSTEM_MAKEUP", "ON_TIME", "APPROVED"].includes(status))
+  if (
+    [
+      "COMPLETED",
+      "MAKEUP_APPROVED",
+      "SYSTEM_MAKEUP",
+      "ON_TIME",
+      "APPROVED",
+    ].includes(status)
+  )
     return "success"
   if (["MISSED", "MAKEUP_REJECTED", "REJECTED"].includes(status))
     return "danger"
@@ -324,14 +339,16 @@ function CheckinCard({
         </div>
       </CardHeader>
       <CardContent className={compact ? "space-y-3" : "space-y-4"}>
-        {task.status === "PENDING" && variant === "record" && !systemManaged && (
-          <Button variant="brand" asChild>
-            <Link href="/my">
-              <ArrowLeft className="size-4" />
-              前往首页打卡
-            </Link>
-          </Button>
-        )}
+        {task.status === "PENDING" &&
+          variant === "record" &&
+          !systemManaged && (
+            <Button variant="brand" asChild>
+              <Link href="/my">
+                <ArrowLeft className="size-4" />
+                前往首页打卡
+              </Link>
+            </Button>
+          )}
         {task.status === "PENDING" && variant === "action" && (
           <>
             {task.needRemark && (
@@ -592,60 +609,62 @@ export function CheckinPanel() {
           )
         }
       >
-      <section className="metric-grid page-enter" aria-label="打卡概览">
-        {[
-          { label: "今日时段", value: total },
-          { label: "已完成", value: completed },
-          { label: "待处理", value: pending },
-        ].map(({ label, value }) => (
-          <MetricCell
-            key={label}
-            label={label}
-            value={value}
-            icon={CalendarCheck2}
-            tone={
-              label === "已完成"
-                ? "success"
-                : label === "待处理"
-                  ? "warning"
-                  : "brand"
-            }
-          />
-        ))}
-      </section>
-      <div className="grid gap-4">
-        {(custodyProfile.data?.canCheckin ||
-          custodyProfile.data?.custodyStatus === "ON_LEAVE") &&
-          checkins.data &&
-          checkins.data.length > 0 && (
-            <section>
-              <div className="mb-3 flex items-center gap-3 px-1">
-                <span className="bg-brand-500/10 text-brand-700 grid size-7 place-items-center rounded-md">
-                  <CalendarDays className="size-3.5" />
-                </span>
-                <div>
-                  <h3 className="text-foreground text-sm font-semibold">
-                    今日时段
-                  </h3>
-                  <p className="text-muted-foreground mt-0.5 text-xs">
-                    按时间顺序保留全部执行记录
-                  </p>
+        <section className="metric-grid page-enter" aria-label="打卡概览">
+          {[
+            { label: "今日时段", value: total },
+            { label: "已完成", value: completed },
+            { label: "待处理", value: pending },
+          ].map(({ label, value }) => (
+            <MetricCell
+              key={label}
+              label={label}
+              value={value}
+              icon={CalendarCheck2}
+              tone={
+                label === "已完成"
+                  ? "success"
+                  : label === "待处理"
+                    ? "warning"
+                    : "brand"
+              }
+            />
+          ))}
+        </section>
+        <div className="grid gap-4">
+          {(custodyProfile.data?.canCheckin ||
+            custodyProfile.data?.custodyStatus === "ON_LEAVE") &&
+            checkins.data &&
+            checkins.data.length > 0 && (
+              <section>
+                <div className="mb-3 flex items-center gap-3 px-1">
+                  <span className="bg-brand-500/10 text-brand-700 grid size-7 place-items-center rounded-md">
+                    <CalendarDays className="size-3.5" />
+                  </span>
+                  <div>
+                    <h3 className="text-foreground text-sm font-semibold">
+                      今日时段
+                    </h3>
+                    <p className="text-muted-foreground mt-0.5 text-xs">
+                      按时间顺序保留全部执行记录
+                    </p>
+                  </div>
                 </div>
-              </div>
-              <div className="grid gap-3">
-                {checkins.data.map((task) => (
-                  <CheckinCard
-                    key={task.id}
-                    task={task}
-                    variant="record"
-                    systemManaged={custodyProfile.data?.custodyStatus === "ON_LEAVE"}
-                  />
-                ))}
-              </div>
-            </section>
-          )}
-      </div>
-    </QueryStateView>
+                <div className="grid gap-3">
+                  {checkins.data.map((task) => (
+                    <CheckinCard
+                      key={task.id}
+                      task={task}
+                      variant="record"
+                      systemManaged={
+                        custodyProfile.data?.custodyStatus === "ON_LEAVE"
+                      }
+                    />
+                  ))}
+                </div>
+              </section>
+            )}
+        </div>
+      </QueryStateView>
     </div>
   )
 }
@@ -719,7 +738,7 @@ export function CheckinHomeCard() {
     )
   } else if (!currentTask) {
     body = (
-      <div className="text-muted-foreground rounded-lg border border-dashed border-border/60 bg-muted/30 px-4 py-6 text-center text-xs">
+      <div className="text-muted-foreground border-border/60 bg-muted/30 rounded-lg border border-dashed px-4 py-6 text-center text-xs">
         今日暂无待打卡时段
       </div>
     )
@@ -731,7 +750,9 @@ export function CheckinHomeCard() {
     <section className="space-y-3" aria-label="今日打卡">
       <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
         <p className="text-muted-foreground text-xs">
-          {showGpsHint ? "定位默认 IP，可在下方切换 GPS" : `当前监管状态：${statusLabel}`}
+          {showGpsHint
+            ? "定位默认 IP，可在下方切换 GPS"
+            : `当前监管状态：${statusLabel}`}
         </p>
         <Link
           href="/my/checkins"
@@ -847,85 +868,161 @@ export function MakeupReview() {
 }
 
 export function DailyCheckins() {
-  const checkins = useQuery({
-    queryKey: ["supervision-checkins"],
-    queryFn: () => requestApi("/api/supervision/checkins", SupervisionCheckins),
-  })
   return (
     <div className="workspace-stack mx-auto max-w-5xl">
       <PageHeader
         eyebrow="监管执行"
         title="日常打卡"
-        description="集中查看今日各时段打卡状态与位置。"
+        description="按日期查看监管范围内人员的打卡概览。"
       />
-      <QueryStateView
-        isLoading={checkins.isLoading}
-        error={checkins.error}
-        isEmpty={(checkins.data?.length ?? 0) === 0}
-        onRetry={() => checkins.refetch()}
-        loading={<LoadingBlock className="h-64" />}
-        empty={
-          <div className="surface-panel motion-item">
-            <EmptyState
-              icon={CalendarCheck2}
-              title="今日暂无打卡任务"
-              description="被监管者当日打卡记录会按时间顺序出现在这里。"
-            />
-          </div>
-        }
-      >
-        <Card className="page-enter">
-          <CardContent className="p-0">
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[680px] text-sm">
-                <thead className="bg-muted/60 text-muted-foreground text-left text-xs">
-                  <tr>
-                    <th className="px-5 py-3">被监管人</th>
-                    <th className="px-5 py-3">打卡规则</th>
-                    <th className="px-5 py-3">时段</th>
-                    <th className="px-5 py-3">截止</th>
-                    <th className="px-5 py-3">打卡位置</th>
-                    <th className="px-5 py-3">状态</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-border/60 divide-y">
-                  {checkins.data?.map((task) => (
-                    <tr key={task.id} className="hover:bg-muted/30">
-                      <td className="text-foreground px-5 py-4 font-medium">
-                        {task.supervisedName}
-                      </td>
-                      <td className="text-muted-foreground px-5 py-4">
-                        {task.ruleName}
-                      </td>
-                      <td className="font-numeric text-muted-foreground px-5 py-4">
-                        {timeText(task.scheduleAt)}
-                      </td>
-                      <td className="font-numeric text-muted-foreground/80 px-5 py-4">
-                        {timeText(task.deadline)}
-                      </td>
-                      <td className="text-muted-foreground max-w-[16rem] px-5 py-4">
-                        {locationLine(task) ? (
-                          <span className="flex items-center gap-1.5">
-                            <MapPin className="size-3.5 shrink-0" />
-                            <span className="truncate">{locationLine(task)}</span>
-                          </span>
-                        ) : (
-                          <span className="text-muted-foreground/50">—</span>
-                        )}
-                      </td>
-                      <td className="px-5 py-4">
-                        <StatusPill tone={statusTone(task.status)}>
-                          {statusText(task.status)}
-                        </StatusPill>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </CardContent>
-        </Card>
-      </QueryStateView>
+      <CheckinHistory />
     </div>
   )
+}
+
+function CheckinHistory() {
+  const [date, setDate] = useState("")
+  const history = useQuery({
+    queryKey: ["supervision-checkins-history", date],
+    queryFn: () =>
+      requestApi(
+        `/api/supervision/checkins?date=${encodeURIComponent(date)}`,
+        SupervisionCheckinHistory,
+      ),
+    enabled: Boolean(date),
+  })
+
+  const content = (() => {
+    if (!date)
+      return (
+        <p className="text-muted-foreground py-6 text-center text-sm">
+          请选择要查看的日期。
+        </p>
+      )
+    if (history.isLoading) return <LoadingBlock className="h-32" />
+    if (history.error)
+      return (
+        <ErrorState
+          compact
+          title="历史打卡记录加载失败"
+          description="请稍后重试。"
+          onRetry={() => history.refetch()}
+        />
+      )
+    if (!history.data?.length)
+      return (
+        <EmptyState
+          icon={CalendarDays}
+          title="监管范围内暂无人员"
+          description="人员建立监管关系后，会在这里按日期汇总打卡情况。"
+        />
+      )
+
+    return (
+      <>
+        <div className="grid gap-3 sm:hidden">
+          {history.data.map((item) => (
+            <div
+              key={item.supervisedId}
+              className="bg-muted/35 rounded-xl p-3.5"
+            >
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-foreground font-medium">
+                  {item.supervisedName}
+                </p>
+                <HistoryStatus item={item} />
+              </div>
+              <div className="text-muted-foreground mt-3 flex flex-wrap gap-x-4 gap-y-1.5 text-xs">
+                <span>
+                  完成 {item.completedCount}/{item.scheduledCount}
+                </span>
+                {item.exceptionCount > 0 && (
+                  <span>异常 {item.exceptionCount}</span>
+                )}
+                <span>
+                  最近{" "}
+                  {item.latestCheckinAt ? timeText(item.latestCheckinAt) : "—"}
+                </span>
+              </div>
+            </div>
+          ))}
+        </div>
+        <div className="hidden overflow-x-auto sm:block">
+          <table className="w-full min-w-[580px] text-sm">
+            <thead className="bg-muted/60 text-muted-foreground text-left text-xs">
+              <tr>
+                <th className="px-5 py-3">被监管人</th>
+                <th className="px-5 py-3">打卡完成</th>
+                <th className="px-5 py-3">状态</th>
+                <th className="px-5 py-3">最近打卡</th>
+              </tr>
+            </thead>
+            <tbody className="divide-border/60 divide-y">
+              {history.data.map((item) => (
+                <tr key={item.supervisedId} className="hover:bg-muted/30">
+                  <td className="text-foreground px-5 py-4 font-medium">
+                    {item.supervisedName}
+                  </td>
+                  <td className="font-numeric text-muted-foreground px-5 py-4">
+                    {item.completedCount} / {item.scheduledCount}
+                  </td>
+                  <td className="px-5 py-4">
+                    <HistoryStatus item={item} />
+                  </td>
+                  <td className="font-numeric text-muted-foreground px-5 py-4">
+                    {item.latestCheckinAt
+                      ? timeText(item.latestCheckinAt)
+                      : "—"}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </>
+    )
+  })()
+
+  return (
+    <section className="space-y-3 pt-2" aria-label="历史打卡记录">
+      <div className="flex flex-wrap items-end justify-between gap-3 px-1">
+        <div>
+          <h2 className="text-foreground text-base font-semibold">
+            历史打卡记录
+          </h2>
+          <p className="text-muted-foreground mt-1 text-sm">
+            选择日期后按人员汇总，不展开每个打卡时段的明细。
+          </p>
+        </div>
+        <div className="w-full sm:w-52">
+          <Label>查询日期</Label>
+          <div className="mt-2">
+            <DatePicker
+              ariaLabel="查询历史打卡日期"
+              value={date}
+              onValueChange={setDate}
+              maxDate={new Date()}
+            />
+          </div>
+        </div>
+      </div>
+      <Card className="page-enter">
+        <CardContent className="p-3 sm:p-0">{content}</CardContent>
+      </Card>
+    </section>
+  )
+}
+
+function HistoryStatus({
+  item,
+}: {
+  item: z.infer<typeof SupervisionCheckinHistory>[number]
+}) {
+  if (item.scheduledCount === 0)
+    return <StatusPill tone="info">无打卡任务</StatusPill>
+  if (item.exceptionCount > 0)
+    return <StatusPill tone="danger">异常 {item.exceptionCount}</StatusPill>
+  if (item.pendingCount > 0)
+    return <StatusPill tone="warning">待处理 {item.pendingCount}</StatusPill>
+  return <StatusPill tone="success">已完成</StatusPill>
 }

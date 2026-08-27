@@ -59,9 +59,16 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
         comment: parsed.data.comment ?? null,
         reviewedAt: new Date(),
       })
-      .where(eq(profileRecordReviews.id, review.id))
+      .where(
+        and(
+          eq(profileRecordReviews.id, review.id),
+          eq(profileRecordReviews.reviewerId, actor.id),
+          eq(profileRecordReviews.result, "PENDING"),
+        ),
+      )
       .returning()
-    if (!updatedReview) return failure("INTERNAL_ERROR", "保存会签失败", 500)
+    if (!updatedReview)
+      return failure("CONFLICT", "该会签已由其他请求处理", 409)
 
     if (parsed.data.result === "RETURNED") {
       await db

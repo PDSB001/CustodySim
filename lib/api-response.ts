@@ -7,6 +7,7 @@ export const ErrorCodeSchema = z.enum([
   "NOT_FOUND",
   "VALIDATION_ERROR",
   "CONFLICT",
+  "RATE_LIMITED",
   "INTERNAL_ERROR",
 ])
 export type ErrorCode = z.infer<typeof ErrorCodeSchema>

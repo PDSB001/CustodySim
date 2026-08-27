@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm"
+import { and, eq } from "drizzle-orm"
 import { NextRequest } from "next/server"
 import { z } from "zod"
 
@@ -17,6 +17,8 @@ const ReviewSchema = z.object({
   comment: z.string().trim().max(2000).nullable().optional(),
 })
 
+class ReviewConflictError extends Error {}
+
 export async function POST(request: NextRequest) {
   const actor = await getSessionUser()
   if (!actor) return failure("UNAUTHORIZED", "请先登录", 401)
@@ -29,6 +31,7 @@ export async function POST(request: NextRequest) {
       taskId: reportTasks.id,
       supervisedId: reportTasks.supervisedId,
       templateSnapshot: reportTasks.templateSnapshot,
+      taskStatus: reportTasks.status,
     })
     .from(reportSubmissions)
     .innerJoin(reportTasks, eq(reportTasks.id, reportSubmissions.taskId))
@@ -39,6 +42,8 @@ export async function POST(request: NextRequest) {
     !(await isEffectiveSupervisorForSupervised(actor, row.supervisedId))
   )
     return failure("FORBIDDEN", "不在监管范围内", 403)
+  if (row.taskStatus !== "SUBMITTED")
+    return failure("CONFLICT", "任务当前不可审核", 409)
   const taskKind =
     typeof row.templateSnapshot === "object" && row.templateSnapshot
       ? (row.templateSnapshot as { kind?: string }).kind
@@ -47,27 +52,45 @@ export async function POST(request: NextRequest) {
     parsed.data.result === "APPROVED"
       ? await getOfficialSealData(taskKind === "REPORT" ? "REPORT" : "TASK")
       : null
-  const [review] = await db
-    .insert(reportReviews)
-    .values({
-      ...parsed.data,
-      reviewerId: actor.id,
-      submissionId: parsed.data.submissionId,
+  let review
+  try {
+    review = await db.transaction(async (tx) => {
+      const now = new Date()
+      const [updatedTask] = await tx
+        .update(reportTasks)
+        .set({
+          status: parsed.data.result === "APPROVED" ? "APPROVED" : "RETURNED",
+          updatedAt: now,
+        })
+        .where(
+          and(
+            eq(reportTasks.id, row.taskId),
+            eq(reportTasks.status, "SUBMITTED"),
+          ),
+        )
+        .returning({ id: reportTasks.id })
+      if (!updatedTask) throw new ReviewConflictError()
+      const [createdReview] = await tx
+        .insert(reportReviews)
+        .values({
+          ...parsed.data,
+          reviewerId: actor.id,
+          submissionId: parsed.data.submissionId,
+        })
+        .returning()
+      if (!createdReview) throw new Error("审核记录创建失败")
+      if (officialSealData)
+        await tx
+          .update(reportSubmissions)
+          .set({ officialSealData, updatedAt: now })
+          .where(eq(reportSubmissions.id, parsed.data.submissionId))
+      return createdReview
     })
-    .returning()
-  await db
-    .update(reportTasks)
-    .set({
-      status: parsed.data.result === "APPROVED" ? "APPROVED" : "RETURNED",
-      updatedAt: new Date(),
-    })
-    .where(eq(reportTasks.id, row.taskId))
-  if (officialSealData)
-    await db
-      .update(reportSubmissions)
-      .set({ officialSealData, updatedAt: new Date() })
-      .where(eq(reportSubmissions.id, parsed.data.submissionId))
-  if (!review) return failure("INTERNAL_ERROR", "审核失败", 500)
+  } catch (error) {
+    if (error instanceof ReviewConflictError)
+      return failure("CONFLICT", "任务已由其他请求处理", 409)
+    throw error
+  }
   await writeAuditLog({
     actor,
     action: "REVIEW",

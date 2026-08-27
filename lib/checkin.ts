@@ -6,6 +6,7 @@ import {
   checkinRecords,
   checkinTasks,
   organizations,
+  persons,
   ruleGroupScopes,
   ruleScopes,
   rules,
@@ -40,6 +41,7 @@ import {
   getSupervisedUserIdsForActor,
   isEffectiveSupervisorForSupervised,
 } from "@/lib/supervision-scope"
+import { legacyDateAllDay } from "@/lib/shanghai-datetime"
 import type { SessionUser } from "@/lib/session"
 
 export const CHECKIN_TASK_STATUSES = [
@@ -107,10 +109,7 @@ export function getRecordStatus(scheduleAt: Date, deadline: Date, now: Date) {
 
 export async function getCheckinRulesForUser(userId: string, now = new Date()) {
   const profile = await getCustodyProfileForUser(userId)
-  if (
-    !profile ||
-    !["IN_CUSTODY", "ON_LEAVE"].includes(profile.custodyStatus)
-  )
+  if (!profile || !["IN_CUSTODY", "ON_LEAVE"].includes(profile.custodyStatus))
     return []
   await ensureCustodyCheckinPresets()
   const [
@@ -236,10 +235,7 @@ export async function ensureTodayCheckinTasks(
   return tasks
 }
 
-async function ensureLeaveSystemMakeups(
-  userId: string,
-  now: Date,
-) {
+async function ensureLeaveSystemMakeups(userId: string, now: Date) {
   const { start, end } = getDayRange(now)
   const tasks = await db
     .select({
@@ -256,6 +252,7 @@ async function ensureLeaveSystemMakeups(
         lt(checkinTasks.scheduleAt, end),
       ),
     )
+  let created = 0
   for (const task of tasks) {
     if (task.status !== "PENDING" || task.scheduleAt > now) continue
     await db.transaction(async (tx) => {
@@ -277,13 +274,54 @@ async function ensureLeaveSystemMakeups(
         .update(checkinTasks)
         .set({ status: "SYSTEM_MAKEUP", updatedAt: now })
         .where(
-          and(
-            eq(checkinTasks.id, task.id),
-            eq(checkinTasks.status, "PENDING"),
-          ),
+          and(eq(checkinTasks.id, task.id), eq(checkinTasks.status, "PENDING")),
         )
     })
+    created += 1
   }
+  return created
+}
+
+export async function runLeaveSystemMakeupSweep(now = new Date()) {
+  const profiles = await db
+    .select({ userId: persons.userId })
+    .from(persons)
+    .where(
+      and(
+        eq(persons.personType, "SUPERVISED"),
+        eq(persons.custodyStatus, "ON_LEAVE"),
+      ),
+    )
+  let created = 0
+  for (const profile of profiles) {
+    if (!profile.userId) continue
+    await ensureTodayCheckinTasks(profile.userId, now)
+    created += await ensureLeaveSystemMakeups(profile.userId, now)
+  }
+  return created
+}
+
+const leaveMakeupSchedulerKey = Symbol.for(
+  "custodysim.leave-system-makeup-scheduler",
+)
+
+export function startLeaveSystemMakeupScheduler() {
+  const runtime = globalThis as typeof globalThis & {
+    [leaveMakeupSchedulerKey]?: ReturnType<typeof setInterval>
+  }
+  if (runtime[leaveMakeupSchedulerKey]) return
+  void runLeaveSystemMakeupSweep().catch((error: unknown) =>
+    console.error("[checkin] initial leave system makeup sweep failed", error),
+  )
+  const timer = setInterval(
+    () =>
+      void runLeaveSystemMakeupSweep().catch((error: unknown) =>
+        console.error("[checkin] scheduled leave system makeup sweep failed", error),
+      ),
+    15 * 60 * 1000,
+  )
+  timer.unref?.()
+  runtime[leaveMakeupSchedulerKey] = timer
 }
 
 async function markExpiredCheckins(userId: string, now: Date) {
@@ -302,10 +340,7 @@ async function markExpiredCheckins(userId: string, now: Date) {
 export async function getTodayCheckinRecords(userId: string, now = new Date()) {
   await purgeExpiredGpsCheckinData(now)
   const profile = await getCustodyProfileForUser(userId)
-  if (
-    !profile ||
-    !["IN_CUSTODY", "ON_LEAVE"].includes(profile.custodyStatus)
-  )
+  if (!profile || !["IN_CUSTODY", "ON_LEAVE"].includes(profile.custodyStatus))
     return []
   await ensureTodayCheckinTasks(userId, now)
   if (profile.custodyStatus === "ON_LEAVE")
@@ -382,6 +417,89 @@ export async function getSupervisionCheckins(
     ...record,
     supervisedName: names.get(record.supervisedId) ?? "被监管人",
   }))
+}
+
+/**
+ * 读取某一自然日的监管范围打卡概览。这个查询完全只读：查看历史时不会
+ * 补生成任务，也不会把旧任务写回为缺卡状态。
+ */
+export async function getSupervisionCheckinHistory(
+  actor: SessionUser,
+  dateKey: string,
+  now = new Date(),
+) {
+  const range = legacyDateAllDay(dateKey)
+  if (!range) throw new CheckinError("日期格式不正确")
+
+  const ids = [...(await getSupervisedUserIdsForActor(actor))]
+  if (!ids.length) return []
+
+  const [supervisedUsers, tasks] = await Promise.all([
+    db
+      .select({ id: users.id, name: users.name })
+      .from(users)
+      .where(inArray(users.id, ids))
+      .orderBy(users.name),
+    db
+      .select({
+        supervisedId: checkinTasks.supervisedId,
+        status: checkinTasks.status,
+        deadline: checkinTasks.deadline,
+        checkinAt: checkinRecords.checkinAt,
+      })
+      .from(checkinTasks)
+      .leftJoin(checkinRecords, eq(checkinRecords.taskId, checkinTasks.id))
+      .where(
+        and(
+          inArray(checkinTasks.supervisedId, ids),
+          gte(checkinTasks.scheduleAt, new Date(range.startMs)),
+          lt(checkinTasks.scheduleAt, new Date(range.endMs)),
+        ),
+      )
+      .orderBy(checkinTasks.scheduleAt),
+  ])
+
+  const result = new Map(
+    supervisedUsers.map((user) => [
+      user.id,
+      {
+        supervisedId: user.id,
+        supervisedName: user.name,
+        scheduledCount: 0,
+        completedCount: 0,
+        exceptionCount: 0,
+        pendingCount: 0,
+        latestCheckinAt: null as Date | null,
+      },
+    ]),
+  )
+
+  for (const task of tasks) {
+    const summary = result.get(task.supervisedId)
+    if (!summary) continue
+    summary.scheduledCount += 1
+    const status = getCheckinTaskStatus(task.status, task.deadline, now)
+    if (
+      ["COMPLETED", "LATE", "MAKEUP_APPROVED", "SYSTEM_MAKEUP"].includes(status)
+    ) {
+      summary.completedCount += 1
+    }
+    if (
+      ["LATE", "MISSED", "MAKEUP_PENDING", "MAKEUP_REJECTED"].includes(status)
+    ) {
+      summary.exceptionCount += 1
+    }
+    if (["PENDING", "MAKEUP_PENDING"].includes(status))
+      summary.pendingCount += 1
+    if (
+      task.checkinAt &&
+      (!summary.latestCheckinAt || task.checkinAt > summary.latestCheckinAt)
+    ) {
+      summary.latestCheckinAt = task.checkinAt
+    }
+  }
+
+  return [...result.values()]
 }
 
 export async function doCheckin({
@@ -597,7 +715,7 @@ export async function reviewCheckinMakeup({
     throw new CheckinError("无权审核该补卡", 403)
   if (makeup.status !== "PENDING") throw new CheckinError("该补卡申请已处理")
   const now = new Date()
-  await db
+  const [updatedMakeup] = await db
     .update(checkinMakeups)
     .set({
       status: result,
@@ -605,7 +723,14 @@ export async function reviewCheckinMakeup({
       reviewComment: comment?.trim() || null,
       reviewedAt: now,
     })
-    .where(eq(checkinMakeups.id, makeupId))
+    .where(
+      and(
+        eq(checkinMakeups.id, makeupId),
+        eq(checkinMakeups.status, "PENDING"),
+      ),
+    )
+    .returning({ id: checkinMakeups.id })
+  if (!updatedMakeup) throw new CheckinError("该补卡申请已由其他请求处理", 409)
   if (result === "APPROVED") {
     const makeupLocation = (makeup.location ?? {}) as {
       source?: string

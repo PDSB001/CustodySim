@@ -1,17 +1,35 @@
-import { and, desc, eq } from "drizzle-orm"
+import { and, desc, eq, isNull } from "drizzle-orm"
 
 import { getShanghaiDateKey } from "@/lib/application"
 import { db } from "@/lib/db"
 import { electronicFences, reportTasks } from "@/lib/db/schema"
+import { ensureElectronicFenceReportTemplate } from "@/lib/electronic-fence-report-template"
 import { getSupervisorIdsForSupervised } from "@/lib/supervision-scope"
 
-export async function getCurrentElectronicFence() {
+export async function getCurrentElectronicFence(userId?: string) {
+  if (userId) {
+    const [personalFence] = await db
+      .select()
+      .from(electronicFences)
+      .where(
+        and(
+          eq(electronicFences.entryType, "CONFIG"),
+          eq(electronicFences.userId, userId),
+        ),
+      )
+      .orderBy(desc(electronicFences.updatedAt))
+      .limit(1)
+    // 人员专属配置即使是“停用”，也应覆盖默认围栏。
+    if (personalFence) return personalFence.enabled ? personalFence : null
+  }
+
   const [fence] = await db
     .select()
     .from(electronicFences)
     .where(
       and(
         eq(electronicFences.entryType, "CONFIG"),
+        isNull(electronicFences.userId),
         eq(electronicFences.enabled, true),
       ),
     )
@@ -76,7 +94,10 @@ export async function recordElectronicFenceLocation({
       verdict,
       transition,
     })
-    .returning({ id: electronicFences.id, reportedAt: electronicFences.reportedAt })
+    .returning({
+      id: electronicFences.id,
+      reportedAt: electronicFences.reportedAt,
+    })
   if (!report) throw new Error("记录移动端定位失败")
   return report
 }
@@ -112,21 +133,22 @@ export async function ensureGeofenceExplanationTask({
     .limit(1)
   if (existing) return { taskId: existing.id, created: false }
 
-  const supervisors = await getSupervisorIdsForSupervised(userId)
+  const [supervisors, template] = await Promise.all([
+    getSupervisorIdsForSupervised(userId),
+    ensureElectronicFenceReportTemplate(),
+  ])
   const [task] = await db
     .insert(reportTasks)
     .values({
       title,
       supervisedId: userId,
       supervisorId: [...supervisors].sort()[0] ?? null,
+      templateId: template.id,
       templateSnapshot: {
-        name: "电子围栏越界说明",
-        kind: "REPORT",
-        content: `系统判定已超出“${fenceName}”电子围栏。请如实说明原因并提交审核。`,
-        fields: [
-          { name: "越界原因", type: "TEXTAREA", required: true, options: [] },
-          { name: "预计返回时间", type: "DATE", required: false, options: [] },
-        ],
+        name: template.name,
+        kind: template.kind,
+        content: template.content,
+        fields: template.fields,
       },
       payload: { fenceName, distanceMeters: distance, radiusMeters },
       source: "GEOFENCE",

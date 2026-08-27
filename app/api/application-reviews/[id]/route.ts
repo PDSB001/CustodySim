@@ -18,6 +18,7 @@ import { getSessionUser } from "@/lib/session"
 
 const ParamsSchema = z.object({ id: z.string().uuid() })
 type RouteContext = { params: Promise<{ id: string }> }
+class ReviewConflictError extends Error {}
 
 export async function PATCH(request: NextRequest, context: RouteContext) {
   const actor = await getSessionUser()
@@ -52,14 +53,22 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       return failure("CONFLICT", "申请当前不在审核流程中", 409)
 
     await db.transaction(async (tx) => {
-      await tx
+      const [updatedReview] = await tx
         .update(applicationReviews)
         .set({
           result: parsed.data.result,
           comment: parsed.data.comment ?? null,
           reviewedAt: new Date(),
         })
-        .where(eq(applicationReviews.id, review.id))
+        .where(
+          and(
+            eq(applicationReviews.id, review.id),
+            eq(applicationReviews.reviewerId, actor.id),
+            eq(applicationReviews.result, "PENDING"),
+          ),
+        )
+        .returning({ id: applicationReviews.id })
+      if (!updatedReview) throw new ReviewConflictError()
       const [nextReview] =
         parsed.data.result === "APPROVED"
           ? await tx
@@ -131,6 +140,8 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     })
     return success({ id: review.id, result: parsed.data.result })
   } catch (error) {
+    if (error instanceof ReviewConflictError)
+      return failure("CONFLICT", "该申请已由其他请求处理", 409)
     console.error("[API application-reviews PATCH]", error)
     return failure("INTERNAL_ERROR", "服务器错误", 500)
   }

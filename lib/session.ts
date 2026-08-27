@@ -15,7 +15,9 @@ export type SessionUser = {
   mustChangePassword: boolean
 }
 
-export async function getSessionUser(): Promise<SessionUser | null> {
+export async function getSessionUser(
+  options: { allowPasswordChange?: boolean } = {},
+): Promise<SessionUser | null> {
   const cookieStore = await cookies()
   const token = cookieStore.get(AUTH_COOKIE_NAME)?.value
   if (!token) return null
@@ -42,6 +44,7 @@ export async function getSessionUser(): Promise<SessionUser | null> {
     !["ADMIN", "SUPERVISOR", "SUPERVISED"].includes(user.role)
   )
     return null
+  if (user.mustChangePassword && !options.allowPasswordChange) return null
   return {
     id: user.id,
     username: user.username,

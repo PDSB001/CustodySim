@@ -1,10 +1,15 @@
 import { describe, expect, it } from "vitest"
 
-import { GPS_RETENTION_MS, getGpsExpiry } from "@/lib/privacy-retention"
+import {
+  ELECTRONIC_FENCE_LOCATION_RETENTION_MS,
+  GPS_RETENTION_MS,
+  getGpsExpiry,
+} from "@/lib/privacy-retention"
 
 describe("GPS 隐私保留策略", () => {
   it("将精确定位保留期固定为 72 小时", () => {
     expect(GPS_RETENTION_MS).toBe(72 * 60 * 60 * 1000)
+    expect(ELECTRONIC_FENCE_LOCATION_RETENTION_MS).toBe(GPS_RETENTION_MS)
   })
 
   it("从打卡时刻计算精确坐标清除时间", () => {

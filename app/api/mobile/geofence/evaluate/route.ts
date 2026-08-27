@@ -33,7 +33,7 @@ export async function POST(request: NextRequest) {
   try {
     const [profile, fence, previousReport] = await Promise.all([
       getCustodyProfileForUser(actor.id),
-      getCurrentElectronicFence(),
+      getCurrentElectronicFence(actor.id),
       getLatestElectronicFenceLocation(actor.id),
     ])
     const result = evaluateFence({
@@ -46,6 +46,7 @@ export async function POST(request: NextRequest) {
             radiusMeters: fence.radiusMeters,
             coordinateSystem: "GCJ02",
             enabled: fence.enabled,
+            boundaryPoints: fence.boundaryPoints ?? [],
           }
         : null,
       point: {

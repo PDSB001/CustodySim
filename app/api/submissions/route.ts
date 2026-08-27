@@ -16,7 +16,15 @@ const TemplateSnapshotSchema = z.object({
     .array(
       z.object({
         name: z.string(),
-        type: z.enum(["TEXT", "TEXTAREA", "NUMBER", "SELECT", "DATE", "COPYWRITE", "IMAGE"]),
+        type: z.enum([
+          "TEXT",
+          "TEXTAREA",
+          "NUMBER",
+          "SELECT",
+          "DATE",
+          "COPYWRITE",
+          "IMAGE",
+        ]),
         required: z.boolean(),
         options: z.array(z.string()),
       }),
@@ -42,13 +50,16 @@ export async function POST(request: NextRequest) {
   if (task.status !== "PENDING" && task.status !== "RETURNED")
     return failure(
       "VALIDATION_ERROR",
-      task.status === "SUBMITTED" ? "任务已提交，请勿重复提交" : "该任务当前不可提交",
+      task.status === "SUBMITTED"
+        ? "任务已提交，请勿重复提交"
+        : "该任务当前不可提交",
       400,
     )
   const template = TemplateSnapshotSchema.parse(task.templateSnapshot)
   const check = validateFieldPayload(template.fields, parsed.data.data)
   if (!check.valid)
     return failure("VALIDATION_ERROR", JSON.stringify(check.errors), 400)
+  const now = new Date()
   const [submission] = await db
     .insert(reportSubmissions)
     .values({
@@ -56,11 +67,21 @@ export async function POST(request: NextRequest) {
       userId: actor.id,
       content: JSON.stringify(parsed.data.data),
       data: parsed.data.data,
+      status: "SUBMITTED",
+    })
+    .onConflictDoUpdate({
+      target: reportSubmissions.taskId,
+      set: {
+        content: JSON.stringify(parsed.data.data),
+        data: parsed.data.data,
+        status: "SUBMITTED",
+        updatedAt: now,
+      },
     })
     .returning()
   await db
     .update(reportTasks)
-    .set({ status: "SUBMITTED", updatedAt: new Date() })
+    .set({ status: "SUBMITTED", updatedAt: now })
     .where(eq(reportTasks.id, task.id))
   return submission
     ? success(submission, { status: 201 })

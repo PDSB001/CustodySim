@@ -9,6 +9,11 @@ import { LoginSchema, SessionUserSchema } from "@/lib/auth-schemas"
 import { db } from "@/lib/db"
 import { users } from "@/lib/db/schema"
 import { writeLoginLog } from "@/lib/login-log-server"
+import {
+  clearLoginFailures,
+  getLoginRetryAfterSeconds,
+  recordLoginFailure,
+} from "@/lib/login-rate-limit"
 
 export const runtime = "nodejs"
 
@@ -22,6 +27,18 @@ export async function POST(request: NextRequest) {
         400,
       )
 
+    const ip = getRequestIp(request.headers)
+    const retryAfterSeconds = await getLoginRetryAfterSeconds(
+      parsed.data.username,
+      ip,
+    )
+    if (retryAfterSeconds > 0)
+      return failure(
+        "RATE_LIMITED",
+        `登录尝试过于频繁，请在 ${retryAfterSeconds} 秒后重试`,
+        429,
+      )
+
     const [user] = await db
       .select()
       .from(users)
@@ -32,11 +49,12 @@ export async function POST(request: NextRequest) {
       user.status !== "active" ||
       !(await verifyPassword(parsed.data.password, user.passwordHash))
     ) {
+      await recordLoginFailure(parsed.data.username, ip)
       await writeLoginLog({
         username: parsed.data.username,
         success: false,
         failReason: "用户名或密码错误",
-        ip: getRequestIp(request.headers),
+        ip,
         userAgent: request.headers.get("user-agent"),
       }).catch(() => undefined)
       return failure("UNAUTHORIZED", "用户名或密码错误", 401)
@@ -57,13 +75,14 @@ export async function POST(request: NextRequest) {
       tokenVersion: user.tokenVersion,
       role: sessionUser.role,
     })
+    await clearLoginFailures(parsed.data.username, ip)
     const response = success(sessionUser)
     setAuthCookie(response, token)
     await writeLoginLog({
       userId: user.id,
       username: user.username,
       success: true,
-      ip: getRequestIp(request.headers),
+      ip,
       userAgent: request.headers.get("user-agent"),
     }).catch(() => undefined)
     return response

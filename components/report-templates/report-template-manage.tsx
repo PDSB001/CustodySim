@@ -1,7 +1,7 @@
 "use client"
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { FileText, ListChecks, Plus, Trash2 } from "lucide-react"
+import { FilePenLine, FileText, ListChecks, Plus, Trash2 } from "lucide-react"
 import { useState } from "react"
 import { z } from "zod"
 import { requestApi } from "@/components/shared/api-client"
@@ -65,6 +65,8 @@ const fieldTypeLabels: Record<string, string> = {
   IMAGE: "图片上传",
 }
 
+const electronicFenceTemplateName = "电子围栏越界说明"
+
 export function ReportTemplateManage() {
   const client = useQueryClient()
   const [name, setName] = useState("")
@@ -73,44 +75,69 @@ export function ReportTemplateManage() {
   const [fields, setFields] = useState([
     { name: "", type: "TEXT", required: true, options: "" },
   ])
+  const [editingTemplate, setEditingTemplate] = useState<z.infer<
+    typeof Template
+  > | null>(null)
   const [templatePendingDelete, setTemplatePendingDelete] = useState<z.infer<
     typeof Template
   > | null>(null)
+  const isEditingElectronicFenceTemplate =
+    editingTemplate?.name === electronicFenceTemplateName
   const templates = useQuery({
     queryKey: ["report-templates"],
     queryFn: () => requestApi("/api/admin/report-templates", z.array(Template)),
   })
+  const templatePayload = () => ({
+    name,
+    kind,
+    content: content || null,
+    fields: fields.map((field) => ({
+      name: field.name,
+      type: field.type,
+      required: field.required,
+      options:
+        field.type === "COPYWRITE"
+          ? [field.options.trim()]
+          : field.options
+              .split(",")
+              .map((value) => value.trim())
+              .filter(Boolean),
+    })),
+  })
+  const resetEditor = () => {
+    setName("")
+    setKind("REPORT")
+    setContent("")
+    setFields([{ name: "", type: "TEXT", required: true, options: "" }])
+    setEditingTemplate(null)
+  }
   const create = useMutation({
     mutationFn: () =>
       requestApi("/api/admin/report-templates", Template, {
         method: "POST",
-        body: JSON.stringify({
-          name,
-          kind,
-          content: content || null,
-          fields: fields.map((field) => ({
-            name: field.name,
-            type: field.type,
-            required: field.required,
-            options:
-              field.type === "COPYWRITE"
-                ? [field.options.trim()]
-                : field.options
-                    .split(",")
-                    .map((value) => value.trim())
-                    .filter(Boolean),
-          })),
-        }),
+        body: JSON.stringify(templatePayload()),
       }),
     onSuccess: () => {
       client.invalidateQueries({ queryKey: ["report-templates"] })
-      setName("")
-      setContent("")
-      setFields([{ name: "", type: "TEXT", required: true, options: "" }])
+      resetEditor()
       toast.success("任务表单模板已创建")
     },
     onError: (error) =>
       toast.error(error instanceof Error ? error.message : "创建失败"),
+  })
+  const update = useMutation({
+    mutationFn: (id: string) =>
+      requestApi(`/api/admin/report-templates/${id}`, Template, {
+        method: "PUT",
+        body: JSON.stringify(templatePayload()),
+      }),
+    onSuccess: () => {
+      client.invalidateQueries({ queryKey: ["report-templates"] })
+      resetEditor()
+      toast.success("任务表单模板已更新；后续新任务将使用新版模板")
+    },
+    onError: (error) =>
+      toast.error(error instanceof Error ? error.message : "更新失败"),
   })
   const remove = useMutation({
     mutationFn: (id: string) =>
@@ -144,22 +171,27 @@ export function ReportTemplateManage() {
       <PageHeader
         eyebrow="任务载荷"
         title="任务表单模板"
-        description="设计被监管人实际填写的字段；任务生成后会保存模板快照，后续调整不会影响历史任务。"
+        description="设计被监管人实际填写的字段；电子围栏越界说明为系统模板，可编辑。任务生成后会保存模板快照，后续调整不会影响历史任务。"
       />
-      <Card className="page-enter border-0 shadow-soft">
+      <Card className="page-enter shadow-soft border-0">
         <CardContent className="space-y-5 p-5 sm:p-6">
           <div className="grid gap-4 md:grid-cols-2">
             <div className="space-y-2">
               <Label>模板名称</Label>
               <Input
                 value={name}
+                disabled={isEditingElectronicFenceTemplate}
                 onChange={(event) => setName(event.target.value)}
                 placeholder="例如：每日学习心得"
               />
             </div>
             <div className="space-y-2">
               <Label>任务类型</Label>
-              <Select value={kind} onValueChange={setKind}>
+              <Select
+                disabled={isEditingElectronicFenceTemplate}
+                value={kind}
+                onValueChange={setKind}
+              >
                 <SelectTrigger className="w-full">
                   <SelectValue placeholder="选择任务类型" />
                 </SelectTrigger>
@@ -178,10 +210,15 @@ export function ReportTemplateManage() {
               onChange={(event) => setContent(event.target.value)}
               placeholder="说明填写要求与注意事项"
             />
+            {isEditingElectronicFenceTemplate ? (
+              <p className="text-muted-foreground text-xs">
+                系统模板名称和任务类型固定；可调整填写说明与表单字段。
+              </p>
+            ) : null}
           </div>
           <div className="space-y-3">
             <div className="flex items-center justify-between">
-              <p className="text-sm font-medium text-foreground">表单字段</p>
+              <p className="text-foreground text-sm font-medium">表单字段</p>
               <Button
                 type="button"
                 variant="outline"
@@ -200,7 +237,7 @@ export function ReportTemplateManage() {
             {fields.map((field, index) => (
               <div
                 key={index}
-                className="grid gap-3 rounded-xl border border-border/70 bg-muted/40 p-3 md:grid-cols-[minmax(0,1fr)_10rem_8rem_auto]"
+                className="border-border/70 bg-muted/40 grid gap-3 rounded-xl border p-3 md:grid-cols-[minmax(0,1fr)_10rem_8rem_auto]"
               >
                 <Input
                   value={field.name}
@@ -226,7 +263,7 @@ export function ReportTemplateManage() {
                     <SelectItem value="IMAGE">图片上传</SelectItem>
                   </SelectContent>
                 </Select>
-                <label className="flex items-center gap-2 text-sm text-muted-foreground">
+                <label className="text-muted-foreground flex items-center gap-2 text-sm">
                   <Checkbox
                     checked={field.required}
                     onCheckedChange={(checked) =>
@@ -261,7 +298,7 @@ export function ReportTemplateManage() {
                 )}
                 {field.type === "COPYWRITE" && (
                   <div className="space-y-1.5 md:col-span-3">
-                    <p className="text-xs text-muted-foreground">
+                    <p className="text-muted-foreground text-xs">
                       抄写原文（被监管人需逐字一致地抄写以下内容）
                     </p>
                     <Textarea
@@ -277,33 +314,53 @@ export function ReportTemplateManage() {
               </div>
             ))}
           </div>
-          <Button
-            variant="brand"
-            disabled={
-              !name || fields.some((field) => !field.name) || create.isPending
-            }
-            onClick={() => create.mutate()}
-          >
-            {create.isPending ? "保存中…" : "保存任务表单"}
-          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              variant="brand"
+              disabled={
+                !name ||
+                fields.some((field) => !field.name) ||
+                create.isPending ||
+                update.isPending
+              }
+              onClick={() =>
+                editingTemplate
+                  ? update.mutate(editingTemplate.id)
+                  : create.mutate()
+              }
+            >
+              {editingTemplate
+                ? update.isPending
+                  ? "保存中…"
+                  : "保存模板修改"
+                : create.isPending
+                  ? "保存中…"
+                  : "保存任务表单"}
+            </Button>
+            {editingTemplate ? (
+              <Button variant="outline" onClick={resetEditor}>
+                取消编辑
+              </Button>
+            ) : null}
+          </div>
         </CardContent>
       </Card>
       <section className="space-y-4">
         <div className="flex items-end justify-between gap-4 px-1">
           <div>
-            <p className="text-sm font-semibold text-foreground">已有模板</p>
-            <p className="mt-1 text-xs text-muted-foreground">
+            <p className="text-foreground text-sm font-semibold">已有模板</p>
+            <p className="text-muted-foreground mt-1 text-xs">
               查看字段、填写说明和适用任务类型；删除后不会影响已生成任务。
             </p>
           </div>
-          <span className="rounded-full bg-muted/60 px-2.5 py-1 text-xs font-medium text-muted-foreground">
+          <span className="bg-muted/60 text-muted-foreground rounded-full px-2.5 py-1 text-xs font-medium">
             {templates.data?.length ?? 0} 个
           </span>
         </div>
 
         {templates.isError ? (
-          <Card className="page-enter border-0 shadow-soft">
-            <CardContent className="flex items-center gap-3 p-5 text-sm text-muted-foreground">
+          <Card className="page-enter shadow-soft border-0">
+            <CardContent className="text-muted-foreground flex items-center gap-3 p-5 text-sm">
               <span className="text-destructive">模板列表加载失败。</span>
               <Button
                 size="sm"
@@ -317,22 +374,24 @@ export function ReportTemplateManage() {
         ) : templates.data?.length ? (
           <div className="grid gap-4 xl:grid-cols-2">
             {templates.data.map((template) => {
+              const isElectronicFenceTemplate =
+                template.name === electronicFenceTemplateName
               const requiredCount = template.fields.filter(
                 (field) => field.required,
               ).length
               return (
                 <Card
                   key={template.id}
-                  className="page-enter border-0 shadow-soft"
+                  className="page-enter shadow-soft border-0"
                 >
                   <CardContent className="p-0">
                     <div className="flex items-start justify-between gap-4 px-5 pt-5 sm:px-6 sm:pt-6">
                       <div className="flex min-w-0 items-start gap-3">
-                        <span className="grid size-9 shrink-0 place-items-center rounded-md bg-brand-500/10 text-brand-700">
+                        <span className="bg-brand-500/10 text-brand-700 grid size-9 shrink-0 place-items-center rounded-md">
                           <FileText className="size-4" />
                         </span>
                         <div className="min-w-0">
-                          <p className="font-display truncate text-[0.95rem] font-semibold text-foreground">
+                          <p className="font-display text-foreground truncate text-[0.95rem] font-semibold">
                             {template.name}
                           </p>
                           <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
@@ -347,33 +406,66 @@ export function ReportTemplateManage() {
                           </div>
                         </div>
                       </div>
-                      <Button
-                        aria-label={`删除模板：${template.name}`}
-                        className="shrink-0 text-muted-foreground hover:text-destructive"
-                        size="icon-sm"
-                        variant="ghost"
-                        onClick={() => setTemplatePendingDelete(template)}
-                      >
-                        <Trash2 />
-                      </Button>
+                      <div className="flex shrink-0 items-center gap-1">
+                        <Button
+                          aria-label={`编辑模板：${template.name}`}
+                          className="text-muted-foreground hover:text-brand-700"
+                          size="icon-sm"
+                          variant="ghost"
+                          onClick={() => {
+                            setEditingTemplate(template)
+                            setName(template.name)
+                            setKind(template.kind)
+                            setContent(template.content ?? "")
+                            setFields(
+                              template.fields.map((field) => ({
+                                name: field.name,
+                                type: field.type,
+                                required: field.required,
+                                options:
+                                  field.type === "COPYWRITE"
+                                    ? (field.options[0] ?? "")
+                                    : field.options.join(", "),
+                              })),
+                            )
+                          }}
+                        >
+                          <FilePenLine />
+                        </Button>
+                        <Button
+                          aria-label={`删除模板：${template.name}`}
+                          className="text-muted-foreground hover:text-destructive"
+                          size="icon-sm"
+                          variant="ghost"
+                          disabled={isElectronicFenceTemplate}
+                          title={
+                            isElectronicFenceTemplate
+                              ? "系统模板不可删除，可直接编辑"
+                              : undefined
+                          }
+                          onClick={() => setTemplatePendingDelete(template)}
+                        >
+                          <Trash2 />
+                        </Button>
+                      </div>
                     </div>
 
-                    <div className="mx-5 mt-5 border-y border-border/60 py-4 sm:mx-6">
-                      <p className="text-xs font-semibold tracking-[0.12em] text-muted-foreground uppercase">
+                    <div className="border-border/60 mx-5 mt-5 border-y py-4 sm:mx-6">
+                      <p className="text-muted-foreground text-xs font-semibold tracking-[0.12em] uppercase">
                         填写说明
                       </p>
-                      <p className="mt-1.5 line-clamp-3 text-sm leading-6 text-muted-foreground">
+                      <p className="text-muted-foreground mt-1.5 line-clamp-3 text-sm leading-6">
                         {template.content ||
                           "未填写具体说明。被监管人会根据下方字段完成任务内容。"}
                       </p>
                     </div>
 
                     <div className="px-5 py-4 sm:px-6">
-                      <div className="mb-2 flex items-center gap-2 text-xs font-semibold text-muted-foreground">
+                      <div className="text-muted-foreground mb-2 flex items-center gap-2 text-xs font-semibold">
                         <ListChecks className="size-3.5" />
                         字段设计
                       </div>
-                      <div className="divide-y divide-border/60 rounded-xl border border-border/60 bg-muted/40 px-3">
+                      <div className="divide-border/60 border-border/60 bg-muted/40 divide-y rounded-xl border px-3">
                         {template.fields.map((field, index) => (
                           <div
                             key={`${field.name}-${index}`}
@@ -381,10 +473,10 @@ export function ReportTemplateManage() {
                           >
                             <div className="min-w-0">
                               <div className="flex flex-wrap items-center gap-2">
-                                <span className="font-medium text-foreground">
+                                <span className="text-foreground font-medium">
                                   {field.name}
                                 </span>
-                                <span className="rounded bg-card px-1.5 py-0.5 text-[11px] text-muted-foreground ring-1 ring-border/70">
+                                <span className="bg-card text-muted-foreground ring-border/70 rounded px-1.5 py-0.5 text-[11px] ring-1">
                                   {fieldTypeLabels[field.type] ?? field.type}
                                 </span>
                                 {field.required && (
@@ -393,12 +485,12 @@ export function ReportTemplateManage() {
                               </div>
                               {field.type === "SELECT" &&
                                 field.options.length > 0 && (
-                                  <p className="mt-1 truncate text-xs text-muted-foreground">
+                                  <p className="text-muted-foreground mt-1 truncate text-xs">
                                     选项：{field.options.join("、")}
                                   </p>
                                 )}
                             </div>
-                            <span className="text-xs font-numeric text-muted-foreground">
+                            <span className="font-numeric text-muted-foreground text-xs">
                               {String(index + 1).padStart(2, "0")}
                             </span>
                           </div>
@@ -411,7 +503,7 @@ export function ReportTemplateManage() {
             })}
           </div>
         ) : !templates.isLoading ? (
-          <Card className="page-enter border-0 shadow-soft">
+          <Card className="page-enter shadow-soft border-0">
             <CardContent className="p-0">
               <EmptyState
                 icon={FileText}
@@ -425,7 +517,7 @@ export function ReportTemplateManage() {
             {[0, 1].map((index) => (
               <Card
                 key={index}
-                className="h-64 animate-pulse border-0 bg-muted/40 shadow-soft"
+                className="bg-muted/40 shadow-soft h-64 animate-pulse border-0"
               />
             ))}
           </div>

@@ -59,7 +59,11 @@ async function ensureUser({
   if (existing) {
     const [updated] = await db
       .update(users)
-      .set({ organizationId, updatedAt: new Date() })
+      .set({
+        organizationId,
+        mustChangePassword: true,
+        updatedAt: new Date(),
+      })
       .where(eq(users.id, existing.id))
       .returning()
     if (!updated) throw new Error(`无法更新示例账号：${username}`)
@@ -73,6 +77,7 @@ async function ensureUser({
       name,
       role,
       organizationId,
+      mustChangePassword: true,
     })
     .returning()
   if (!created) throw new Error(`无法创建示例账号：${username}`)
@@ -178,6 +183,12 @@ async function seed() {
     })
   await ensureCustodyCheckinPresets()
   console.info("组织骨架已就绪：机构 → 监管组织 / 第一监狱 → 监区 → 监室")
+}
+
+if (process.env.NODE_ENV === "production" || process.env.ALLOW_DEMO_SEED !== "true") {
+  throw new Error(
+    "演示数据初始化已禁用。仅限非生产环境且明确设置 ALLOW_DEMO_SEED=true 时执行。",
+  )
 }
 
 seed().catch((error: unknown) => {

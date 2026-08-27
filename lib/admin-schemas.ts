@@ -280,6 +280,10 @@ export const ElectronicFenceSchema = z.object({
   latitude: z.coerce.number().min(-90).max(90),
   longitude: z.coerce.number().min(-180).max(180),
   radiusMeters: z.coerce.number().int().min(50).max(50_000),
+  boundaryPoints: z.array(z.object({
+    latitude: z.coerce.number().min(-90).max(90),
+    longitude: z.coerce.number().min(-180).max(180),
+  })).max(20).default([]),
   enabled: z.boolean().default(true),
 })
 

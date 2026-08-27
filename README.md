@@ -26,7 +26,7 @@ npx playwright install chromium
 电子围栏通过腾讯地图 JavaScript API GL 展示与选点。请在 `.env.local` 配置
 `NEXT_PUBLIC_TENCENT_MAP_KEY`，并在腾讯位置服务控制台把该 Key 限制到实际部署域名。围栏坐标统一使用腾讯地图的 `GCJ-02` 坐标系。
 
-当前版本在同一张 `electronic_fences` 表中保存围栏配置与移动端定位上报；网页端不采集位置。移动端可调用
+当前版本在同一张 `electronic_fences` 表中保存围栏配置与移动端定位上报；网页端不采集位置。精确围栏位置上报与打卡 GPS 一样仅保留 72 小时，随后自动删除。移动端可调用
 `POST /api/mobile/geofence/evaluate` 提交 `latitude`、`longitude`、`accuracyMeters`、
 `capturedAt` 与 `coordinateSystem: "GCJ02"` 做即时判定；只有在押人员参与。越界会创建
 一条当天的原因说明任务。服务端会根据上一次和本次定位判定首次进入、离开或持续在围栏外。
@@ -66,6 +66,20 @@ You can start editing the page by modifying `app/page.tsx`. The page auto-update
 开发服务会监听所有网卡。手机和电脑连接同一 Wi-Fi 后，使用终端显示的局域网地址访问，例如 `http://192.168.1.170:3000`。本地 `.env.local` 已配置 `AUTH_COOKIE_SECURE=false`，使 HTTP 局域网地址可以保存登录 Cookie。
 
 部署到带 HTTPS 的服务器时，请删除该项或设为 `AUTH_COOKIE_SECURE=true`，保持会话 Cookie 的 Secure 属性。
+
+### 生产初始化与安全配置
+
+生产部署不会创建演示账号。首次部署完成数据库结构同步后，使用部署系统的临时环境变量执行一次：
+
+```powershell
+$env:INITIAL_ADMIN_USERNAME = "你的管理员账号"
+$env:INITIAL_ADMIN_PASSWORD = "长度至少 8 位且包含字母和数字的随机密码"
+pnpm db:bootstrap-admin
+```
+
+初始管理员创建后应立即登录改密，并从部署环境移除 `INITIAL_ADMIN_PASSWORD`。生产环境还必须设置 `APP_ORIGIN=https://实际域名`，它用于校验所有写操作的来源；未设置时写操作会被拒绝。
+
+演示数据只能在非生产环境中、显式设置 `ALLOW_DEMO_SEED=true` 后通过 `pnpm db:seed` 创建，不能用于生产环境。
 
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
 

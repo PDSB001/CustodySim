@@ -5,13 +5,16 @@ import {
 } from "@/lib/electronic-fence"
 import { getSessionUser } from "@/lib/session"
 
-function serializeFence(fence: NonNullable<Awaited<ReturnType<typeof getCurrentElectronicFence>>>) {
+function serializeFence(
+  fence: NonNullable<Awaited<ReturnType<typeof getCurrentElectronicFence>>>,
+) {
   return {
     id: fence.id,
     name: fence.name,
     latitude: Number(fence.latitude),
     longitude: Number(fence.longitude),
     radiusMeters: fence.radiusMeters,
+    boundaryPoints: fence.boundaryPoints ?? [],
     coordinateSystem: fence.coordinateSystem,
     updatedAt: fence.updatedAt,
   }
@@ -21,7 +24,7 @@ export async function GET() {
   const actor = await getSessionUser()
   if (!actor) return failure("UNAUTHORIZED", "请先登录", 401)
   const [fence, latestLocation] = await Promise.all([
-    getCurrentElectronicFence(),
+    getCurrentElectronicFence(actor.id),
     actor.role === "SUPERVISED"
       ? getLatestElectronicFenceLocation(actor.id)
       : Promise.resolve(null),

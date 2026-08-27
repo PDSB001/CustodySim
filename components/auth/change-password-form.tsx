@@ -29,7 +29,11 @@ const ChangePasswordResponseSchema = z
     }),
   )
 
-export function ChangePasswordForm() {
+export function ChangePasswordForm({
+  forceChange = false,
+}: {
+  forceChange?: boolean
+}) {
   const router = useRouter()
   const [serverError, setServerError] = useState<string | null>(null)
   const {
@@ -63,13 +67,13 @@ export function ChangePasswordForm() {
       <div className="space-y-2">
         <label
           htmlFor="currentPassword"
-          className="text-xs font-semibold tracking-wide text-foreground/70"
+          className="text-foreground/70 text-xs font-semibold tracking-wide"
         >
           当前密码
         </label>
-        <InputGroup className="h-11 rounded-xl border-border/70 bg-background/80 transition focus-within:border-brand-500 focus-within:ring-2 focus-within:ring-brand-500/30">
+        <InputGroup className="border-border/70 bg-background/80 focus-within:border-brand-500 focus-within:ring-brand-500/30 h-11 rounded-xl transition focus-within:ring-2">
           <InputGroupAddon align="inline-start">
-            <KeyRound className="size-4 text-muted-foreground" />
+            <KeyRound className="text-muted-foreground size-4" />
           </InputGroupAddon>
           <InputGroupInput
             id="currentPassword"
@@ -79,7 +83,7 @@ export function ChangePasswordForm() {
           />
         </InputGroup>
         {errors.currentPassword && (
-          <p className="text-xs text-destructive">
+          <p className="text-destructive text-xs">
             {errors.currentPassword.message}
           </p>
         )}
@@ -87,13 +91,13 @@ export function ChangePasswordForm() {
       <div className="space-y-2">
         <label
           htmlFor="newPassword"
-          className="text-xs font-semibold tracking-wide text-foreground/70"
+          className="text-foreground/70 text-xs font-semibold tracking-wide"
         >
           新密码
         </label>
-        <InputGroup className="h-11 rounded-xl border-border/70 bg-background/80 transition focus-within:border-brand-500 focus-within:ring-2 focus-within:ring-brand-500/30">
+        <InputGroup className="border-border/70 bg-background/80 focus-within:border-brand-500 focus-within:ring-brand-500/30 h-11 rounded-xl transition focus-within:ring-2">
           <InputGroupAddon align="inline-start">
-            <Lock className="size-4 text-muted-foreground" />
+            <Lock className="text-muted-foreground size-4" />
           </InputGroupAddon>
           <InputGroupInput
             id="newPassword"
@@ -103,15 +107,39 @@ export function ChangePasswordForm() {
           />
         </InputGroup>
         {errors.newPassword && (
-          <p className="text-xs text-destructive">
+          <p className="text-destructive text-xs">
             {errors.newPassword.message}
+          </p>
+        )}
+      </div>
+      <div className="space-y-2">
+        <label
+          htmlFor="confirmPassword"
+          className="text-foreground/70 text-xs font-semibold tracking-wide"
+        >
+          确认新密码
+        </label>
+        <InputGroup className="border-border/70 bg-background/80 focus-within:border-brand-500 focus-within:ring-brand-500/30 h-11 rounded-xl transition focus-within:ring-2">
+          <InputGroupAddon align="inline-start">
+            <Lock className="text-muted-foreground size-4" />
+          </InputGroupAddon>
+          <InputGroupInput
+            id="confirmPassword"
+            type="password"
+            autoComplete="new-password"
+            {...register("confirmPassword")}
+          />
+        </InputGroup>
+        {errors.confirmPassword && (
+          <p className="text-destructive text-xs">
+            {errors.confirmPassword.message}
           </p>
         )}
       </div>
       {serverError && (
         <p
           role="alert"
-          className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive"
+          className="border-destructive/30 bg-destructive/10 text-destructive rounded-lg border px-3 py-2 text-xs"
         >
           {serverError}
         </p>
@@ -120,9 +148,15 @@ export function ChangePasswordForm() {
         type="submit"
         size="lg"
         disabled={isSubmitting}
-        className="h-11 w-full rounded-xl bg-gradient-to-r from-brand-600 to-[color:var(--chart-5)] text-white shadow-[0_8px_24px_-8px_rgba(112,80,255,0.6)] hover:from-brand-700 hover:to-[color:var(--chart-5)]"
+        className="from-brand-600 hover:from-brand-700 h-11 w-full rounded-xl bg-gradient-to-r to-[color:var(--chart-5)] text-white shadow-[0_8px_24px_-8px_rgba(112,80,255,0.6)] hover:to-[color:var(--chart-5)]"
       >
-        {isSubmitting ? <LoaderCircle className="size-4 animate-spin" /> : "确认修改"}
+        {isSubmitting ? (
+          <LoaderCircle className="size-4 animate-spin" />
+        ) : forceChange ? (
+          "设置新密码并继续"
+        ) : (
+          "确认修改"
+        )}
       </Button>
     </form>
   )

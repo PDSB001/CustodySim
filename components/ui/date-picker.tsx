@@ -20,6 +20,8 @@ type CommonPickerProps = {
   onValueChange: (value: string) => void
   disabled?: boolean
   ariaLabel?: string
+  minDate?: Date
+  maxDate?: Date
 }
 
 /** 基于 react-datepicker 的统一私有日期控件，不使用浏览器原生日期输入框。 */
@@ -28,6 +30,8 @@ export function DatePicker({
   onValueChange,
   disabled = false,
   ariaLabel = "日期",
+  minDate,
+  maxDate,
 }: CommonPickerProps) {
   return (
     <ReactDatePicker
@@ -36,6 +40,8 @@ export function DatePicker({
         onValueChange(nextDate ? format(nextDate, DATE_FORMAT) : "")
       }
       disabled={disabled}
+      minDate={minDate}
+      maxDate={maxDate}
       locale={zhCN}
       dateFormat="yyyy年MM月dd日"
       dateFormatCalendar="yyyy年MM月"

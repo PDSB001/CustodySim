@@ -115,7 +115,8 @@ export function UserManage() {
         z.object({ id: z.string() }),
         { method: "POST", body: JSON.stringify({ password: "admin123" }) },
       ),
-    onSuccess: () => toast.success("密码已重置为 admin123"),
+    onSuccess: () =>
+      toast.success("密码已重置为 admin123，用户下次登录必须修改密码"),
     onError: (error) =>
       toast.error(error instanceof Error ? error.message : "重置失败"),
   })
@@ -255,7 +256,7 @@ export function UserManage() {
       <Card>
         <CardContent className="overflow-x-auto p-0">
           <table className="w-full min-w-[720px] text-left text-sm">
-            <thead className="bg-muted/40 text-xs text-muted-foreground">
+            <thead className="bg-muted/40 text-muted-foreground text-xs">
               <tr>
                 <th className="px-5 py-3 font-medium">账户</th>
                 <th className="px-5 py-3 font-medium">角色</th>
@@ -264,7 +265,7 @@ export function UserManage() {
                 <th className="px-5 py-3 text-right font-medium">操作</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-border/60">
+            <tbody className="divide-border/60 divide-y">
               {users.data?.map((user) => (
                 <tr key={user.id} className="group/row hover:bg-muted/30">
                   <td className="px-5 py-4">
@@ -276,10 +277,10 @@ export function UserManage() {
                         className="group-hover/row:bg-brand-500/10 group-hover/row:text-brand-700"
                       />
                       <div>
-                        <p className="font-medium text-foreground">
+                        <p className="text-foreground font-medium">
                           {user.name}
                         </p>
-                        <p className="mt-0.5 text-xs text-muted-foreground">
+                        <p className="text-muted-foreground mt-0.5 text-xs">
                           @{user.username}
                         </p>
                       </div>
@@ -290,7 +291,7 @@ export function UserManage() {
                       {ROLE_LABELS[user.role] ?? user.role}
                     </Badge>
                   </td>
-                  <td className="px-5 py-4 text-muted-foreground">
+                  <td className="text-muted-foreground px-5 py-4">
                     {user.organizationName ?? "未分配"}
                   </td>
                   <td className="px-5 py-4">

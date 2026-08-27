@@ -7,7 +7,7 @@ import { getSessionUser } from "@/lib/session"
 export default async function SupervisorLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
-  const user = await getSessionUser()
+  const user = await getSessionUser({ allowPasswordChange: true })
   if (!user) redirect("/login")
   if (user.mustChangePassword) redirect("/change-password")
   if (user.role !== "SUPERVISOR") redirect(getRoleHome(user.role))

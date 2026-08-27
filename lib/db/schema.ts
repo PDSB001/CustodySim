@@ -34,7 +34,7 @@ export const users = pgTable("users", {
   name: varchar("name", { length: 100 }).notNull(),
   role: varchar("role", { length: 20 }).notNull(),
   status: varchar("status", { length: 20 }).notNull().default("active"),
-  mustChangePassword: boolean("must_change_password").notNull().default(false),
+  mustChangePassword: boolean("must_change_password").notNull().default(true),
   tokenVersion: integer("token_version").notNull().default(0),
   passwordMeta: text("password_meta"),
   organizationId: uuid("organization_id").references(() => organizations.id),
@@ -106,6 +106,7 @@ export const electronicFences = pgTable(
     latitude: varchar("latitude", { length: 32 }).notNull(),
     longitude: varchar("longitude", { length: 32 }).notNull(),
     radiusMeters: integer("radius_meters").notNull(),
+    boundaryPoints: jsonb("boundary_points").$type<Array<{ latitude: number; longitude: number }>>().notNull().default([]),
     coordinateSystem: varchar("coordinate_system", { length: 20 })
       .notNull()
       .default("GCJ02"),
@@ -249,6 +250,22 @@ export const loginLogs = pgTable(
     index("login_logs_user_idx").on(table.userId),
     index("login_logs_created_at_idx").on(table.createdAt),
   ],
+)
+
+export const loginRateLimits = pgTable(
+  "login_rate_limits",
+  {
+    key: varchar("key", { length: 64 }).primaryKey(),
+    attemptCount: integer("attempt_count").notNull().default(0),
+    windowStartedAt: timestamp("window_started_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    blockedUntil: timestamp("blocked_until", { withTimezone: true }),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [index("login_rate_limits_blocked_idx").on(table.blockedUntil)],
 )
 
 export const supervisionRelations = pgTable(
@@ -683,9 +700,9 @@ export const profileRecords = pgTable(
     signatureMode: varchar("signature_mode", { length: 20 })
       .notNull()
       .default("GENERATED"),
-      generatedSignatureData: text("generated_signature_data"),
-      handwrittenSignatureEncrypted: text("handwritten_signature_encrypted"),
-      officialSealData: text("official_seal_data"),
+    generatedSignatureData: text("generated_signature_data"),
+    handwrittenSignatureEncrypted: text("handwritten_signature_encrypted"),
+    officialSealData: text("official_seal_data"),
     status: varchar("status", { length: 30 }).notNull().default("DRAFT"),
     code: varchar("code", { length: 80 }),
     boxId: uuid("box_id").references(() => archiveBoxes.id, {
@@ -753,9 +770,12 @@ export const applications = pgTable(
     title: varchar("title", { length: 160 }).notNull(),
     reason: text("reason").notNull(),
     payload: jsonb("payload").notNull().default({}),
-    archiveRecordId: uuid("archive_record_id").references(() => profileRecords.id, {
-      onDelete: "set null",
-    }),
+    archiveRecordId: uuid("archive_record_id").references(
+      () => profileRecords.id,
+      {
+        onDelete: "set null",
+      },
+    ),
     archiveSnapshot: jsonb("archive_snapshot"),
     officialSealData: text("official_seal_data"),
     status: varchar("status", { length: 30 }).notNull().default("DRAFT"),
@@ -829,12 +849,13 @@ export const noticeReads = pgTable(
     userId: uuid("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
-    readAt: timestamp("read_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
+    readAt: timestamp("read_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
-    uniqueIndex("notice_reads_notice_user_unique").on(table.noticeId, table.userId),
+    uniqueIndex("notice_reads_notice_user_unique").on(
+      table.noticeId,
+      table.userId,
+    ),
     index("notice_reads_user_idx").on(table.userId, table.readAt),
   ],
 )

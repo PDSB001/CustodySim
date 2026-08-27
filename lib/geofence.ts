@@ -6,6 +6,7 @@ export type ElectronicFenceShape = GeoPoint & {
   radiusMeters: number
   coordinateSystem: "GCJ02"
   enabled: boolean
+  boundaryPoints?: GeoPoint[]
 }
 
 export type GeofenceVerdict =
@@ -54,8 +55,20 @@ export function evaluateFence({
   if (!fence || !fence.enabled)
     return { verdict: "NOT_CONFIGURED", distanceMeters: null }
   const measured = distanceMeters(fence, point)
+  const polygon = fence.boundaryPoints ?? []
+  let inside = measured <= fence.radiusMeters
+  if (polygon.length >= 3) {
+    inside = false
+    for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+      const a = polygon[i]!
+      const b = polygon[j]!
+      const crosses = (a.longitude > point.longitude) !== (b.longitude > point.longitude)
+      if (crosses && point.latitude < ((b.latitude - a.latitude) * (point.longitude - a.longitude)) / (b.longitude - a.longitude) + a.latitude)
+        inside = !inside
+    }
+  }
   return {
-    verdict: measured <= fence.radiusMeters ? "INSIDE" : "OUTSIDE",
+    verdict: inside ? "INSIDE" : "OUTSIDE",
     distanceMeters: Math.round(measured),
   }
 }

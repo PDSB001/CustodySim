@@ -7,20 +7,37 @@ import { ReportTemplateSchema } from "@/lib/admin-schemas"
 import { failure, success } from "@/lib/api-response"
 import { db } from "@/lib/db"
 import { reportTemplateFields, reportTemplates } from "@/lib/db/schema"
+import {
+  ELECTRONIC_FENCE_REPORT_TEMPLATE_NAME,
+  ensureElectronicFenceReportTemplate,
+} from "@/lib/electronic-fence-report-template"
 
 export async function GET() {
-  if (!(await getAdminUser()))
-    return failure("FORBIDDEN", "仅管理员可查看任务模板", 403)
-  const [templates, fields] = await Promise.all([
-    db.select().from(reportTemplates).orderBy(asc(reportTemplates.createdAt)),
-    db.select().from(reportTemplateFields),
-  ])
-  return success(
-    templates.map((template) => ({
-      ...template,
-      fields: fields.filter((field) => field.templateId === template.id),
-    })),
-  )
+  try {
+    if (!(await getAdminUser()))
+      return failure("FORBIDDEN", "仅管理员可查看任务模板", 403)
+
+    await ensureElectronicFenceReportTemplate()
+    // Read both tables from one transaction snapshot. This prevents a
+    // concurrent template edit from returning a partially updated list.
+    const result = await db.transaction(async (tx) => {
+      const [templates, fields] = await Promise.all([
+        tx.select().from(reportTemplates).orderBy(asc(reportTemplates.createdAt)),
+        tx
+          .select()
+          .from(reportTemplateFields)
+          .orderBy(asc(reportTemplateFields.sort)),
+      ])
+      return templates.map((template) => ({
+        ...template,
+        fields: fields.filter((field) => field.templateId === template.id),
+      }))
+    })
+    return success(result)
+  } catch (error) {
+    console.error("[API report-templates GET]", error)
+    return failure("INTERNAL_ERROR", "服务器错误", 500)
+  }
 }
 
 export async function POST(request: NextRequest) {
@@ -31,6 +48,12 @@ export async function POST(request: NextRequest) {
     return failure(
       "VALIDATION_ERROR",
       JSON.stringify(parsed.error.flatten().fieldErrors),
+      400,
+    )
+  if (parsed.data.name === ELECTRONIC_FENCE_REPORT_TEMPLATE_NAME)
+    return failure(
+      "VALIDATION_ERROR",
+      "电子围栏系统模板已存在，请直接编辑它。",
       400,
     )
   try {
