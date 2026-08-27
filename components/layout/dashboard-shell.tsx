@@ -110,15 +110,29 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
             <p className="app-nav-group__title">{section.label}</p>
             {section.entries.map(({ href, label, icon: Icon }) => {
               const active = pathIsActive(pathname, href)
-              return (
+              const children = (
+                <>
+                  <Icon className="app-nav-item__icon" />
+                  <span>{label}</span>
+                </>
+              )
+              return href === "/electronic-fences" ? (
+                <a
+                  key={href}
+                  className={`app-nav-item ${active ? "is-active" : ""}`}
+                  href={href}
+                  onClick={onNavigate}
+                >
+                  {children}
+                </a>
+              ) : (
                 <Link
                   key={href}
                   className={`app-nav-item ${active ? "is-active" : ""}`}
                   href={href}
                   onClick={onNavigate}
                 >
-                  <Icon className="app-nav-item__icon" />
-                  <span>{label}</span>
+                  {children}
                 </Link>
               )
             })}

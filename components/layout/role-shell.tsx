@@ -103,15 +103,32 @@ function WorkspaceSidebar({
           <p className="app-nav-group__title">{config.eyebrow}</p>
           {config.entries.map(({ href, label, icon: Icon }) => {
             const active = pathIsActive(pathname, href)
-            return (
-              <Link
+            const className = `app-nav-item ${active ? "is-active" : ""}`
+            const children = (
+              <>
+                <Icon className="app-nav-item__icon" />
+                <span>{label}</span>
+              </>
+            )
+            const isMapEntry =
+              href === "/my/electronic-fence"
+            return isMapEntry ? (
+              <a
                 key={href}
-                className={`app-nav-item ${active ? "is-active" : ""}`}
+                className={className}
                 href={href}
                 onClick={onNavigate}
               >
-                <Icon className="app-nav-item__icon" />
-                <span>{label}</span>
+                {children}
+              </a>
+            ) : (
+              <Link
+                key={href}
+                className={className}
+                href={href}
+                onClick={onNavigate}
+              >
+                {children}
               </Link>
             )
           })}
