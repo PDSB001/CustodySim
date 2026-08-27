@@ -55,7 +55,10 @@ export async function POST(request: NextRequest) {
   try {
     const [organization] = parsed.data.organizationId
       ? await db
-          .select({ category: organizations.category })
+          .select({
+            category: organizations.category,
+            name: organizations.name,
+          })
           .from(organizations)
           .where(eq(organizations.id, parsed.data.organizationId))
           .limit(1)
@@ -102,7 +105,13 @@ export async function POST(request: NextRequest) {
           created.role === "SUPERVISED" ? "OUT_OF_CUSTODY" : undefined,
       },
     })
-    return success(created, { status: 201 })
+    return success(
+      {
+        ...created,
+        organizationName: organization?.name ?? null,
+      },
+      { status: 201 },
+    )
   } catch (error) {
     const code =
       typeof error === "object" && error && "code" in error ? error.code : null
