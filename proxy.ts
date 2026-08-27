@@ -50,7 +50,7 @@ function applySecurityHeaders(
   request: NextRequest,
 ) {
   const usesTencentMap =
-    request.nextUrl.pathname === "/electronic-fences" ||
+    request.nextUrl.pathname.startsWith("/electronic-fences") ||
     request.nextUrl.pathname.startsWith("/my/electronic-fence")
   response.headers.set("Content-Security-Policy", getContentSecurityPolicy(nonce, usesTencentMap))
   response.headers.set("X-Content-Type-Options", "nosniff")
