@@ -100,6 +100,9 @@ function CopywriteField({
 }) {
   const source = (field.options?.[0] ?? "").trim()
   const written = value ?? ""
+  const [draft, setDraft] = useState(written)
+  const composing = useRef(false)
+  useEffect(() => setDraft(written), [written])
   const typedCount = written.length
   const exact = written.trim().length > 0 && written.trim() === source
   if (!source)
@@ -155,8 +158,18 @@ function CopywriteField({
           {extra && <span className="text-red-500 underline">{extra}</span>}
         </p>
         <Textarea
-          value={written}
-          onChange={(event) => onChange(event.target.value)}
+          value={draft}
+          onCompositionStart={() => {
+            composing.current = true
+          }}
+          onCompositionEnd={(event) => {
+            composing.current = false
+            onChange(event.currentTarget.value)
+          }}
+          onChange={(event) => {
+            setDraft(event.target.value)
+            if (!composing.current) onChange(event.target.value)
+          }}
           placeholder="在此逐字抄写上方原文"
           className="mt-2 min-h-[96px]"
         />
