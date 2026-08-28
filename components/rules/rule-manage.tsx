@@ -34,14 +34,14 @@ import { cn } from "@/lib/utils"
 
 const Rule = z.object({
   id: z.string(),
-  name: z.string(),
-  type: z.string(),
-  freq: z.string(),
-  enabled: z.boolean(),
-  scheduleDays: z.array(z.number()),
-  timeSlots: z.array(z.string()),
-  timeoutMinutes: z.number(),
-  scopes: z.array(z.object({ id: z.string() })),
+  name: z.string().catch("未命名规则"),
+  type: z.string().catch("REPORT"),
+  freq: z.string().catch("DAILY"),
+  enabled: z.boolean().catch(true),
+  scheduleDays: z.array(z.number()).catch([]),
+  timeSlots: z.array(z.string()).catch([]),
+  timeoutMinutes: z.coerce.number().int().min(1).max(10080).catch(90),
+  scopes: z.array(z.object({ id: z.string() })).catch([]),
 })
 const Group = z.object({ id: z.string(), name: z.string() })
 const Template = z.object({
