@@ -18,27 +18,46 @@ const RuleGroup = z.object({
   id: z.string(),
   name: z.string(),
   remark: z.string().nullable(),
-  scopes: z.array(z.object({ id: z.string() })),
+  scopes: z.array(z.object({ id: z.string(), targetType: z.string(), targetId: z.string() })),
 })
+const Organization = z.object({ id: z.string(), name: z.string(), category: z.string().nullable() })
+const User = z.object({ id: z.string(), name: z.string(), role: z.string(), status: z.string() })
 
 export function RuleGroupManage() {
   const client = useQueryClient()
   const [name, setName] = useState("")
   const [remark, setRemark] = useState("")
+  const [scopeKeys, setScopeKeys] = useState<string[]>([])
   const groups = useQuery({
     queryKey: ["rule-groups"],
     queryFn: () => requestApi("/api/admin/rule-groups", z.array(RuleGroup)),
+  })
+  const organizations = useQuery({
+    queryKey: ["organizations"],
+    queryFn: () => requestApi("/api/admin/orgs", z.array(Organization)),
+  })
+  const users = useQuery({
+    queryKey: ["users"],
+    queryFn: () => requestApi("/api/admin/users", z.array(User)),
   })
   const create = useMutation({
     mutationFn: () =>
       requestApi("/api/admin/rule-groups", RuleGroup, {
         method: "POST",
-        body: JSON.stringify({ name, remark: remark || null, scopes: [] }),
+        body: JSON.stringify({
+          name,
+          remark: remark || null,
+          scopes: scopeKeys.map((key) => {
+            const [targetType, targetId] = key.split(":")
+            return { targetType, targetId }
+          }),
+        }),
       }),
     onSuccess: () => {
       client.invalidateQueries({ queryKey: ["rule-groups"] })
       setName("")
       setRemark("")
+      setScopeKeys([])
       toast.success("规则组已创建")
     },
     onError: (error) =>
@@ -68,6 +87,35 @@ export function RuleGroupManage() {
               placeholder="例如：一监区日常任务"
             />
           </div>
+          <div className="space-y-2 md:col-span-2">
+            <Label>适用范围（可多选）</Label>
+            <select
+              multiple
+              value={scopeKeys}
+              onChange={(event) =>
+                setScopeKeys(
+                  Array.from(event.target.selectedOptions, (option) => option.value),
+                )
+              }
+              className="border-input bg-background min-h-28 w-full rounded-md border px-3 py-2 text-sm"
+            >
+              {organizations.data?.map((organization) => (
+                <option key={`ORG:${organization.id}`} value={`ORG:${organization.id}`}>
+                  组织：{organization.name}
+                </option>
+              ))}
+              {users.data
+                ?.filter((user) => user.role === "SUPERVISED" && user.status === "active")
+                .map((user) => (
+                  <option key={`USER:${user.id}`} value={`USER:${user.id}`}>
+                    人员：{user.name}
+                  </option>
+                ))}
+            </select>
+            <p className="text-muted-foreground text-xs">
+              不选择范围时，规则组不会自动下发任务；规则可单独指定人员。
+            </p>
+          </div>
           <div className="space-y-2">
             <Label>说明</Label>
             <Input
@@ -92,6 +140,7 @@ export function RuleGroupManage() {
               <tr>
                 <th className="px-5 py-3">名称</th>
                 <th className="px-5 py-3">说明</th>
+                <th className="px-5 py-3">范围</th>
                 <th className="px-5 py-3 text-right">操作</th>
               </tr>
             </thead>
@@ -111,6 +160,9 @@ export function RuleGroupManage() {
                   <td className="px-5 py-4 text-muted-foreground">
                     {group.remark ?? "—"}
                   </td>
+                  <td className="px-5 py-4 text-muted-foreground">
+                    {group.scopes.length ? `${group.scopes.length} 个范围` : "未设置"}
+                  </td>
                   <td className="px-5 py-4 text-right">
                     <Button
                       variant="ghost"
@@ -125,7 +177,7 @@ export function RuleGroupManage() {
               ))}
               {groups.data?.length === 0 && (
                 <tr>
-                  <td colSpan={3} className="p-0">
+                  <td colSpan={4} className="p-0">
                     <EmptyState
                       icon={FolderKanban}
                       title="还没有规则组"
