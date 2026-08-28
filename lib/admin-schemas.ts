@@ -114,7 +114,7 @@ export const RuleSchema = z.object({
   freq: z.enum(["DAILY", "WEEKLY", "MONTHLY", "ONCE"]).default("DAILY"),
   scheduleDays: z.array(z.coerce.number().int().min(1).max(31)).default([]),
   timeSlots: z.array(z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/)).default([]),
-  timeoutMinutes: z.coerce.number().int().min(1).max(1440).default(30),
+  timeoutMinutes: z.coerce.number().int().min(1).max(10080).default(30),
   startDate: z.string().datetime({ offset: true }).nullable().optional(),
   endDate: z.string().datetime({ offset: true }).nullable().optional(),
   ruleGroupId: z.string().uuid().nullable().optional(),
@@ -130,14 +130,14 @@ export const CheckinRuleSchema = z.object({
   timeSlots: z
     .array(z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/))
     .min(1, "至少设置一个打卡时段"),
-  timeoutMinutes: z.coerce.number().int().min(1).max(1440).default(30),
+  timeoutMinutes: z.coerce.number().int().min(1).max(10080).default(30),
   custodyLevel: z.enum(CUSTODY_LEVELS).nullable().optional(),
   slotSettings: z
     .array(
       z.object({
         label: z.string().trim().min(1).max(40),
         time: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),
-        timeoutMinutes: z.coerce.number().int().min(1).max(1440),
+        timeoutMinutes: z.coerce.number().int().min(1).max(10080),
       }),
     )
     .default([]),

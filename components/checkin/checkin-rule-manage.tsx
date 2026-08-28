@@ -110,7 +110,7 @@ export function CheckinRuleManage() {
               <Input
                 type="number"
                 min="1"
-                max="1440"
+                max="10080"
                 value={timeoutMinutes}
                 onChange={(event) =>
                   setTimeoutMinutes(Number(event.target.value))
