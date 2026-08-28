@@ -142,7 +142,7 @@ function CopywriteField({
                 key={i}
                 className={
                   !typed
-                    ? "text-muted-foreground/35"
+                    ? "text-muted-foreground/70"
                     : typed === ch
                       ? "text-emerald-600"
                       : "text-red-500 underline"
