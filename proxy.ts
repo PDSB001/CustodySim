@@ -89,7 +89,15 @@ export function proxy(request: NextRequest) {
     )
 
   const requestHeaders = new Headers(request.headers)
+  const contentSecurityPolicy = getContentSecurityPolicy(
+    nonce,
+    request.nextUrl.pathname.startsWith("/electronic-fences") ||
+      request.nextUrl.pathname.startsWith("/my/electronic-fence"),
+  )
   requestHeaders.set("x-nonce", nonce)
+  // Next.js reads the request CSP while rendering and applies this nonce to
+  // its generated script tags. Setting it only on the response is too late.
+  requestHeaders.set("Content-Security-Policy", contentSecurityPolicy)
   return applySecurityHeaders(
     NextResponse.next({ request: { headers: requestHeaders } }),
     nonce,
