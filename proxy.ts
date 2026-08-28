@@ -27,13 +27,17 @@ function getContentSecurityPolicy(nonce: string, usesTencentMap: boolean) {
 function getTrustedOrigins(request: NextRequest) {
   const configured = process.env.APP_ORIGIN
   if (configured) {
-    return configured.split(",").flatMap((value) => {
+    const origins = configured.split(",").flatMap((value) => {
       try {
         return [new URL(value.trim()).origin]
       } catch {
         return []
       }
     })
+    // Keep local development usable even when .env.local still contains a
+    // production APP_ORIGIN copied from a deployment environment.
+    if (process.env.NODE_ENV !== "production") origins.push(request.nextUrl.origin)
+    return [...new Set(origins)]
   }
   return process.env.NODE_ENV === "production" ? [] : [request.nextUrl.origin]
 }
