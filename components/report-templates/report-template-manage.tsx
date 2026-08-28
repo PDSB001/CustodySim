@@ -66,6 +66,7 @@ const fieldTypeLabels: Record<string, string> = {
 }
 
 const electronicFenceTemplateName = "电子围栏越界说明"
+const reportTemplatesQueryKey = ["report-templates", "manage"] as const
 
 export function ReportTemplateManage() {
   const client = useQueryClient()
@@ -84,7 +85,7 @@ export function ReportTemplateManage() {
   const isEditingElectronicFenceTemplate =
     editingTemplate?.name === electronicFenceTemplateName
   const templates = useQuery({
-    queryKey: ["report-templates"],
+    queryKey: reportTemplatesQueryKey,
     queryFn: () => requestApi("/api/admin/report-templates", z.array(Template)),
   })
   const templatePayload = () => ({
@@ -376,7 +377,7 @@ export function ReportTemplateManage() {
             {templates.data.map((template) => {
               const isElectronicFenceTemplate =
                 template.name === electronicFenceTemplateName
-              const requiredCount = template.fields.filter(
+              const requiredCount = (template.fields ?? []).filter(
                 (field) => field.required,
               ).length
               return (
@@ -466,7 +467,7 @@ export function ReportTemplateManage() {
                         字段设计
                       </div>
                       <div className="divide-border/60 border-border/60 bg-muted/40 divide-y rounded-xl border px-3">
-                        {template.fields.map((field, index) => (
+                        {(template.fields ?? []).map((field, index) => (
                           <div
                             key={`${field.name}-${index}`}
                             className="flex items-center justify-between gap-3 py-3"

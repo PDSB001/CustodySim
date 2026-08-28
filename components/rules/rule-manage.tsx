@@ -99,7 +99,7 @@ export function RuleManage() {
     queryFn: () => requestApi("/api/admin/users", z.array(User)),
   })
   const templates = useQuery({
-    queryKey: ["report-templates"],
+    queryKey: ["report-templates", "options"],
     queryFn: () => requestApi("/api/admin/report-templates", z.array(Template)),
   })
   const create = useMutation({
