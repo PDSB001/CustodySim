@@ -7,10 +7,11 @@ function createNonce() {
 }
 
 function getContentSecurityPolicy(nonce: string, usesTencentMap: boolean) {
+  const allowsUnsafeEval = process.env.NODE_ENV !== "production" || usesTencentMap
   return [
     "default-src 'self'",
     // Tencent Maps GL currently requires eval internally for its WebGL runtime.
-    `script-src 'self' 'nonce-${nonce}'${usesTencentMap ? " 'unsafe-eval'" : ""} https://map.qq.com https://*.map.qq.com`,
+    `script-src 'self' 'nonce-${nonce}'${allowsUnsafeEval ? " 'unsafe-eval'" : ""} https://map.qq.com https://*.map.qq.com`,
     usesTencentMap ? "worker-src 'self' blob:" : "worker-src 'self'",
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data: blob: https://*.qq.com https://*.gtimg.com https://*.qpic.cn",
