@@ -130,7 +130,7 @@ export function ProfileRecordEditor({
     }
   }
 
-  const selectPhoto = (file: File | undefined) => {
+  const selectPhoto = async (file: File | undefined) => {
     if (!file) return
     if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) {
       toast.error("请上传 JPEG、PNG 或 WebP 格式的照片")
@@ -140,11 +140,31 @@ export function ProfileRecordEditor({
       toast.error("照片不能超过 2MB")
       return
     }
-    const reader = new FileReader()
-    reader.addEventListener("load", () => {
-      if (typeof reader.result === "string") setPhotoData(reader.result)
-    })
-    reader.readAsDataURL(file)
+    try {
+      const bitmap = await createImageBitmap(file)
+      const maxEdge = 1600
+      const scale = Math.min(1, maxEdge / Math.max(bitmap.width, bitmap.height))
+      const canvas = document.createElement("canvas")
+      canvas.width = Math.max(1, Math.round(bitmap.width * scale))
+      canvas.height = Math.max(1, Math.round(bitmap.height * scale))
+      canvas.getContext("2d")?.drawImage(bitmap, 0, 0, canvas.width, canvas.height)
+      bitmap.close()
+      const compressed = await new Promise<Blob | null>((resolve) =>
+        canvas.toBlob(resolve, "image/jpeg", 0.82),
+      )
+      if (!compressed) throw new Error("照片压缩失败")
+      const reader = new FileReader()
+      reader.addEventListener("load", () => {
+        if (typeof reader.result === "string") setPhotoData(reader.result)
+      })
+      reader.readAsDataURL(compressed)
+    } catch {
+      const reader = new FileReader()
+      reader.addEventListener("load", () => {
+        if (typeof reader.result === "string") setPhotoData(reader.result)
+      })
+      reader.readAsDataURL(file)
+    }
   }
 
   return (

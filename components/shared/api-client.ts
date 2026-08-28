@@ -16,6 +16,10 @@ export async function requestApi<T>(
     ...init,
     headers: { "Content-Type": "application/json", ...init?.headers },
   })
+  const contentType = response.headers.get("content-type") ?? ""
+  if (!contentType.includes("application/json")) {
+    throw new Error(`服务器返回了非 JSON 响应（HTTP ${response.status}）`)
+  }
   const payload: unknown = await response.json()
   const parsed = z
     .object({ success: z.literal(true), data: dataSchema })
