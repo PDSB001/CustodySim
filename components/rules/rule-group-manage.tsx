@@ -1,7 +1,7 @@
 "use client"
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { FolderKanban, Plus, Trash2, X } from "lucide-react"
+import { ChevronDown, FolderKanban, Plus, Trash2, X } from "lucide-react"
 import { useState } from "react"
 import { z } from "zod"
 import { requestApi } from "@/components/shared/api-client"
@@ -29,6 +29,7 @@ export function RuleGroupManage() {
   const [remark, setRemark] = useState("")
   const [scopeKeys, setScopeKeys] = useState<string[]>([])
   const [scopeToAdd, setScopeToAdd] = useState("")
+  const [scopePickerOpen, setScopePickerOpen] = useState(false)
   const groups = useQuery({
     queryKey: ["rule-groups"],
     queryFn: () => requestApi("/api/admin/rule-groups", z.array(RuleGroup)),
@@ -107,11 +108,16 @@ export function RuleGroupManage() {
                 )
               })}
               <div className="flex gap-2">
-                <select value={scopeToAdd} onChange={(event) => setScopeToAdd(event.target.value)} className="border-input bg-background h-10 min-w-0 flex-1 rounded-md border px-3 text-sm">
-                  <option value="">选择组织或人员</option>
-                  {organizations.data?.map((organization) => <option key={`ORG:${organization.id}`} value={`ORG:${organization.id}`} disabled={scopeKeys.includes(`ORG:${organization.id}`)}>组织：{organization.name}</option>)}
-                  {users.data?.filter((user) => user.role === "SUPERVISED" && user.status === "active").map((user) => <option key={`USER:${user.id}`} value={`USER:${user.id}`} disabled={scopeKeys.includes(`USER:${user.id}`)}>人员：{user.name}</option>)}
-                </select>
+                <div className="relative min-w-0 flex-1">
+                  <button type="button" onClick={() => setScopePickerOpen((open) => !open)} className="border-input bg-background text-muted-foreground flex h-10 w-full items-center justify-between rounded-md border px-3 text-left text-sm">
+                    <span>{scopeToAdd ? (organizations.data?.find((item) => `ORG:${item.id}` === scopeToAdd)?.name ?? users.data?.find((item) => `USER:${item.id}` === scopeToAdd)?.name) : "选择组织或人员"}</span>
+                    <ChevronDown className="size-4" />
+                  </button>
+                  {scopePickerOpen && <div className="border-input bg-background absolute z-10 mt-1 max-h-56 w-full overflow-auto rounded-md border p-1 shadow-lg">
+                    {organizations.data?.map((organization) => { const key = `ORG:${organization.id}`; return <button type="button" key={key} disabled={scopeKeys.includes(key)} onClick={() => { setScopeToAdd(key); setScopePickerOpen(false) }} className="hover:bg-muted w-full rounded px-2 py-1.5 text-left text-sm disabled:cursor-not-allowed disabled:opacity-40">组织：{organization.name}</button> })}
+                    {users.data?.filter((user) => user.role === "SUPERVISED" && user.status === "active").map((user) => { const key = `USER:${user.id}`; return <button type="button" key={key} disabled={scopeKeys.includes(key)} onClick={() => { setScopeToAdd(key); setScopePickerOpen(false) }} className="hover:bg-muted w-full rounded px-2 py-1.5 text-left text-sm disabled:cursor-not-allowed disabled:opacity-40">人员：{user.name}</button> })}
+                  </div>}
+                </div>
                 <Button type="button" variant="outline" size="icon" disabled={!scopeToAdd} onClick={() => { setScopeKeys((current) => [...current, scopeToAdd]); setScopeToAdd("") }} aria-label="添加范围"><Plus className="size-4" /></Button>
               </div>
             </div>
