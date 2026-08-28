@@ -45,6 +45,9 @@ function getTrustedOrigins(request: NextRequest) {
 function isSameOriginMutation(request: NextRequest) {
   if (!request.nextUrl.pathname.startsWith("/api/")) return true
   if (!MUTATING_METHODS.has(request.method)) return true
+  // Local development may legitimately mix localhost, 127.0.0.1, and a LAN
+  // address while testing. Keep origin enforcement strict in production only.
+  if (process.env.NODE_ENV !== "production") return true
   const origin = request.headers.get("origin")
   return Boolean(origin && getTrustedOrigins(request).includes(origin))
 }
