@@ -1,7 +1,7 @@
 "use client"
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { FolderKanban, Trash2 } from "lucide-react"
+import { FolderKanban, Plus, Trash2, X } from "lucide-react"
 import { useState } from "react"
 import { z } from "zod"
 import { requestApi } from "@/components/shared/api-client"
@@ -28,6 +28,7 @@ export function RuleGroupManage() {
   const [name, setName] = useState("")
   const [remark, setRemark] = useState("")
   const [scopeKeys, setScopeKeys] = useState<string[]>([])
+  const [scopeToAdd, setScopeToAdd] = useState("")
   const groups = useQuery({
     queryKey: ["rule-groups"],
     queryFn: () => requestApi("/api/admin/rule-groups", z.array(RuleGroup)),
@@ -58,6 +59,7 @@ export function RuleGroupManage() {
       setName("")
       setRemark("")
       setScopeKeys([])
+      setScopeToAdd("")
       toast.success("规则组已创建")
     },
     onError: (error) =>
@@ -89,29 +91,30 @@ export function RuleGroupManage() {
           </div>
           <div className="space-y-2 md:col-span-2">
             <Label>适用范围（可多选）</Label>
-            <select
-              multiple
-              value={scopeKeys}
-              onChange={(event) =>
-                setScopeKeys(
-                  Array.from(event.target.selectedOptions, (option) => option.value),
+            <div className="space-y-2">
+              {scopeKeys.map((key) => {
+                const [, targetId] = key.split(":")
+                const organization = organizations.data?.find((item) => item.id === targetId)
+                const user = users.data?.find((item) => item.id === targetId)
+                const label = organization ? `组织：${organization.name}` : `人员：${user?.name ?? targetId}`
+                return (
+                  <div key={key} className="border-input bg-muted/30 flex items-center justify-between rounded-md border px-3 py-2 text-sm">
+                    <span>{label}</span>
+                    <button type="button" className="text-muted-foreground hover:text-destructive" onClick={() => setScopeKeys((current) => current.filter((item) => item !== key))} aria-label={`删除${label}`}>
+                      <X className="size-4" />
+                    </button>
+                  </div>
                 )
-              }
-              className="border-input bg-background min-h-28 w-full rounded-md border px-3 py-2 text-sm"
-            >
-              {organizations.data?.map((organization) => (
-                <option key={`ORG:${organization.id}`} value={`ORG:${organization.id}`}>
-                  组织：{organization.name}
-                </option>
-              ))}
-              {users.data
-                ?.filter((user) => user.role === "SUPERVISED" && user.status === "active")
-                .map((user) => (
-                  <option key={`USER:${user.id}`} value={`USER:${user.id}`}>
-                    人员：{user.name}
-                  </option>
-                ))}
-            </select>
+              })}
+              <div className="flex gap-2">
+                <select value={scopeToAdd} onChange={(event) => setScopeToAdd(event.target.value)} className="border-input bg-background h-10 min-w-0 flex-1 rounded-md border px-3 text-sm">
+                  <option value="">选择组织或人员</option>
+                  {organizations.data?.map((organization) => <option key={`ORG:${organization.id}`} value={`ORG:${organization.id}`} disabled={scopeKeys.includes(`ORG:${organization.id}`)}>组织：{organization.name}</option>)}
+                  {users.data?.filter((user) => user.role === "SUPERVISED" && user.status === "active").map((user) => <option key={`USER:${user.id}`} value={`USER:${user.id}`} disabled={scopeKeys.includes(`USER:${user.id}`)}>人员：{user.name}</option>)}
+                </select>
+                <Button type="button" variant="outline" size="icon" disabled={!scopeToAdd} onClick={() => { setScopeKeys((current) => [...current, scopeToAdd]); setScopeToAdd("") }} aria-label="添加范围"><Plus className="size-4" /></Button>
+              </div>
+            </div>
             <p className="text-muted-foreground text-xs">
               不选择范围时，规则组不会自动下发任务；规则可单独指定人员。
             </p>
