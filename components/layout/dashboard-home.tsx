@@ -77,6 +77,33 @@ export function DashboardHome({ user }: Readonly<{ user: SessionUser }>) {
     queryFn: () => requestApi("/api/dashboard-summary", DashboardSummary),
   })
   const data = summary.data
+  const pendingReviewCount =
+    (data?.pendingTasks ?? 0) + (data?.pendingMakeups ?? 0)
+  const primaryAction =
+    pendingReviewCount > 0
+      ? {
+          href: data?.pendingTasks ? "/supervision/tasks" : "/supervision/makeups",
+          title: `有 ${pendingReviewCount} 项事项等待处理`,
+          description: "优先完成审核，避免任务与补卡申请积压。",
+          action: "立即处理",
+          icon: ClipboardCheck,
+        }
+      : (data?.enabledRules ?? 0) > 0
+        ? {
+            href: "/persons",
+            title: "系统运行平稳",
+            description: "下一步可维护人员档案并完善监管关系。",
+            action: "维护人员档案",
+            icon: UsersRound,
+          }
+        : {
+            href: "/orgs",
+            title: "从基础配置开始",
+            description: "建议依次建立组织架构、账户权限和任务规则。",
+            action: "维护组织架构",
+            icon: Building2,
+          }
+  const PrimaryIcon = primaryAction.icon
   const summaries = [
     {
       label: "待审核任务",
@@ -123,6 +150,27 @@ export function DashboardHome({ user }: Readonly<{ user: SessionUser }>) {
         }
       />
 
+      <Link
+        href={primaryAction.href}
+        className="surface-panel surface-panel--brand group page-enter flex items-center gap-4 p-4 transition-colors hover:border-brand-500/40 sm:p-5"
+      >
+        <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-brand-500/12 text-brand-700">
+          <PrimaryIcon className="size-5" />
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block text-sm font-semibold text-foreground">
+            {primaryAction.title}
+          </span>
+          <span className="mt-1 block text-sm text-muted-foreground">
+            {primaryAction.description}
+          </span>
+        </span>
+        <span className="hidden items-center gap-1 text-sm font-medium text-brand-700 sm:inline-flex">
+          {primaryAction.action}
+          <ArrowRight className="size-4 transition-transform group-hover:translate-x-0.5" />
+        </span>
+      </Link>
+
       <section className="metric-grid page-enter" aria-label="运行概览">
         <QueryStateView
           isLoading={summary.isLoading}
@@ -151,9 +199,9 @@ export function DashboardHome({ user }: Readonly<{ user: SessionUser }>) {
               <span className="glyph">
                 <Settings2 className="size-3.5" />
               </span>
-              常用配置
+              继续配置
             </h2>
-            <p className="surface-panel__sub">按业务建立顺序完成基础数据维护</p>
+            <p className="surface-panel__sub">按推荐顺序完善系统基础数据</p>
           </div>
           <div className="divide-y divide-border/60">
             {quickActions.map(({ href, label, detail, icon: Icon }) => (

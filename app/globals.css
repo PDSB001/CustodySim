@@ -565,7 +565,7 @@
     letter-spacing: -0.01em;
   }
   .app-brand__sub {
-    font-size: 0.65rem;
+    font-size: 0.75rem;
     text-transform: uppercase;
     letter-spacing: 0.14em;
     color: color-mix(in oklab, oklch(1 0 0) 50%, transparent);
@@ -579,12 +579,56 @@
     gap: 0.1rem;
   }
   .app-nav-group__title {
-    font-size: 0.66rem;
+    font-size: 0.75rem;
     text-transform: uppercase;
     letter-spacing: 0.14em;
     padding: 0.45rem 0.6rem 0.35rem;
     color: color-mix(in oklab, oklch(1 0 0) 36%, transparent);
     font-weight: 600;
+  }
+  .app-nav-group__toggle {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    padding: 0.45rem 0.6rem 0.35rem;
+    color: color-mix(in oklab, oklch(1 0 0) 46%, transparent);
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-align: left;
+    text-transform: uppercase;
+    cursor: pointer;
+  }
+  .app-nav-group__toggle:hover {
+    color: color-mix(in oklab, oklch(1 0 0) 76%, transparent);
+  }
+  .app-nav-group__toggle:focus-visible {
+    outline: 2px solid var(--brand-300);
+    outline-offset: 2px;
+    border-radius: 0.45rem;
+  }
+  .app-nav-group__content {
+    display: grid;
+    grid-template-rows: 0fr;
+    opacity: 0;
+    transition:
+      grid-template-rows 180ms ease,
+      opacity 140ms ease;
+  }
+  .app-nav-group__content > div {
+    min-height: 0;
+    overflow: hidden;
+  }
+  .app-nav-group__content.is-expanded {
+    grid-template-rows: 1fr;
+    opacity: 1;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .app-nav-group__content {
+      transition: none;
+    }
   }
   .app-nav-item {
     position: relative;
@@ -594,7 +638,7 @@
     padding: 0.5rem 0.65rem;
     border-radius: 0.45rem;
     color: color-mix(in oklab, oklch(1 0 0) 72%, transparent);
-    font-size: 0.85rem;
+    font-size: 0.9rem;
     font-weight: 500;
     transition:
       color 0.12s ease,
@@ -652,7 +696,7 @@
     display: flex;
     align-items: center;
     gap: 0.35rem;
-    font-size: 0.74rem;
+    font-size: 0.82rem;
     color: var(--muted-foreground);
     line-height: 1.2;
   }
@@ -694,7 +738,7 @@
     gap: 0.4rem;
     padding: 0.18rem 0.55rem 0.18rem 0.4rem;
     border-radius: 999px;
-    font-size: 0.68rem;
+    font-size: 0.75rem;
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.1em;
@@ -774,7 +818,7 @@
     color: var(--brand-700);
   }
   .surface-panel__sub {
-    font-size: 0.74rem;
+    font-size: 0.82rem;
     color: var(--muted-foreground);
   }
   .surface-panel__body {
@@ -804,7 +848,7 @@
     gap: 0.5rem;
   }
   .metric-cell__label {
-    font-size: 0.74rem;
+    font-size: 0.82rem;
     color: var(--muted-foreground);
     font-weight: 500;
   }
@@ -846,7 +890,7 @@
     display: flex;
     align-items: center;
     gap: 0.45rem;
-    font-size: 0.74rem;
+    font-size: 0.82rem;
     color: var(--muted-foreground);
   }
 
@@ -857,7 +901,7 @@
     gap: 0.3rem;
     padding: 0.1rem 0.45rem;
     border-radius: 999px;
-    font-size: 0.7rem;
+    font-size: 0.78rem;
     font-weight: 500;
     line-height: 1.25;
     white-space: nowrap;

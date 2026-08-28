@@ -204,9 +204,9 @@ function ServiceLinks({ kind }: { kind: WorkspaceKind }) {
           <span className="glyph">
             <ArrowRight className="size-3.5" />
           </span>
-          快捷入口
+          常用功能
         </h2>
-        <p className="surface-panel__sub">进入高频业务功能</p>
+        <p className="surface-panel__sub">按需进入其他业务页面</p>
       </div>
       <div className="divide-border/60 divide-y">
         {serviceLinks[kind].map(({ href, label, detail, icon: Icon }) => (
@@ -222,7 +222,7 @@ function ServiceLinks({ kind }: { kind: WorkspaceKind }) {
               <span className="text-foreground block text-sm font-medium">
                 {label}
               </span>
-              <span className="text-muted-foreground mt-0.5 block text-[11px]">
+              <span className="text-muted-foreground mt-0.5 block text-xs">
                 {detail}
               </span>
             </span>
@@ -231,6 +231,81 @@ function ServiceLinks({ kind }: { kind: WorkspaceKind }) {
         ))}
       </div>
     </div>
+  )
+}
+
+function WorkspacePriority({
+  kind,
+  summary,
+}: {
+  kind: WorkspaceKind
+  summary: z.infer<typeof DashboardSummarySchema>
+}) {
+  const isOnLeave = summary.custodyStatus.includes("请假")
+  const pendingReviewCount = summary.pendingTasks + summary.pendingMakeups
+  const priority =
+    kind === "SUPERVISOR"
+      ? pendingReviewCount > 0
+        ? {
+            href: summary.pendingTasks ? "/supervisor/tasks" : "/supervisor/makeups",
+            title: `有 ${pendingReviewCount} 项监管事项待处理`,
+            description: "优先处理任务审核与补卡申请，避免待办积压。",
+            action: "前往处理",
+            icon: ClipboardCheck,
+          }
+        : {
+            href: "/supervisor/checkins",
+            title: "当前没有待处理事项",
+            description: "可查看今日打卡总览，确认监管执行状态。",
+            action: "查看打卡总览",
+            icon: CalendarCheck2,
+          }
+      : isOnLeave
+        ? {
+            href: "/my/checkins",
+            title: `当前为${summary.custodyStatus}`,
+            description: "请假期间无需手动打卡或申请补卡，系统会按规则处理。",
+            action: "查看打卡说明",
+            icon: CalendarCheck2,
+          }
+        : summary.myPendingTasks > 0
+          ? {
+              href: "/my/tasks",
+              title: `今日有 ${summary.myPendingTasks} 项待完成任务`,
+              description: "请优先完成今日任务，提交后可在记录中查看状态。",
+              action: "查看我的任务",
+              icon: ClipboardCheck,
+            }
+          : {
+              href: "/my/checkins",
+              title: "今日任务已完成",
+              description: "可查看打卡记录与最新通知，确认今日状态。",
+              action: "查看打卡记录",
+              icon: CalendarCheck2,
+            }
+  const Icon = priority.icon
+
+  return (
+    <Link
+      href={priority.href}
+      className="surface-panel surface-panel--brand group page-enter flex items-center gap-4 p-4 transition-colors hover:border-brand-500/40 sm:p-5"
+    >
+      <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-brand-500/12 text-brand-700">
+        <Icon className="size-5" />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block text-sm font-semibold text-foreground">
+          {priority.title}
+        </span>
+        <span className="mt-1 block text-sm text-muted-foreground">
+          {priority.description}
+        </span>
+      </span>
+      <span className="hidden items-center gap-1 text-sm font-medium text-brand-700 sm:inline-flex">
+        {priority.action}
+        <ArrowRight className="size-4 transition-transform group-hover:translate-x-0.5" />
+      </span>
+    </Link>
   )
 }
 
@@ -442,6 +517,12 @@ export function RoleWorkspaceHome({
           <StatusPill tone={content.tone}>{content.toneLabel}</StatusPill>
         }
       />
+
+      {summary.isLoading ? (
+        <LoadingBlock className="page-enter h-20" />
+      ) : summary.data ? (
+        <WorkspacePriority kind={kind} summary={summary.data} />
+      ) : null}
 
       <section className="metric-grid page-enter" aria-label="今日概览">
         <QueryStateView

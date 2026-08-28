@@ -30,7 +30,7 @@ export function AuthShowcase() {
           <span className="font-display text-base font-bold tracking-tight text-white">
             CustodySim
           </span>
-          <span className="text-[9px] uppercase tracking-[0.24em] text-white/55">
+          <span className="text-[11px] uppercase tracking-[0.16em] text-white/55">
             监管任务模拟系统
           </span>
         </div>
@@ -47,10 +47,10 @@ export function AuthShowcase() {
           <br />
           且有据可循。
         </h2>
-        <p className="max-w-md text-[12px] leading-6 text-white/65">
+        <p className="max-w-md text-sm leading-6 text-white/65">
           基于规则引擎的多角色协作平台，自动生成打卡计划、智能识别异常打卡、留存可审计的全链路证据。
         </p>
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-[11px] text-white/70">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-white/70">
           <span className="inline-flex items-center gap-1.5">
             <Activity className="size-3 text-[color:var(--chart-3)]" />
             实时规则引擎
@@ -70,10 +70,10 @@ export function AuthShowcase() {
       <div className="relative">
         <div className="overflow-hidden rounded-2xl border border-white/10 bg-white/5 p-3.5 backdrop-blur">
           <div className="mb-2.5 flex items-center justify-between">
-            <span className="text-[10px] uppercase tracking-[0.18em] text-white/55">
+            <span className="text-xs uppercase tracking-[0.14em] text-white/55">
               实时数据
             </span>
-            <span className="inline-flex items-center gap-1.5 text-[10px] text-emerald-300">
+            <span className="inline-flex items-center gap-1.5 text-xs text-emerald-300">
               <span className="relative flex size-1.5">
                 <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
                 <span className="relative inline-flex size-1.5 rounded-full bg-emerald-400" />
@@ -100,10 +100,10 @@ export function AuthShowcase() {
                   <span
                     className={
                       tone === "success"
-                        ? "text-[10px] font-semibold text-emerald-300"
+                        ? "text-xs font-semibold text-emerald-300"
                         : tone === "warning"
-                          ? "text-[10px] font-semibold text-amber-300"
-                          : "text-[10px] font-semibold text-violet-300"
+                          ? "text-xs font-semibold text-amber-300"
+                          : "text-xs font-semibold text-violet-300"
                     }
                   >
                     {trend}
@@ -112,13 +112,13 @@ export function AuthShowcase() {
                 <div className="font-numeric text-lg font-bold leading-tight text-white">
                   {value}
                 </div>
-                <div className="mt-0.5 text-[10px] text-white/55">{label}</div>
+                <div className="mt-0.5 text-xs text-white/55">{label}</div>
               </div>
             ))}
           </div>
         </div>
-        <p className="mt-3 text-center text-[10px] text-white/40">
-          CustodySim · SOC 2 等保合规
+        <p className="mt-3 text-center text-xs text-white/50">
+          CustodySim · 权限隔离与审计留痕
         </p>
       </div>
     </aside>

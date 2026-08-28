@@ -3,6 +3,7 @@
 import {
   Building2,
   CalendarCheck2,
+  ChevronDown,
   ClipboardList,
   FileCheck2,
   FileClock,
@@ -91,6 +92,21 @@ function pathIsActive(pathname: string, href: string) {
 
 function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname()
+  const [openSections, setOpenSections] = useState(() => {
+    const activeSection = navSections.find((section) =>
+      section.entries.some((entry) => pathIsActive(pathname, entry.href)),
+    )
+    return new Set(["概览", "基础资料", activeSection?.label].filter(Boolean))
+  })
+
+  function toggleSection(label: string) {
+    setOpenSections((current) => {
+      const next = new Set(current)
+      if (next.has(label)) next.delete(label)
+      else next.add(label)
+      return next
+    })
+  }
 
   return (
     <div className="app-sidebar">
@@ -105,10 +121,31 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
       </div>
 
       <nav className="flex min-h-0 flex-1 flex-col gap-3.5 overflow-y-auto pb-3">
-        {navSections.map((section) => (
-          <div key={section.label} className="app-nav-group">
-            <p className="app-nav-group__title">{section.label}</p>
-            {section.entries.map(({ href, label, icon: Icon }) => {
+        {navSections.map((section) => {
+          const expanded = openSections.has(section.label)
+          return (
+            <div key={section.label} className="app-nav-group">
+              <button
+                type="button"
+                className="app-nav-group__toggle"
+                aria-expanded={expanded}
+                aria-controls={`dashboard-nav-${section.label}`}
+                onClick={() => toggleSection(section.label)}
+              >
+                <span>{section.label}</span>
+                <ChevronDown
+                  className={`size-3.5 transition-transform ${expanded ? "" : "-rotate-90"}`}
+                  aria-hidden
+                />
+              </button>
+              <div
+                id={`dashboard-nav-${section.label}`}
+                className={`app-nav-group__content ${expanded ? "is-expanded" : ""}`}
+                aria-hidden={!expanded}
+                inert={!expanded}
+              >
+                <div>
+                  {section.entries.map(({ href, label, icon: Icon }) => {
               const active = pathIsActive(pathname, href)
               const children = (
                 <>
@@ -135,12 +172,15 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
                   {children}
                 </Link>
               )
-            })}
-          </div>
-        ))}
+                  })}
+                </div>
+              </div>
+            </div>
+          )
+        })}
       </nav>
 
-      <div className="border-t border-white/10 pt-3 text-[11px] text-white/50">
+      <div className="border-t border-white/10 pt-3 text-xs text-white/50">
         <div className="flex items-center gap-2 px-2">
           <span className="relative flex size-1.5">
             <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />

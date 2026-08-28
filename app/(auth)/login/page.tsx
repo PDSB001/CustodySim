@@ -32,7 +32,7 @@ export default async function LoginPage() {
               </p>
             </div>
 
-            <div className="inline-flex items-center gap-1.5 rounded-full border border-brand-500/30 bg-brand-500/10 px-2.5 py-1 text-[11px] font-semibold tracking-[0.12em] text-brand-700">
+            <div className="inline-flex items-center gap-1.5 rounded-full border border-brand-500/30 bg-brand-500/10 px-2.5 py-1 text-xs font-semibold tracking-[0.1em] text-brand-700">
               <Sparkles className="size-3" />
               欢迎回来
             </div>
@@ -47,7 +47,7 @@ export default async function LoginPage() {
               <LoginForm />
             </div>
 
-            <p className="mt-9 text-center text-[11px] text-muted-foreground/70">
+            <p className="mt-9 text-center text-xs text-muted-foreground/70">
               CustodySim · 监管任务模拟系统
             </p>
           </div>
