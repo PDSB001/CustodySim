@@ -170,6 +170,7 @@ function CopywriteField({
             setDraft(event.target.value)
             if (!composing.current) onChange(event.target.value)
           }}
+          onPaste={(event) => event.preventDefault()}
           placeholder="在此逐字抄写上方原文"
           className="mt-2 min-h-[96px]"
         />
