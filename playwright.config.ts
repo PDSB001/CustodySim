@@ -14,10 +14,18 @@ export default defineConfig({
     { name: "desktop-chrome", use: { ...devices["Desktop Chrome"] } },
     { name: "mobile-chrome", use: { ...devices["Pixel 7"] } },
   ],
-  webServer: {
-    command: `node ./node_modules/next/dist/bin/next dev --hostname 0.0.0.0 --port ${port}`,
-    url: baseURL,
-    reuseExistingServer: true,
-    timeout: 120_000,
-  },
+  webServer: [
+    {
+      command: `node ./node_modules/next/dist/bin/next dev --hostname 0.0.0.0 --port ${port}`,
+      url: baseURL,
+      reuseExistingServer: true,
+      timeout: 120_000,
+    },
+    {
+      command: "node --env-file=.env.local realtime-server.mjs",
+      url: "http://127.0.0.1:3001/health",
+      reuseExistingServer: true,
+      timeout: 30_000,
+    },
+  ],
 })

@@ -230,6 +230,20 @@ export async function POST(request: NextRequest) {
     if (!target.organizationId)
       return failure("VALIDATION_ERROR", "聊天对象尚未分配监室", 400)
 
+    const directKey = buildDirectConversationKey(actor.id, targetUserId)
+    const [existingDirect] = await db
+      .select()
+      .from(chatConversations)
+      .where(
+        and(
+          eq(chatConversations.directKey, directKey),
+          eq(chatConversations.status, "ACTIVE"),
+        ),
+      )
+      .limit(1)
+    if (existingDirect)
+      return success(await serializeConversation(actor, existingDirect))
+
     if (target.organizationId !== actorRoomId) {
       const reason = parsed.data.reason?.trim()
       if (!reason)
@@ -273,7 +287,6 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const directKey = buildDirectConversationKey(actor.id, targetUserId)
     const conversation = await db.transaction(async (tx) => {
       const [created] = await tx
         .insert(chatConversations)

@@ -384,7 +384,7 @@ export function ChatWorkspace({ user }: { user: SessionUser }) {
   })
   const messageList = useMemo(
     () => (messages.data ? [...messages.data.pages].reverse().flat() : []),
-    [messages.data?.pages],
+    [messages.data],
   )
   const latestMessageId = messageList.at(-1)?.id
   const latestSenderId = messageList.at(-1)?.senderId

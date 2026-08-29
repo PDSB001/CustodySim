@@ -60,12 +60,16 @@ io.use(async (socket, next) => {
 })
 
 io.on("connection", (socket) => {
-  socket.on("conversation:join", (conversationId) => {
+  socket.on("conversation:join", async (conversationId, acknowledge) => {
     if (
       typeof conversationId === "string" &&
       socket.data.conversationIds.has(conversationId)
-    )
-      socket.join(`conversation:${conversationId}`)
+    ) {
+      await socket.join(`conversation:${conversationId}`)
+      if (typeof acknowledge === "function") acknowledge({ ok: true })
+      return
+    }
+    if (typeof acknowledge === "function") acknowledge({ ok: false })
   })
   socket.on("conversation:leave", (conversationId) => {
     if (typeof conversationId === "string")
