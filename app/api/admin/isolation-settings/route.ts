@@ -10,7 +10,7 @@ import { z } from "zod"
 import { ensureIsolationReportTemplate } from "@/lib/isolation-report-template"
 
 const SettingsSchema = z.object({
-  templateId: z.string().uuid().nullable(),
+  templateIds: z.array(z.string().uuid()).min(1),
   scheduleTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),
   timeoutMinutes: z.coerce.number().int().min(1).max(10080),
 })
@@ -21,7 +21,10 @@ export async function GET() {
     const defaultTemplate = await ensureIsolationReportTemplate()
     const [settings] = await db.select().from(isolationSettings).where(eq(isolationSettings.id, "default")).limit(1)
     const templates = await db.select({ id: reportTemplates.id, name: reportTemplates.name, kind: reportTemplates.kind }).from(reportTemplates).where(eq(reportTemplates.kind, "REPORT")).orderBy(asc(reportTemplates.createdAt))
-    return success({ settings: settings ?? { templateId: defaultTemplate.id, scheduleTime: "19:00", timeoutMinutes: 240 }, templates })
+    const templateIds = Array.isArray(settings?.templateIds) && settings.templateIds.length
+      ? settings.templateIds.filter((id): id is string => typeof id === "string")
+      : settings?.templateId ? [settings.templateId] : [defaultTemplate.id]
+    return success({ settings: { templateIds, scheduleTime: settings?.scheduleTime ?? "19:00", timeoutMinutes: settings?.timeoutMinutes ?? 240 }, templates })
   } catch (error) {
     console.error("[API isolation-settings GET]", error)
     return failure("INTERNAL_ERROR", "服务器错误", 500)
@@ -34,7 +37,7 @@ export async function PUT(request: NextRequest) {
   const parsed = SettingsSchema.safeParse(await request.json())
   if (!parsed.success) return failure("VALIDATION_ERROR", JSON.stringify(parsed.error.flatten().fieldErrors), 400)
   try {
-    const [saved] = await db.insert(isolationSettings).values({ id: "default", ...parsed.data, updatedAt: new Date() }).onConflictDoUpdate({ target: isolationSettings.id, set: { ...parsed.data, updatedAt: new Date() } }).returning()
+    const [saved] = await db.insert(isolationSettings).values({ id: "default", ...parsed.data, templateId: parsed.data.templateIds[0] ?? null, updatedAt: new Date() }).onConflictDoUpdate({ target: isolationSettings.id, set: { ...parsed.data, templateId: parsed.data.templateIds[0] ?? null, updatedAt: new Date() } }).returning()
     if (!saved) return failure("INTERNAL_ERROR", "保存禁闭设置失败", 500)
     await writeAuditLog({ actor, action: "UPDATE", actionLabel: "更新禁闭设置", entityType: "isolation_settings", entityId: saved.id, detail: parsed.data })
     return success(saved)

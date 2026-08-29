@@ -390,26 +390,25 @@ export async function ensureIsolationReflectionTask(
 ) {
   if (order.status !== "ACTIVE" || order.endAt <= now) return null
   const dayKey = getShanghaiDateKey(now)
-  const [existing] = await db
-    .select({ taskId: isolationReflectionTasks.taskId })
-    .from(isolationReflectionTasks)
-    .where(
-      and(
-        eq(isolationReflectionTasks.isolationOrderId, order.id),
-        eq(isolationReflectionTasks.dayKey, dayKey),
-      ),
-    )
-    .limit(1)
-  if (existing) return existing.taskId
   const [settings] = await db
     .select()
     .from(isolationSettings)
     .where(eq(isolationSettings.id, "default"))
     .limit(1)
-  let templateSnapshot = reflectionTemplateSnapshot
-  let title = reflectionTemplateSnapshot.name
-  const configuredTemplateId = settings?.templateId ?? (await ensureIsolationReportTemplate()).id
-  if (configuredTemplateId) {
+  const configuredTemplateIds = Array.isArray(settings?.templateIds) && settings.templateIds.length
+    ? settings.templateIds.filter((id): id is string => typeof id === "string")
+    : [settings?.templateId ?? (await ensureIsolationReportTemplate()).id]
+  const supervisors = await getSupervisorIdsForSupervised(order.supervisedId)
+  let firstTaskId: string | null = null
+  for (const configuredTemplateId of configuredTemplateIds) {
+    const templateKey = configuredTemplateId
+    const [existing] = await db.select({ taskId: isolationReflectionTasks.taskId }).from(isolationReflectionTasks).where(and(eq(isolationReflectionTasks.isolationOrderId, order.id), eq(isolationReflectionTasks.dayKey, dayKey), eq(isolationReflectionTasks.templateKey, templateKey))).limit(1)
+    if (existing) {
+      firstTaskId ??= existing.taskId
+      continue
+    }
+    let templateSnapshot = reflectionTemplateSnapshot
+    let title = reflectionTemplateSnapshot.name
     const [template] = await db
       .select()
       .from(reportTemplates)
@@ -433,14 +432,10 @@ export async function ensureIsolationReflectionTask(
         })),
       }
     }
-  }
-  const scheduleTime = settings?.scheduleTime ?? "19:00"
-  const scheduleAt = new Date(`${dayKey}T${scheduleTime}:00+08:00`)
-  const deadline = new Date(
-    scheduleAt.getTime() + (settings?.timeoutMinutes ?? 240) * 60_000,
-  )
-  const supervisors = await getSupervisorIdsForSupervised(order.supervisedId)
-  const [task] = await db
+    const scheduleTime = settings?.scheduleTime ?? "19:00"
+    const scheduleAt = new Date(`${dayKey}T${scheduleTime}:00+08:00`)
+    const deadline = new Date(scheduleAt.getTime() + (settings?.timeoutMinutes ?? 240) * 60_000)
+    const [task] = await db
     .insert(reportTasks)
     .values({
       title,
@@ -451,15 +446,17 @@ export async function ensureIsolationReflectionTask(
       source: "ISOLATION",
       scheduleAt,
       deadline,
-    })
-    .returning({ id: reportTasks.id })
-  if (!task) return null
-  const [link] = await db
+      })
+      .returning({ id: reportTasks.id })
+    if (!task) continue
+    const [link] = await db
     .insert(isolationReflectionTasks)
-    .values({ isolationOrderId: order.id, taskId: task.id, dayKey })
+      .values({ isolationOrderId: order.id, taskId: task.id, dayKey, templateKey })
     .onConflictDoNothing()
     .returning({ taskId: isolationReflectionTasks.taskId })
-  return link?.taskId ?? null
+    firstTaskId ??= link?.taskId ?? null
+  }
+  return firstTaskId
 }
 
 export async function runIsolationSweep(now = new Date()) {

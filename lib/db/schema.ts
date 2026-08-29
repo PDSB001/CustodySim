@@ -765,6 +765,7 @@ export const isolationSettings = pgTable("isolation_settings", {
   templateId: uuid("template_id").references(() => reportTemplates.id, {
     onDelete: "set null",
   }),
+  templateIds: jsonb("template_ids").notNull().default([]),
   scheduleTime: varchar("schedule_time", { length: 5 }).notNull().default("19:00"),
   timeoutMinutes: integer("timeout_minutes").notNull().default(240),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
@@ -803,14 +804,16 @@ export const isolationReflectionTasks = pgTable(
       .notNull()
       .references(() => reportTasks.id, { onDelete: "cascade" }),
     dayKey: varchar("day_key", { length: 10 }).notNull(),
+    templateKey: varchar("template_key", { length: 80 }).notNull().default("default"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
   },
   (table) => [
-    uniqueIndex("isolation_reflection_order_day_unique").on(
+    uniqueIndex("isolation_reflection_order_day_template_unique").on(
       table.isolationOrderId,
       table.dayKey,
+      table.templateKey,
     ),
     uniqueIndex("isolation_reflection_task_unique").on(table.taskId),
   ],
