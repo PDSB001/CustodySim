@@ -17,6 +17,7 @@ import {
 } from "@/lib/db/schema"
 import { getSupervisorIdsForSupervised } from "@/lib/supervision-scope"
 import { getShanghaiDateKey } from "@/lib/shanghai-datetime"
+import { ensureIsolationReportTemplate } from "@/lib/isolation-report-template"
 
 export const SCORE_POLICY = {
   dailyCheckinBase: 5,
@@ -407,11 +408,12 @@ export async function ensureIsolationReflectionTask(
     .limit(1)
   let templateSnapshot = reflectionTemplateSnapshot
   let title = reflectionTemplateSnapshot.name
-  if (settings?.templateId) {
+  const configuredTemplateId = settings?.templateId ?? (await ensureIsolationReportTemplate()).id
+  if (configuredTemplateId) {
     const [template] = await db
       .select()
       .from(reportTemplates)
-      .where(eq(reportTemplates.id, settings.templateId))
+      .where(eq(reportTemplates.id, configuredTemplateId))
       .limit(1)
     if (template) {
       const fields = await db

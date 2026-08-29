@@ -7,6 +7,7 @@ import { writeAuditLog } from "@/lib/audit"
 import { db } from "@/lib/db"
 import { isolationSettings, reportTemplates } from "@/lib/db/schema"
 import { z } from "zod"
+import { ensureIsolationReportTemplate } from "@/lib/isolation-report-template"
 
 const SettingsSchema = z.object({
   templateId: z.string().uuid().nullable(),
@@ -17,9 +18,10 @@ const SettingsSchema = z.object({
 export async function GET() {
   if (!(await getAdminUser())) return failure("FORBIDDEN", "仅管理员可查看禁闭设置", 403)
   try {
+    const defaultTemplate = await ensureIsolationReportTemplate()
     const [settings] = await db.select().from(isolationSettings).where(eq(isolationSettings.id, "default")).limit(1)
     const templates = await db.select({ id: reportTemplates.id, name: reportTemplates.name, kind: reportTemplates.kind }).from(reportTemplates).where(eq(reportTemplates.kind, "REPORT")).orderBy(asc(reportTemplates.createdAt))
-    return success({ settings: settings ?? { templateId: null, scheduleTime: "19:00", timeoutMinutes: 240 }, templates })
+    return success({ settings: settings ?? { templateId: defaultTemplate.id, scheduleTime: "19:00", timeoutMinutes: 240 }, templates })
   } catch (error) {
     console.error("[API isolation-settings GET]", error)
     return failure("INTERNAL_ERROR", "服务器错误", 500)

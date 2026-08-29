@@ -11,6 +11,7 @@ import {
   ELECTRONIC_FENCE_REPORT_TEMPLATE_NAME,
   ensureElectronicFenceReportTemplate,
 } from "@/lib/electronic-fence-report-template"
+import { ensureIsolationReportTemplate } from "@/lib/isolation-report-template"
 
 export async function GET() {
   try {
@@ -18,6 +19,7 @@ export async function GET() {
       return failure("FORBIDDEN", "仅管理员可查看任务模板", 403)
 
     await ensureElectronicFenceReportTemplate()
+    await ensureIsolationReportTemplate()
     // Read both tables from one transaction snapshot. This prevents a
     // concurrent template edit from returning a partially updated list.
     const result = await db.transaction(async (tx) => {
