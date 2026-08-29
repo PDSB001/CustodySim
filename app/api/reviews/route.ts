@@ -16,6 +16,7 @@ import { getOfficialSealData } from "@/lib/seal-server"
 import { getSessionUser } from "@/lib/session"
 import { getTaskOutcomeScoreDelta, recordScoreEvent } from "@/lib/scoring"
 import { isEffectiveSupervisorForSupervised } from "@/lib/supervision-scope"
+import { ISOLATION_REPORT_TEMPLATE_NAME } from "@/lib/isolation-report-template"
 
 const ReviewSchema = z.object({
   submissionId: z.string().uuid(),
@@ -146,7 +147,10 @@ export async function POST(request: NextRequest) {
   const isReflectionTask =
     typeof row.taskPayload === "object" &&
     row.taskPayload !== null &&
-    (row.taskPayload as { isReflection?: boolean }).isReflection === true
+    ((row.taskPayload as { isReflection?: boolean }).isReflection === true ||
+      (typeof row.templateSnapshot === "object" &&
+        row.templateSnapshot !== null &&
+        (row.templateSnapshot as { name?: string }).name === ISOLATION_REPORT_TEMPLATE_NAME))
   if (isReflectionTask && parsed.data.result === "APPROVED") {
     await db.insert(notices).values({
       title: `禁闭检讨汇报 · ${row.supervisedName}`,
