@@ -387,7 +387,6 @@ export function ChatWorkspace({ user }: { user: SessionUser }) {
     [messages.data],
   )
   const latestMessageId = messageList.at(-1)?.id
-  const latestSenderId = messageList.at(-1)?.senderId
   useChatRealtime(selectedId)
 
   useEffect(() => {
@@ -402,7 +401,7 @@ export function ChatWorkspace({ user }: { user: SessionUser }) {
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
-    if (!selectedId || !latestMessageId || latestSenderId === user.id) return
+    if (!selectedId || !latestMessageId) return
     requestApi(
       `/api/chat/conversations/${selectedId}/read`,
       z.object({ messageId: z.string() }),
@@ -412,7 +411,7 @@ export function ChatWorkspace({ user }: { user: SessionUser }) {
         client.invalidateQueries({ queryKey: ["chat-conversations"] }),
       )
       .catch(() => undefined)
-  }, [client, latestMessageId, latestSenderId, selectedId, user.id])
+  }, [client, latestMessageId, selectedId])
 
   const ensureRoom = useMutation({
     mutationFn: () =>
