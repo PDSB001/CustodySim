@@ -53,6 +53,7 @@ export async function POST(request: NextRequest) {
       taskStatus: reportTasks.status,
       deadline: reportTasks.deadline,
       taskSource: reportTasks.source,
+      taskPayload: reportTasks.payload,
       submissionContent: reportSubmissions.content,
       submissionData: reportSubmissions.data,
       supervisedName: users.name,
@@ -142,7 +143,11 @@ export async function POST(request: NextRequest) {
       operatorId: actor.id,
     })
   }
-  if (row.taskSource === "ISOLATION" && parsed.data.result === "APPROVED") {
+  const isReflectionTask =
+    typeof row.taskPayload === "object" &&
+    row.taskPayload !== null &&
+    (row.taskPayload as { isReflection?: boolean }).isReflection === true
+  if (isReflectionTask && parsed.data.result === "APPROVED") {
     await db.insert(notices).values({
       title: `禁闭检讨汇报 · ${row.supervisedName}`,
       content: formatReflectionBroadcast(
@@ -166,7 +171,7 @@ export async function POST(request: NextRequest) {
       result: parsed.data.result,
       grade: parsed.data.grade ?? null,
       scoreDelta,
-      broadcast: row.taskSource === "ISOLATION" && parsed.data.result === "APPROVED",
+      broadcast: isReflectionTask && parsed.data.result === "APPROVED",
     },
   })
   return success(review, { status: 201 })

@@ -18,7 +18,10 @@ import {
 } from "@/lib/db/schema"
 import { getSupervisorIdsForSupervised } from "@/lib/supervision-scope"
 import { getShanghaiDateKey } from "@/lib/shanghai-datetime"
-import { ensureIsolationReportTemplate } from "@/lib/isolation-report-template"
+import {
+  ensureIsolationReportTemplate,
+  ISOLATION_REPORT_TEMPLATE_NAME,
+} from "@/lib/isolation-report-template"
 
 export const SCORE_POLICY = {
   dailyCheckinBase: 5,
@@ -453,7 +456,11 @@ export async function ensureIsolationReflectionTask(
       supervisedId: order.supervisedId,
       supervisorId: [...supervisors][0] ?? null,
       templateSnapshot,
-      payload: { isolationOrderId: order.id, dayKey },
+      payload: {
+        isolationOrderId: order.id,
+        dayKey,
+        isReflection: title === ISOLATION_REPORT_TEMPLATE_NAME,
+      },
       source: "ISOLATION",
       scheduleAt,
       deadline,

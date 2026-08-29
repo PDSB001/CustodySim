@@ -20,7 +20,7 @@ export async function GET() {
   try {
     const defaultTemplate = await ensureIsolationReportTemplate()
     const [settings] = await db.select().from(isolationSettings).where(eq(isolationSettings.id, "default")).limit(1)
-    const templates = await db.select({ id: reportTemplates.id, name: reportTemplates.name, kind: reportTemplates.kind }).from(reportTemplates).where(eq(reportTemplates.kind, "REPORT")).orderBy(asc(reportTemplates.createdAt))
+    const templates = await db.select({ id: reportTemplates.id, name: reportTemplates.name, kind: reportTemplates.kind }).from(reportTemplates).orderBy(asc(reportTemplates.createdAt))
     const templateIds = Array.isArray(settings?.templateIds) && settings.templateIds.length
       ? settings.templateIds.filter((id): id is string => typeof id === "string")
       : settings?.templateId ? [settings.templateId] : [defaultTemplate.id]
