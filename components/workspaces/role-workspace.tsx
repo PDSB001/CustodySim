@@ -48,6 +48,7 @@ const DashboardSummarySchema = z.object({
   inCustodyPersons: z.number(),
   enabledRules: z.number(),
   custodyStatus: z.string(),
+  unreadNotices: z.number(),
 })
 
 const ProfileSummarySchema = z.object({
@@ -491,6 +492,7 @@ export function RoleWorkspaceHome({
         }
       : {
           待完成任务: String(summary.data?.myPendingTasks ?? 0),
+          未读通知: String(summary.data?.unreadNotices ?? 0),
           档案状态: summary.data?.custodyStatus ?? "正常",
         }
   const homeTitle = (uiConfig.data?.homeTitle ?? "你好，{name}").replace(

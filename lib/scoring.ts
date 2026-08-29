@@ -11,6 +11,7 @@ import {
   reportTasks,
   reportTemplateFields,
   reportTemplates,
+  notices,
   scoreEvents,
   scoreWeekReviews,
   users,
@@ -292,7 +293,7 @@ export async function runWeeklyScoreReview(now = new Date()) {
   const completedWeekKey = shiftWeekKey(getShanghaiWeekKey(now), -1)
   const weekStartAt = new Date(`${getShanghaiWeekKey(now)}T00:00:00+08:00`)
   const supervisedUsers = await db
-    .select({ id: users.id })
+    .select({ id: users.id, name: users.name })
     .from(users)
     .where(and(eq(users.role, "SUPERVISED"), eq(users.status, "active")))
   let evaluated = 0
@@ -363,6 +364,16 @@ export async function runWeeklyScoreReview(now = new Date()) {
       return created
     })
     if (order) await ensureIsolationReflectionTask(order, now)
+    if (order) {
+      await db.insert(notices).values({
+        title: "禁闭公示",
+        content: `${user.name} 已于每周一 00:00 进入禁闭室，禁闭至 ${order.endAt.toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" })}。`,
+        targetRole: "ALL",
+        priority: "IMPORTANT",
+        published: true,
+        publishedAt: now,
+      })
+    }
   }
   return evaluated
 }

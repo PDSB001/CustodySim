@@ -1,4 +1,4 @@
-import { and, count, eq, gt, gte, inArray, lt, ne } from "drizzle-orm"
+import { and, count, eq, gt, gte, inArray, isNull, lt, ne, or } from "drizzle-orm"
 
 import { getDayRange } from "@/lib/checkin"
 import { getCustodyProfileForUser } from "@/lib/custody-checkin"
@@ -10,6 +10,8 @@ import {
   persons,
   reportTasks,
   rules,
+  noticeReads,
+  notices,
 } from "@/lib/db/schema"
 import type { SessionUser } from "@/lib/session"
 import { getSupervisedUserIdsForActor } from "@/lib/supervision-scope"
@@ -29,6 +31,8 @@ export type DashboardSummary = {
   enabledRules: number
   /** 档案状态文本（被监管人） */
   custodyStatus: string
+  /** 当前用户未读正式通知数量 */
+  unreadNotices: number
 }
 
 export async function getDashboardSummary(
@@ -45,6 +49,7 @@ export async function getDashboardSummary(
     myPendingTasks,
     inCustodyPersons,
     enabledRules,
+    unreadNotices,
   ] = await Promise.all([
     ids.length
       ? db
@@ -97,6 +102,21 @@ export async function getDashboardSummary(
       .select({ n: count() })
       .from(rules)
       .where(and(eq(rules.enabled, true), ne(rules.type, "CHECKIN"))),
+    db
+      .select({ n: count() })
+      .from(notices)
+      .leftJoin(
+        noticeReads,
+        and(eq(noticeReads.noticeId, notices.id), eq(noticeReads.userId, actor.id)),
+      )
+      .where(
+        and(
+          eq(notices.published, true),
+          or(eq(notices.targetRole, "ALL"), eq(notices.targetRole, actor.role)),
+          or(isNull(notices.expiresAt), gt(notices.expiresAt, now)),
+          isNull(noticeReads.id),
+        ),
+      ),
   ])
 
   let custodyStatus = "未知"
@@ -115,5 +135,6 @@ export async function getDashboardSummary(
     inCustodyPersons: inCustodyPersons[0]?.n ?? 0,
     enabledRules: enabledRules[0]?.n ?? 0,
     custodyStatus,
+    unreadNotices: unreadNotices[0]?.n ?? 0,
   }
 }
