@@ -37,7 +37,10 @@ export function NoticesWorkspace({ title = "通知公告" }: { title?: string })
   const notices = useQuery({ queryKey: ["notices"], queryFn: () => requestApi("/api/notices", NoticesSchema) })
   const read = useMutation({
     mutationFn: (noticeId: string) => requestApi("/api/notices", z.object({ id: z.string() }), { method: "PATCH", body: JSON.stringify({ noticeId }) }),
-    onSuccess: () => client.invalidateQueries({ queryKey: ["notices"] }),
+    onSuccess: () => {
+      client.invalidateQueries({ queryKey: ["notices"] })
+      client.invalidateQueries({ queryKey: ["dashboard-summary"] })
+    },
   })
   return <div className="workspace-stack mx-auto max-w-5xl"><PageHeader eyebrow="信息中心" title={title} description="顶部标语将继续保持展示；此处用于查看需要留存的正式通知。" />{notices.data?.map((notice) => <Card key={notice.id} className={notice.readAt ? "" : "border-brand-500/40"}><CardHeader><div className="flex items-start justify-between gap-3"><CardTitle className="flex items-center gap-2"><Megaphone className="size-4" />{notice.title}</CardTitle><span className="text-muted-foreground text-xs">{priorityText[notice.priority] ?? notice.priority}{notice.readAt ? " · 已读" : " · 未读"}</span></div></CardHeader><CardContent><p className="whitespace-pre-wrap text-sm leading-7">{notice.content}</p><div className="text-muted-foreground mt-4 flex flex-wrap items-center justify-between gap-3 text-xs"><span>发布时间：{formatDate(notice.publishedAt ?? notice.createdAt)}</span>{!notice.readAt ? <Button size="sm" variant="outline" disabled={read.isPending} onClick={() => read.mutate(notice.id)}>标为已读</Button> : null}</div></CardContent></Card>)}{notices.data?.length === 0 ? <EmptyState icon={BellRing} title="暂无通知" description="新的监管通知会在此处留存。" /> : null}</div>
 }

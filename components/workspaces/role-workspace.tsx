@@ -483,6 +483,8 @@ export function RoleWorkspaceHome({
   const summary = useQuery({
     queryKey: ["dashboard-summary"],
     queryFn: () => requestApi("/api/dashboard-summary", DashboardSummarySchema),
+    refetchInterval: 30_000,
+    refetchOnWindowFocus: true,
   })
   const dynamicValues: Record<string, string> =
     kind === "SUPERVISOR"
