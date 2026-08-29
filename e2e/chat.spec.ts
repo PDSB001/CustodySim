@@ -123,9 +123,36 @@ test("聊天完整链路：同监室、撤回、跨监室审批", async ({}, tes
     expect(received.data.some((item) => item.content === messageText)).toBe(
       true,
     )
-    await call(zhou, "post", `/api/chat/conversations/${direct.data.id}/read`, {
-      messageId: message.data.id,
-    })
+    const markedRead = await call<{ readCount: number }>(
+      zhou,
+      "post",
+      `/api/chat/conversations/${direct.data.id}/read`,
+      { messageId: message.data.id },
+    )
+    expect(markedRead.data.readCount).toBeGreaterThan(0)
+    const afterRead = await call<Array<{ id: string; unreadCount: number }>>(
+      zhou,
+      "get",
+      "/api/chat/conversations",
+    )
+    const readConversation = afterRead.data.find(
+      (conversation: { id: string }) => conversation.id === direct.data.id,
+    )
+    expect(readConversation?.unreadCount).toBe(0)
+    const adminMarkedRead = await call<{ readCount: number }>(
+      admin,
+      "post",
+      `/api/chat/conversations/${direct.data.id}/read`,
+      { messageId: message.data.id },
+    )
+    expect(adminMarkedRead.data.readCount).toBeGreaterThan(0)
+    const adminAfterRead = await call<
+      Array<{ id: string; unreadCount: number }>
+    >(admin, "get", "/api/chat/conversations")
+    expect(
+      adminAfterRead.data.find((conversation) => conversation.id === direct.data.id)
+        ?.unreadCount,
+    ).toBe(0)
     await call(liu, "post", `/api/chat/messages/${message.data.id}/recall`)
     const recalled = await call<
       Array<{ id: string; content: string | null; recalledAt: string | null }>
