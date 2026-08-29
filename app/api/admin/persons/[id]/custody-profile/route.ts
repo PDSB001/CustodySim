@@ -17,6 +17,17 @@ export async function PATCH(request: NextRequest, { params }: RouteContext) {
   if (!parsed.success)
     return failure("VALIDATION_ERROR", "监管级别或囚犯状态不合法", 400)
   const { id } = await params
+  const [current] = await db
+    .select({ custodyStatus: persons.custodyStatus })
+    .from(persons)
+    .where(eq(persons.id, id))
+    .limit(1)
+  if (!current) return failure("NOT_FOUND", "人员不存在", 404)
+  if (
+    current.custodyStatus === "ISOLATION" ||
+    parsed.data.custodyStatus === "ISOLATION"
+  )
+    return failure("CONFLICT", "禁闭状态由积分系统统一控制", 409)
   const [updated] = await db
     .update(persons)
     .set({ ...parsed.data, updatedAt: new Date() })

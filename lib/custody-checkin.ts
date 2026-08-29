@@ -1,6 +1,10 @@
 import { and, desc, eq, inArray } from "drizzle-orm"
 
-import type { CustodyLevel, PrisonerCustodyStatus } from "@/lib/constants"
+import type {
+  CustodyCheckinPlanLevel,
+  CustodyLevel,
+  PrisonerCustodyStatus,
+} from "@/lib/constants"
 import { isLeaveActive, isTemporaryReleaseActive } from "@/lib/application"
 import { db } from "@/lib/db"
 import { applications, persons, rules } from "@/lib/db/schema"
@@ -12,7 +16,7 @@ export type CheckinSlotSetting = {
 }
 
 export const CUSTODY_CHECKIN_PRESETS: Record<
-  CustodyLevel,
+  CustodyCheckinPlanLevel,
   { name: string; slots: CheckinSlotSetting[] }
 > = {
   STRICT: {
@@ -24,6 +28,19 @@ export const CUSTODY_CHECKIN_PRESETS: Record<
       { label: "午休", time: "14:00", timeoutMinutes: 15 },
       { label: "晚间点名", time: "19:00", timeoutMinutes: 30 },
       { label: "就寝", time: "21:30", timeoutMinutes: 30 },
+    ],
+  },
+  ISOLATION: {
+    name: "禁闭加强打卡方案",
+    slots: [
+      { label: "早起核验", time: "06:30", timeoutMinutes: 10 },
+      { label: "晨起", time: "07:00", timeoutMinutes: 10 },
+      { label: "早餐", time: "07:45", timeoutMinutes: 10 },
+      { label: "午餐", time: "12:00", timeoutMinutes: 15 },
+      { label: "午休", time: "14:00", timeoutMinutes: 10 },
+      { label: "下午点名", time: "16:00", timeoutMinutes: 10 },
+      { label: "晚间点名", time: "19:00", timeoutMinutes: 10 },
+      { label: "就寝", time: "21:30", timeoutMinutes: 10 },
     ],
   },
   GENERAL: {
@@ -144,8 +161,8 @@ export async function syncScheduledCustodyStatus(
 export const syncTemporaryReleaseCustodyStatus = syncScheduledCustodyStatus
 
 export async function isUserInCustody(userId: string) {
-  return (
-    (await getCustodyProfileForUser(userId))?.custodyStatus === "IN_CUSTODY"
+  return ["IN_CUSTODY", "ISOLATION"].includes(
+    (await getCustodyProfileForUser(userId))?.custodyStatus ?? "",
   )
 }
 
@@ -205,8 +222,8 @@ export async function ensureCustodyCheckinPresets() {
   const existingLevels = new Set(existing.map((rule) => rule.custodyLevel))
   const missing = (
     Object.entries(CUSTODY_CHECKIN_PRESETS) as [
-      CustodyLevel,
-      (typeof CUSTODY_CHECKIN_PRESETS)[CustodyLevel],
+      CustodyCheckinPlanLevel,
+      (typeof CUSTODY_CHECKIN_PRESETS)[CustodyCheckinPlanLevel],
     ][]
   ).filter(([level]) => !existingLevels.has(level))
   if (!missing.length) return

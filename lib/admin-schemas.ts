@@ -1,6 +1,7 @@
 import { z } from "zod"
 
 import {
+  CUSTODY_CHECKIN_PLAN_LEVELS,
   CUSTODY_LEVELS,
   ORGANIZATION_CATEGORIES,
   PRISONER_CUSTODY_STATUSES,
@@ -107,20 +108,45 @@ export const RuleGroupSchema = z.object({
   scopes: z.array(ScopeSchema).default([]),
 })
 
-export const RuleSchema = z.object({
-  name: z.string().trim().min(1).max(100),
-  type: z.enum(["REPORT", "STUDY", "LABOR"]).default("REPORT"),
-  taskType: z.enum(["REPORT", "STUDY", "LABOR"]).default("REPORT"),
-  freq: z.enum(["DAILY", "WEEKLY", "MONTHLY", "ONCE"]).default("DAILY"),
-  scheduleDays: z.array(z.coerce.number().int().min(1).max(31)).default([]),
-  timeSlots: z.array(z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/)).default([]),
-  timeoutMinutes: z.coerce.number().int().min(1).max(10080).default(30),
-  startDate: z.string().datetime({ offset: true }).nullable().optional(),
-  endDate: z.string().datetime({ offset: true }).nullable().optional(),
-  ruleGroupId: z.string().uuid().nullable().optional(),
-  templateId: z.string().uuid().nullable().optional(),
+export const RuleSchema = z
+  .object({
+    name: z.string().trim().min(1).max(100),
+    type: z.enum(["REPORT", "STUDY", "LABOR"]).default("REPORT"),
+    taskType: z.enum(["REPORT", "STUDY", "LABOR"]).default("REPORT"),
+    freq: z.enum(["DAILY", "WEEKLY", "MONTHLY", "ONCE"]).default("DAILY"),
+    scheduleDays: z.array(z.coerce.number().int().min(1).max(31)).default([]),
+    timeSlots: z
+      .array(z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/))
+      .default([]),
+    timeoutMinutes: z.coerce.number().int().min(1).max(10080).default(30),
+    startDate: z.string().datetime({ offset: true }).nullable().optional(),
+    endDate: z.string().datetime({ offset: true }).nullable().optional(),
+    ruleGroupId: z.string().uuid().nullable().optional(),
+    templateId: z.string().uuid().nullable().optional(),
+    taskPoolId: z.string().uuid().nullable().optional(),
+    enabled: z.boolean().default(true),
+    scopes: z.array(ScopeSchema).default([]),
+  })
+  .superRefine((value, context) => {
+    if (value.templateId && value.taskPoolId)
+      context.addIssue({
+        code: "custom",
+        message: "固定模板与随机任务池只能选择一个",
+        path: ["taskPoolId"],
+      })
+    if (value.taskPoolId && value.freq !== "DAILY")
+      context.addIssue({
+        code: "custom",
+        message: "随机任务池仅支持每日规则",
+        path: ["freq"],
+      })
+  })
+
+export const TaskPoolSchema = z.object({
+  name: z.string().trim().min(1, "请输入任务池名称").max(100),
+  kind: z.enum(["REPORT", "STUDY", "LABOR"]),
+  templateIds: z.array(z.string().uuid()).min(1, "至少选择一个任务模板"),
   enabled: z.boolean().default(true),
-  scopes: z.array(ScopeSchema).default([]),
 })
 
 export const CheckinRuleSchema = z.object({
@@ -131,7 +157,7 @@ export const CheckinRuleSchema = z.object({
     .array(z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/))
     .min(1, "至少设置一个打卡时段"),
   timeoutMinutes: z.coerce.number().int().min(1).max(10080).default(30),
-  custodyLevel: z.enum(CUSTODY_LEVELS).nullable().optional(),
+  custodyLevel: z.enum(CUSTODY_CHECKIN_PLAN_LEVELS).nullable().optional(),
   slotSettings: z
     .array(
       z.object({

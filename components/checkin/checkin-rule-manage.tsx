@@ -23,14 +23,17 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { toast } from "@/components/ui/toast"
-import { CUSTODY_LEVEL_LABELS, CUSTODY_LEVELS } from "@/lib/constants"
+import {
+  CUSTODY_CHECKIN_PLAN_LABELS,
+  CUSTODY_CHECKIN_PLAN_LEVELS,
+} from "@/lib/constants"
 
 const Rule = z.object({
   id: z.string(),
   name: z.string(),
   timeSlots: z.array(z.string()),
   timeoutMinutes: z.number(),
-  custodyLevel: z.enum(CUSTODY_LEVELS).nullable(),
+  custodyLevel: z.enum(CUSTODY_CHECKIN_PLAN_LEVELS).nullable(),
   slotSettings: z.array(
     z.object({
       label: z.string(),
@@ -77,7 +80,7 @@ export function CheckinRuleManage() {
       <PageHeader
         eyebrow="日常监管"
         title="打卡规则"
-        description="系统已内置严管 C、普管 B、宽管 A 三套规则；仅在押人员按自身监管级别执行。"
+        description="系统内置禁闭加强、严管 C、普管 B、宽管 A 四套方案；禁闭人员执行独立加强方案。"
       />
       <Card>
         <CardContent className="p-5 sm:p-6">
@@ -124,9 +127,9 @@ export function CheckinRuleManage() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {CUSTODY_LEVELS.map((level) => (
+                  {CUSTODY_CHECKIN_PLAN_LEVELS.map((level) => (
                     <SelectItem key={level} value={level}>
-                      {CUSTODY_LEVEL_LABELS[level]}
+                      {CUSTODY_CHECKIN_PLAN_LABELS[level]}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -164,7 +167,7 @@ export function CheckinRuleManage() {
                   <p className="text-foreground font-medium">{rule.name}</p>
                   <p className="text-muted-foreground mt-1 text-xs">
                     {rule.custodyLevel
-                      ? `${CUSTODY_LEVEL_LABELS[rule.custodyLevel]} · `
+                      ? `${CUSTODY_CHECKIN_PLAN_LABELS[rule.custodyLevel]} · `
                       : "通用 · "}
                     {(rule.slotSettings.length
                       ? rule.slotSettings.map(

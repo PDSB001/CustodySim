@@ -44,6 +44,10 @@ const OrganizationSchema = z.object({
   name: z.string(),
   category: z.enum(ORGANIZATION_CATEGORIES).nullable(),
 })
+
+const MANUALLY_SELECTABLE_CUSTODY_STATUSES = PRISONER_CUSTODY_STATUSES.filter(
+  (status) => status !== "ISOLATION",
+)
 const PersonSchema = z.object({
   id: z.string(),
   name: z.string(),
@@ -322,7 +326,7 @@ export function PersonManage() {
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      {PRISONER_CUSTODY_STATUSES.map((status) => (
+                      {MANUALLY_SELECTABLE_CUSTODY_STATUSES.map((status) => (
                         <SelectItem key={status} value={status}>
                           {PRISONER_CUSTODY_STATUS_LABELS[status]}
                         </SelectItem>
@@ -472,7 +476,12 @@ export function PersonManage() {
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        {PRISONER_CUSTODY_STATUSES.map((status) => (
+                        {person.custodyStatus === "ISOLATION" ? (
+                          <SelectItem value="ISOLATION" disabled>
+                            禁闭执行中（系统控制）
+                          </SelectItem>
+                        ) : null}
+                        {MANUALLY_SELECTABLE_CUSTODY_STATUSES.map((status) => (
                           <SelectItem key={status} value={status}>
                             {PRISONER_CUSTODY_STATUS_LABELS[status]}
                           </SelectItem>

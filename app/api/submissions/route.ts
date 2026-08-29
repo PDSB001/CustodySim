@@ -45,6 +45,8 @@ export async function POST(request: NextRequest) {
     .limit(1)
   if (!task || task.supervisedId !== actor.id)
     return failure("FORBIDDEN", "无权提交该任务", 403)
+  if (task.scheduleAt > new Date())
+    return failure("VALIDATION_ERROR", "任务尚未到开始时间", 400)
   if (task.deadline < new Date())
     return failure("VALIDATION_ERROR", "任务已超过截止时间", 400)
   if (task.status !== "PENDING" && task.status !== "RETURNED")

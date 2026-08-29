@@ -332,6 +332,25 @@ export const ruleGroupScopes = pgTable(
   (table) => [index("rule_group_scopes_group_idx").on(table.groupId)],
 )
 
+export const taskPools = pgTable(
+  "task_pools",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    name: varchar("name", { length: 100 }).notNull(),
+    kind: varchar("kind", { length: 30 }).notNull().default("REPORT"),
+    enabled: boolean("enabled").notNull().default(true),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index("task_pools_kind_enabled_idx").on(table.kind, table.enabled),
+  ],
+)
+
 export const rules = pgTable(
   "rules",
   {
@@ -358,6 +377,9 @@ export const rules = pgTable(
       onDelete: "set null",
     }),
     templateId: uuid("template_id"),
+    taskPoolId: uuid("task_pool_id").references(() => taskPools.id, {
+      onDelete: "set null",
+    }),
     enabled: boolean("enabled").notNull().default(true),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
@@ -368,6 +390,7 @@ export const rules = pgTable(
   },
   (table) => [
     index("rules_group_idx").on(table.ruleGroupId),
+    index("rules_task_pool_idx").on(table.taskPoolId),
     index("rules_enabled_idx").on(table.enabled),
   ],
 )
@@ -427,6 +450,29 @@ export const templateScopes = pgTable(
     targetId: uuid("target_id").notNull(),
   },
   (table) => [index("template_scopes_template_idx").on(table.templateId)],
+)
+
+export const taskPoolTemplates = pgTable(
+  "task_pool_templates",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    poolId: uuid("pool_id")
+      .notNull()
+      .references(() => taskPools.id, { onDelete: "cascade" }),
+    templateId: uuid("template_id")
+      .notNull()
+      .references(() => reportTemplates.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index("task_pool_templates_pool_idx").on(table.poolId),
+    uniqueIndex("task_pool_templates_pool_template_unique").on(
+      table.poolId,
+      table.templateId,
+    ),
+  ],
 )
 
 export const reportTasks = pgTable(
@@ -623,6 +669,140 @@ export const checkinMakeups = pgTable(
       table.supervisorId,
       table.status,
     ),
+  ],
+)
+
+export const scoreEvents = pgTable(
+  "score_events",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    supervisedId: uuid("supervised_id")
+      .notNull()
+      .references(() => users.id),
+    points: integer("points").notNull(),
+    reason: varchar("reason", { length: 300 }).notNull(),
+    source: varchar("source", { length: 40 }).notNull().default("MANUAL"),
+    sourceId: uuid("source_id"),
+    operatorId: uuid("operator_id").references(() => users.id),
+    weekKey: varchar("week_key", { length: 16 }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index("score_events_supervised_week_idx").on(
+      table.supervisedId,
+      table.weekKey,
+      table.createdAt,
+    ),
+    uniqueIndex("score_events_source_unique").on(table.source, table.sourceId),
+  ],
+)
+
+export const checkinDailyScores = pgTable(
+  "checkin_daily_scores",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    supervisedId: uuid("supervised_id")
+      .notNull()
+      .references(() => users.id),
+    dayKey: varchar("day_key", { length: 10 }).notNull(),
+    scheduledCount: integer("scheduled_count").notNull(),
+    completedCount: integer("completed_count").notNull(),
+    makeupCount: integer("makeup_count").notNull().default(0),
+    missingCount: integer("missing_count").notNull(),
+    points: integer("points").notNull(),
+    scoreEventId: uuid("score_event_id").references(() => scoreEvents.id),
+    settledAt: timestamp("settled_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("checkin_daily_scores_user_day_unique").on(
+      table.supervisedId,
+      table.dayKey,
+    ),
+    index("checkin_daily_scores_day_idx").on(table.dayKey),
+  ],
+)
+
+export const isolationOrders = pgTable(
+  "isolation_orders",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    supervisedId: uuid("supervised_id")
+      .notNull()
+      .references(() => users.id),
+    weekKey: varchar("week_key", { length: 16 }).notNull(),
+    triggerScore: integer("trigger_score").notNull(),
+    previousCustodyStatus: varchar("previous_custody_status", { length: 20 })
+      .notNull()
+      .default("IN_CUSTODY"),
+    startAt: timestamp("start_at", { withTimezone: true }).notNull(),
+    endAt: timestamp("end_at", { withTimezone: true }).notNull(),
+    status: varchar("status", { length: 20 }).notNull().default("ACTIVE"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("isolation_orders_user_week_unique").on(
+      table.supervisedId,
+      table.weekKey,
+    ),
+    index("isolation_orders_active_idx").on(table.status, table.endAt),
+  ],
+)
+
+export const scoreWeekReviews = pgTable(
+  "score_week_reviews",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    supervisedId: uuid("supervised_id")
+      .notNull()
+      .references(() => users.id),
+    weekKey: varchar("week_key", { length: 16 }).notNull(),
+    totalScore: integer("total_score").notNull(),
+    result: varchar("result", { length: 20 }).notNull(),
+    evaluatedAt: timestamp("evaluated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("score_week_reviews_user_week_unique").on(
+      table.supervisedId,
+      table.weekKey,
+    ),
+  ],
+)
+
+export const isolationReflectionTasks = pgTable(
+  "isolation_reflection_tasks",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    isolationOrderId: uuid("isolation_order_id")
+      .notNull()
+      .references(() => isolationOrders.id, { onDelete: "cascade" }),
+    taskId: uuid("task_id")
+      .notNull()
+      .references(() => reportTasks.id, { onDelete: "cascade" }),
+    dayKey: varchar("day_key", { length: 10 }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("isolation_reflection_order_day_unique").on(
+      table.isolationOrderId,
+      table.dayKey,
+    ),
+    uniqueIndex("isolation_reflection_task_unique").on(table.taskId),
   ],
 )
 

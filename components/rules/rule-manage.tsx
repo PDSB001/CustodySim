@@ -41,6 +41,7 @@ const Rule = z.object({
   scheduleDays: z.array(z.number()).catch([]),
   timeSlots: z.array(z.string()).catch([]),
   timeoutMinutes: z.coerce.number().int().min(1).max(10080).catch(90),
+  taskPoolId: z.string().nullable().catch(null),
   scopes: z.array(z.object({ id: z.string() })).catch([]),
 })
 const Group = z.object({ id: z.string(), name: z.string() })
@@ -48,6 +49,12 @@ const Template = z.object({
   id: z.string(),
   name: z.string(),
   kind: z.string(),
+})
+const TaskPool = z.object({
+  id: z.string(),
+  name: z.string(),
+  kind: z.string(),
+  enabled: z.boolean(),
 })
 const User = z.object({ id: z.string(), name: z.string(), role: z.string() })
 
@@ -85,6 +92,7 @@ export function RuleManage() {
   )
   const [groupId, setGroupId] = useState("")
   const [templateId, setTemplateId] = useState("")
+  const [taskPoolId, setTaskPoolId] = useState("")
   const [userId, setUserId] = useState("")
   const rules = useQuery({
     queryKey: ["rules"],
@@ -102,6 +110,10 @@ export function RuleManage() {
     queryKey: ["report-templates", "options"],
     queryFn: () => requestApi("/api/admin/report-templates", z.array(Template)),
   })
+  const taskPools = useQuery({
+    queryKey: ["task-pools", "rule-options"],
+    queryFn: () => requestApi("/api/admin/task-pools", z.array(TaskPool)),
+  })
   const create = useMutation({
     mutationFn: () =>
       requestApi("/api/admin/rules", Rule, {
@@ -117,6 +129,7 @@ export function RuleManage() {
           startDate: new Date(`${startDate}T${slot}:00`).toISOString(),
           ruleGroupId: groupId || null,
           templateId: templateId || null,
+          taskPoolId: taskPoolId || null,
           enabled: true,
           scopes: userId ? [{ targetType: "USER", targetId: userId }] : [],
         }),
@@ -206,6 +219,7 @@ export function RuleManage() {
                       onValueChange={(value) => {
                         setTaskType(value)
                         setTemplateId("")
+                        setTaskPoolId("")
                       }}
                     >
                       <SelectTrigger className="w-full">
@@ -222,9 +236,10 @@ export function RuleManage() {
                     <Label>任务表单</Label>
                     <Select
                       value={templateId}
-                      onValueChange={(value) =>
+                      onValueChange={(value) => {
                         setTemplateId(value === "__none__" ? "" : value)
-                      }
+                        if (value !== "__none__") setTaskPoolId("")
+                      }}
                     >
                       <SelectTrigger className="w-full">
                         <SelectValue placeholder="暂不绑定表单" />
@@ -240,6 +255,41 @@ export function RuleManage() {
                           ))}
                       </SelectContent>
                     </Select>
+                  </div>
+                  <div className="space-y-2 sm:col-span-2">
+                    <Label>每日随机任务池（可选）</Label>
+                    <Select
+                      value={taskPoolId}
+                      onValueChange={(value) => {
+                        const nextPoolId = value === "__none__" ? "" : value
+                        setTaskPoolId(nextPoolId)
+                        if (nextPoolId) {
+                          setTemplateId("")
+                          setFreq("DAILY")
+                        }
+                      }}
+                    >
+                      <SelectTrigger className="w-full">
+                        <SelectValue placeholder="不使用随机任务池" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__none__">
+                          不使用随机任务池
+                        </SelectItem>
+                        {taskPools.data
+                          ?.filter(
+                            (pool) => pool.enabled && pool.kind === taskType,
+                          )
+                          .map((pool) => (
+                            <SelectItem key={pool.id} value={pool.id}>
+                              {pool.name}
+                            </SelectItem>
+                          ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-muted-foreground text-xs">
+                      选择后将固定为每日规则，并按人员和日期稳定抽取一份模板。
+                    </p>
                   </div>
                 </div>
               </section>
@@ -261,7 +311,11 @@ export function RuleManage() {
                 <div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
                   <div className="space-y-2">
                     <Label>执行周期</Label>
-                    <Select value={freq} onValueChange={setFreq}>
+                    <Select
+                      value={freq}
+                      disabled={Boolean(taskPoolId)}
+                      onValueChange={setFreq}
+                    >
                       <SelectTrigger className="w-full">
                         <SelectValue />
                       </SelectTrigger>
@@ -436,7 +490,11 @@ export function RuleManage() {
               <div className="border-border/70 bg-card text-muted-foreground flex items-start gap-2 rounded-xl border px-3 py-2.5 text-[12px]">
                 <FileText className="text-brand-700 mt-0.5 size-3.5 shrink-0" />
                 <span>
-                  {templateId ? "已绑定任务表单" : "未绑定表单，可稍后补充"}
+                  {taskPoolId
+                    ? "已绑定每日随机任务池"
+                    : templateId
+                      ? "已绑定任务表单"
+                      : "未绑定表单，可稍后补充"}
                 </span>
               </div>
               <div className="border-border/70 bg-card text-muted-foreground flex items-start gap-2 rounded-xl border px-3 py-2.5 text-[12px]">

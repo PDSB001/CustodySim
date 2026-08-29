@@ -1,6 +1,6 @@
 {
   "name": "custodysim",
-  "version": "1.0.0-test",
+  "version": "1.1.0-test",
   "private": true,
   "engines": {
     "node": ">=20.9.0"
@@ -17,6 +17,7 @@
     "test:all": "pnpm lint && pnpm typecheck && pnpm test && pnpm test:e2e",
     "db:push": "drizzle-kit push",
     "db:seed": "tsx --env-file=.env.local scripts/seed.ts",
+    "db:seed-scoreboard-demo": "tsx --env-file=.env.local scripts/seed-scoreboard-demo.ts",
     "db:bootstrap-admin": "tsx --env-file=.env.local scripts/bootstrap-admin.ts",
     "db:ensure-entry-form": "tsx --env-file=.env.local scripts/ensure-entry-registration-form.ts",
     "db:reconcile-profile-record-sequence": "tsx --env-file=.env.local scripts/reconcile-profile-record-sequence.ts",

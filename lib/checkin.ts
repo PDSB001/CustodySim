@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, inArray, lt } from "drizzle-orm"
+import { and, desc, eq, gte, inArray, lt, notInArray } from "drizzle-orm"
 
 import { db } from "@/lib/db"
 import {
@@ -43,6 +43,10 @@ import {
 } from "@/lib/supervision-scope"
 import { legacyDateAllDay } from "@/lib/shanghai-datetime"
 import type { SessionUser } from "@/lib/session"
+import {
+  getActiveIsolationOrder,
+  runCheckinDailyScoreSweep,
+} from "@/lib/scoring"
 
 export const CHECKIN_TASK_STATUSES = [
   "PENDING",
@@ -109,8 +113,18 @@ export function getRecordStatus(scheduleAt: Date, deadline: Date, now: Date) {
 
 export async function getCheckinRulesForUser(userId: string, now = new Date()) {
   const profile = await getCustodyProfileForUser(userId)
-  if (!profile || !["IN_CUSTODY", "ON_LEAVE"].includes(profile.custodyStatus))
+  if (
+    !profile ||
+    !["IN_CUSTODY", "ON_LEAVE", "ISOLATION"].includes(
+      profile.custodyStatus,
+    )
+  )
     return []
+  const isolationOrder = await getActiveIsolationOrder(userId, now)
+  const effectiveCustodyLevel =
+    profile.custodyStatus === "ISOLATION" || isolationOrder
+    ? "ISOLATION"
+    : profile.custodyLevel
   await ensureCustodyCheckinPresets()
   const [
     activeRules,
@@ -137,7 +151,7 @@ export async function getCheckinRulesForUser(userId: string, now = new Date()) {
   return activeRules.filter((rule) => {
     if (rule.custodyLevel) {
       return (
-        rule.custodyLevel === profile.custodyLevel &&
+        rule.custodyLevel === effectiveCustodyLevel &&
         isRuleScheduledForDate(
           {
             freq: rule.freq as RuleFrequency,
@@ -337,10 +351,64 @@ async function markExpiredCheckins(userId: string, now: Date) {
     )
 }
 
+export async function runCheckinStatusSweep(now = new Date()) {
+  const leaveProfiles = await db
+    .select({ userId: persons.userId })
+    .from(persons)
+    .where(
+      and(
+        eq(persons.personType, "SUPERVISED"),
+        eq(persons.custodyStatus, "ON_LEAVE"),
+      ),
+    )
+  const leaveUserIds = leaveProfiles.flatMap((profile) =>
+    profile.userId ? [profile.userId] : [],
+  )
+  const expiredTasks = await db
+    .update(checkinTasks)
+    .set({ status: "MISSED", updatedAt: now })
+    .where(
+      and(
+        eq(checkinTasks.status, "PENDING"),
+        lt(checkinTasks.deadline, now),
+        leaveUserIds.length
+          ? notInArray(checkinTasks.supervisedId, leaveUserIds)
+          : undefined,
+      ),
+    )
+    .returning({ id: checkinTasks.id, supervisedId: checkinTasks.supervisedId })
+  return expiredTasks.length
+}
+
+const checkinStatusSchedulerKey = Symbol.for("custodysim.checkin-status-scheduler")
+
+export function startCheckinStatusScheduler() {
+  const runtime = globalThis as typeof globalThis & {
+    [checkinStatusSchedulerKey]?: ReturnType<typeof setInterval>
+  }
+  if (runtime[checkinStatusSchedulerKey]) return
+  const run = () =>
+    void (async () => {
+      await runCheckinStatusSweep()
+      await runCheckinDailyScoreSweep()
+    })().catch((error: unknown) =>
+      console.error("[checkin] scheduled status sweep failed", error),
+    )
+  run()
+  const timer = setInterval(run, 5 * 60 * 1000)
+  timer.unref?.()
+  runtime[checkinStatusSchedulerKey] = timer
+}
+
 export async function getTodayCheckinRecords(userId: string, now = new Date()) {
   await purgeExpiredGpsCheckinData(now)
   const profile = await getCustodyProfileForUser(userId)
-  if (!profile || !["IN_CUSTODY", "ON_LEAVE"].includes(profile.custodyStatus))
+  if (
+    !profile ||
+    !["IN_CUSTODY", "ON_LEAVE", "ISOLATION"].includes(
+      profile.custodyStatus,
+    )
+  )
     return []
   await ensureTodayCheckinTasks(userId, now)
   if (profile.custodyStatus === "ON_LEAVE")

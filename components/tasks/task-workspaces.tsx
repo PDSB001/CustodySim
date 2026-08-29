@@ -77,6 +77,7 @@ function statusLabel(status: string) {
       RETURNED: "已退回",
       SUBMITTED: "待审核",
       APPROVED: "已通过",
+      EXPIRED: "已逾期",
       REJECTED: "未通过",
     }[status] ?? status
   )
@@ -84,7 +85,7 @@ function statusLabel(status: string) {
 
 function statusClass(status: string) {
   if (status === "APPROVED") return "bg-emerald-50 text-emerald-700"
-  if (status === "RETURNED" || status === "REJECTED")
+  if (["RETURNED", "REJECTED", "EXPIRED"].includes(status))
     return "bg-amber-50 text-amber-700"
   return "bg-blue-50 text-blue-700"
 }
@@ -323,7 +324,7 @@ function TaskPayloadForm({ task }: { task: z.infer<typeof Task> }) {
           ? "已提交，等待审核"
           : task.status === "APPROVED"
             ? "已通过"
-            : task.status}
+            : statusLabel(task.status)}
       </p>
     )
   if (!task.templateSnapshot.fields.length)

@@ -68,6 +68,7 @@ const CustodyProfile = z.object({
   custodyLevel: z.string(),
   custodyStatus: z.enum([
     "IN_CUSTODY",
+    "ISOLATION",
     "ON_LEAVE",
     "TEMPORARY_OUT_OF_CUSTODY",
     "OUT_OF_CUSTODY",

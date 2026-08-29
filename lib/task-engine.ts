@@ -1,14 +1,17 @@
-import { eq } from "drizzle-orm"
+import { and, eq, inArray, lt, lte } from "drizzle-orm"
 
 import { db } from "@/lib/db"
 import {
   organizations,
+  persons,
   reportTemplateFields,
   reportTemplates,
   reportTasks,
   ruleGroupScopes,
   ruleScopes,
   rules,
+  taskPools,
+  taskPoolTemplates,
   users,
 } from "@/lib/db/schema"
 import {
@@ -23,12 +26,22 @@ import {
   type RuleFrequency,
 } from "@/lib/rule-cycle"
 import { getSupervisorIdsForSupervised } from "@/lib/supervision-scope"
+import { recordScoreEvent, SCORE_POLICY } from "@/lib/scoring"
 
 function dateAtSlot(date: Date, slot: string) {
   const [hours, minutes] = slot.split(":").map(Number)
   const result = new Date(date)
   result.setHours(hours, minutes, 0, 0)
   return result
+}
+
+function stableIndex(seed: string, length: number) {
+  let hash = 2166136261
+  for (const character of seed) {
+    hash ^= character.charCodeAt(0)
+    hash = Math.imul(hash, 16777619)
+  }
+  return (hash >>> 0) % length
 }
 
 export async function ensureUserTasks(userId: string, now = new Date()) {
@@ -40,6 +53,8 @@ export async function ensureUserTasks(userId: string, now = new Date()) {
     supervisedUsers,
     templates,
     templateFields,
+    pools,
+    poolLinks,
   ] = await Promise.all([
     db.select().from(rules).where(eq(rules.enabled, true)),
     db.select().from(ruleScopes),
@@ -53,6 +68,8 @@ export async function ensureUserTasks(userId: string, now = new Date()) {
       .where(eq(users.role, "SUPERVISED")),
     db.select().from(reportTemplates),
     db.select().from(reportTemplateFields),
+    db.select().from(taskPools).where(eq(taskPools.enabled, true)),
+    db.select().from(taskPoolTemplates),
   ])
   const { buildOrgDescendantsMap } = await import("@/lib/supervision-scope")
   const descendants = buildOrgDescendantsMap(allOrganizations)
@@ -86,9 +103,29 @@ export async function ensureUserTasks(userId: string, now = new Date()) {
     for (const slot of parseSlots(rule.timeSlots)) {
       const scheduleAt = dateAtSlot(now, slot)
       if (scheduleAt > now) continue
-      const template = rule.templateId
-        ? templates.find((item) => item.id === rule.templateId)
+      const pool = rule.taskPoolId
+        ? pools.find((item) => item.id === rule.taskPoolId)
         : null
+      const poolTemplates = pool
+        ? poolLinks
+            .filter((link) => link.poolId === pool.id)
+            .map((link) =>
+              templates.find((item) => item.id === link.templateId),
+            )
+            .filter((item): item is (typeof templates)[number] => Boolean(item))
+            .filter((item) => item.kind === rule.taskType)
+        : []
+      const template = pool
+        ? poolTemplates[
+            stableIndex(
+              `${rule.id}:${userId}:${scheduleAt.toISOString()}`,
+              poolTemplates.length,
+            )
+          ]
+        : rule.templateId
+          ? templates.find((item) => item.id === rule.templateId)
+          : null
+      if (pool && !template) continue
       const templateSnapshot = template
         ? {
             name: template.name,
@@ -115,9 +152,92 @@ export async function ensureUserTasks(userId: string, now = new Date()) {
           supervisorId: [...supervisorIds][0] ?? null,
           scheduleAt,
           deadline: computeDeadline(scheduleAt, rule.timeoutMinutes),
-          source: "RULE",
+          source: pool ? "RANDOM_POOL" : "RULE",
         })
         .onConflictDoNothing()
     }
   }
+}
+
+export async function ensureScheduledTasks(now = new Date()) {
+  const supervisedUsers = await db
+    .select({ id: users.id })
+    .from(users)
+    .where(eq(users.role, "SUPERVISED"))
+  for (const user of supervisedUsers) await ensureUserTasks(user.id, now)
+}
+
+export async function runLeaveTaskAutoApprovalSweep(now = new Date()) {
+  const leaveProfiles = await db
+    .select({ userId: persons.userId })
+    .from(persons)
+    .where(
+      and(
+        eq(persons.personType, "SUPERVISED"),
+        eq(persons.custodyStatus, "ON_LEAVE"),
+      ),
+    )
+  const leaveUserIds = leaveProfiles.flatMap((profile) =>
+    profile.userId ? [profile.userId] : [],
+  )
+  if (!leaveUserIds.length) return 0
+  const approvedTasks = await db
+    .update(reportTasks)
+    .set({ status: "APPROVED", updatedAt: now })
+    .where(
+      and(
+        inArray(reportTasks.supervisedId, leaveUserIds),
+        inArray(reportTasks.status, ["PENDING", "SUBMITTED", "RETURNED"]),
+        lte(reportTasks.scheduleAt, now),
+      ),
+    )
+    .returning({ id: reportTasks.id })
+  return approvedTasks.length
+}
+
+export async function runReportTaskOutcomeSweep(now = new Date()) {
+  const expiredTasks = await db
+    .update(reportTasks)
+    .set({ status: "EXPIRED", updatedAt: now })
+    .where(
+      and(
+        inArray(reportTasks.status, ["PENDING", "SUBMITTED", "RETURNED"]),
+        lt(reportTasks.deadline, now),
+      ),
+    )
+    .returning({ id: reportTasks.id, supervisedId: reportTasks.supervisedId })
+  await Promise.all(
+    expiredTasks.map((task) =>
+      recordScoreEvent({
+        supervisedId: task.supervisedId,
+        points: SCORE_POLICY.taskExpired,
+        reason: "任务截止时仍未通过",
+        source: "TASK_OUTCOME",
+        sourceId: task.id,
+        now,
+      }),
+    ),
+  )
+  return expiredTasks.length
+}
+
+const schedulerKey = Symbol.for("custodysim.report-task-scheduler")
+
+export function startReportTaskScheduler() {
+  const runtime = globalThis as typeof globalThis & {
+    [schedulerKey]?: ReturnType<typeof setInterval>
+  }
+  if (runtime[schedulerKey]) return
+  const run = () =>
+    void (async () => {
+      await ensureScheduledTasks()
+      await runLeaveTaskAutoApprovalSweep()
+      await runReportTaskOutcomeSweep()
+    })().catch((error: unknown) =>
+      console.error("[task scheduler] scheduled task generation failed", error),
+    )
+  run()
+  const timer = setInterval(run, 5 * 60 * 1000)
+  timer.unref?.()
+  runtime[schedulerKey] = timer
 }

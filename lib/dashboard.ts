@@ -92,7 +92,7 @@ export async function getDashboardSummary(
     db
       .select({ n: count() })
       .from(persons)
-      .where(eq(persons.custodyStatus, "IN_CUSTODY")),
+      .where(inArray(persons.custodyStatus, ["IN_CUSTODY", "ISOLATION"])),
     db
       .select({ n: count() })
       .from(rules)

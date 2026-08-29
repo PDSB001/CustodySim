@@ -16,6 +16,7 @@ import {
   ProfileFieldSchema,
   ProfileRecordEditor,
 } from "@/components/profile-records/profile-record-editor"
+import { ProfileImageActions } from "@/components/profile-records/profile-image-actions"
 
 const FormSchema = z.object({
   id: z.string(),
@@ -59,6 +60,11 @@ const RecordSchema = z.object({
   reviews: z.array(ReviewSchema),
 })
 const RecordsSchema = z.array(RecordSchema)
+const MyProfileSummarySchema = z.object({
+  number: z.string().nullable(),
+  organizationPath: z.string().nullable(),
+  custodyLevelLabel: z.string().nullable(),
+})
 
 function statusLabel(status: string) {
   return (
@@ -105,6 +111,11 @@ export function MyProfileRecordManage() {
   const records = useQuery({
     queryKey: ["profile-records"],
     queryFn: () => requestApi("/api/profile-records", RecordsSchema),
+  })
+  const summary = useQuery({
+    queryKey: ["my-profile-summary", "identity-card"],
+    queryFn: () =>
+      requestApi("/api/my/profile-summary", MyProfileSummarySchema),
   })
   const selectedForm =
     forms.data?.find((form) => form.id === selectedFormId) ??
@@ -214,7 +225,30 @@ export function MyProfileRecordManage() {
                     {selectedRecord?.formSnapshot.name ?? selectedForm.name}
                   </h2>
                 </div>
-                {selectedRecord ? <RecordMeta record={selectedRecord} /> : null}
+                {selectedRecord ? (
+                  <div className="flex flex-wrap items-center justify-end gap-2">
+                    <RecordMeta record={selectedRecord} />
+                    <ProfileImageActions
+                      compact
+                      person={{
+                        name: selectedRecord.userName,
+                        number: summary.data?.number,
+                        organization: summary.data?.organizationPath,
+                        custodyLevel: summary.data?.custodyLevelLabel,
+                      }}
+                      record={{
+                        id: selectedRecord.id,
+                        formName: selectedRecord.formName,
+                        code: selectedRecord.code,
+                        data: selectedRecord.data,
+                        fields: selectedRecord.formSnapshot.fields,
+                        photoData: selectedRecord.photoData,
+                        signatureData: selectedRecord.signatureData,
+                        officialSealData: selectedRecord.officialSealData,
+                      }}
+                    />
+                  </div>
+                ) : null}
               </div>
               <ProfileRecordEditor
                 form={

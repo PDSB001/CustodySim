@@ -25,6 +25,17 @@ export async function PATCH(request: NextRequest, { params }: RouteContext) {
       400,
     )
   try {
+    const [current] = await db
+      .select({ custodyStatus: persons.custodyStatus })
+      .from(persons)
+      .where(eq(persons.id, id))
+      .limit(1)
+    if (!current) return failure("NOT_FOUND", "人员不存在", 404)
+    if (
+      current.custodyStatus === "ISOLATION" ||
+      parsed.data.custodyStatus === "ISOLATION"
+    )
+      return failure("CONFLICT", "禁闭状态由积分系统统一控制", 409)
     const [organization] = parsed.data.organizationId
       ? await db
           .select({ category: organizations.category })

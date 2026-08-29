@@ -30,6 +30,7 @@ import {
 } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
 import { toast } from "@/components/ui/toast"
+import { TaskPoolManage } from "@/components/report-templates/task-pool-manage"
 
 const Field = z.object({
   name: z.string(),
@@ -524,6 +525,7 @@ export function ReportTemplateManage() {
           </div>
         )}
       </section>
+      <TaskPoolManage />
 
       <Dialog
         open={Boolean(templatePendingDelete)}

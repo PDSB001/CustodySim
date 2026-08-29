@@ -1,11 +1,16 @@
-import { asc } from "drizzle-orm"
+import { asc, eq } from "drizzle-orm"
 import { NextRequest } from "next/server"
 import { writeAuditLog } from "@/lib/audit"
 import { failure, success } from "@/lib/api-response"
 import { getAdminUser } from "@/lib/admin-api"
 import { RuleSchema } from "@/lib/admin-schemas"
 import { db } from "@/lib/db"
-import { rules, ruleScopes } from "@/lib/db/schema"
+import {
+  rules,
+  ruleScopes,
+  taskPools,
+  taskPoolTemplates,
+} from "@/lib/db/schema"
 export async function GET() {
   if (!(await getAdminUser()))
     return failure("FORBIDDEN", "仅管理员可查看规则", 403)
@@ -35,6 +40,32 @@ export async function POST(request: NextRequest) {
     )
   try {
     const { scopes, startDate, endDate, ...ruleData } = parsed.data
+    if (ruleData.taskPoolId) {
+      const [pool] = await db
+        .select({
+          id: taskPools.id,
+          kind: taskPools.kind,
+          enabled: taskPools.enabled,
+        })
+        .from(taskPools)
+        .where(eq(taskPools.id, ruleData.taskPoolId))
+        .limit(1)
+      if (!pool || !pool.enabled)
+        return failure("VALIDATION_ERROR", "随机任务池不存在或已停用", 400)
+      if (pool.kind !== ruleData.taskType)
+        return failure(
+          "VALIDATION_ERROR",
+          "随机任务池类型必须与任务类型一致",
+          400,
+        )
+      const [link] = await db
+        .select({ id: taskPoolTemplates.id })
+        .from(taskPoolTemplates)
+        .where(eq(taskPoolTemplates.poolId, pool.id))
+        .limit(1)
+      if (!link)
+        return failure("VALIDATION_ERROR", "随机任务池中没有可用模板", 400)
+    }
     const [rule] = await db
       .insert(rules)
       .values({

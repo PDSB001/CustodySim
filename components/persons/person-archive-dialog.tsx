@@ -9,6 +9,8 @@ import { formatDate, requestApi } from "@/components/shared/api-client"
 import { EmptyState } from "@/components/shared/empty-state"
 import { StatusPill, type StatusTone } from "@/components/shared/status-pill"
 import { Card, CardContent } from "@/components/ui/card"
+import { ProfileImageActions } from "@/components/profile-records/profile-image-actions"
+import { CUSTODY_LEVEL_LABELS, type CustodyLevel } from "@/lib/constants"
 import {
   Dialog,
   DialogContent,
@@ -62,7 +64,14 @@ export function PersonArchiveDialog({
   open,
   onOpenChange,
 }: {
-  person: { id: string; name: string }
+  person: {
+    id: string
+    name: string
+    prisonerNumber?: string | null
+    customNumber?: string | null
+    organizationName?: string | null
+    custodyLevel?: string | null
+  }
   open: boolean
   onOpenChange: (open: boolean) => void
 }) {
@@ -97,9 +106,34 @@ export function PersonArchiveDialog({
                     {record.boxName ? ` · 档案盒 ${record.boxName}` : ""}
                   </p>
                 </div>
-                <StatusPill tone={statusTone(record.status)}>
-                  {statusLabel(record.status)}
-                </StatusPill>
+                <div className="flex flex-wrap items-center justify-end gap-2">
+                  <StatusPill tone={statusTone(record.status)}>
+                    {statusLabel(record.status)}
+                  </StatusPill>
+                  <ProfileImageActions
+                    compact
+                    person={{
+                      name: person.name,
+                      number: person.prisonerNumber ?? person.customNumber,
+                      organization: person.organizationName,
+                      custodyLevel: person.custodyLevel
+                        ? (CUSTODY_LEVEL_LABELS[
+                            person.custodyLevel as CustodyLevel
+                          ] ?? person.custodyLevel)
+                        : null,
+                    }}
+                    record={{
+                      id: record.id,
+                      formName: record.formName,
+                      code: record.code,
+                      data: record.data,
+                      fields: record.formSnapshot.fields,
+                      photoData: record.photoData,
+                      signatureData: record.signatureData,
+                      officialSealData: record.officialSealData,
+                    }}
+                  />
+                </div>
               </div>
               <div className="grid gap-4 px-5 pb-5 sm:grid-cols-[7rem_minmax(0,1fr)]">
                 {record.photoData ? (

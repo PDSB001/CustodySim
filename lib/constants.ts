@@ -13,8 +13,24 @@ export const CUSTODY_LEVEL_LABELS: Record<CustodyLevel, string> = {
   RELAXED: "宽管",
 }
 
+export const CUSTODY_CHECKIN_PLAN_LEVELS = [
+  ...CUSTODY_LEVELS,
+  "ISOLATION",
+] as const
+export type CustodyCheckinPlanLevel =
+  (typeof CUSTODY_CHECKIN_PLAN_LEVELS)[number]
+
+export const CUSTODY_CHECKIN_PLAN_LABELS: Record<
+  CustodyCheckinPlanLevel,
+  string
+> = {
+  ...CUSTODY_LEVEL_LABELS,
+  ISOLATION: "禁闭加强方案",
+}
+
 export const PRISONER_CUSTODY_STATUSES = [
   "IN_CUSTODY",
+  "ISOLATION",
   "ON_LEAVE",
   "TEMPORARY_OUT_OF_CUSTODY",
   "OUT_OF_CUSTODY",
@@ -26,6 +42,7 @@ export const PRISONER_CUSTODY_STATUS_LABELS: Record<
   string
 > = {
   IN_CUSTODY: "在押",
+  ISOLATION: "禁闭执行中",
   ON_LEAVE: "请假状态",
   TEMPORARY_OUT_OF_CUSTODY: "离监",
   OUT_OF_CUSTODY: "未在押",

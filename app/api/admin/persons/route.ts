@@ -86,6 +86,8 @@ export async function POST(request: NextRequest) {
       JSON.stringify(parsed.error.flatten().fieldErrors),
       400,
     )
+  if (parsed.data.custodyStatus === "ISOLATION")
+    return failure("VALIDATION_ERROR", "禁闭状态只能由周度积分结算触发", 400)
   try {
     const [organization] = parsed.data.organizationId
       ? await db

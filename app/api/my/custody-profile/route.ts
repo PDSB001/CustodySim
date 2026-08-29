@@ -11,8 +11,10 @@ export async function GET() {
   if (!profile) return failure("NOT_FOUND", "未建立监管档案", 404)
   return success({
     ...profile,
-    canCheckin: profile.custodyStatus === "IN_CUSTODY",
+    canCheckin: ["IN_CUSTODY", "ISOLATION"].includes(profile.custodyStatus),
     leaveWorkflowEligible: profile.custodyStatus === "IN_CUSTODY",
-    geofenceApplicable: profile.custodyStatus === "IN_CUSTODY",
+    geofenceApplicable: ["IN_CUSTODY", "ISOLATION"].includes(
+      profile.custodyStatus,
+    ),
   })
 }
