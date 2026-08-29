@@ -8,6 +8,7 @@ import {
 } from "@tanstack/react-query"
 import {
   Check,
+  ChevronDown,
   Clock3,
   MessageCircle,
   MessageSquarePlus,
@@ -293,6 +294,57 @@ function RequestReviewPanel({ role }: { role: SessionUser["role"] }) {
       toast.error(error instanceof Error ? error.message : "审批失败"),
   })
   if (!requests.data?.length) return null
+  const pendingRequests = requests.data.filter(
+    (item) => item.status === "PENDING",
+  )
+  const completedRequests = requests.data.filter(
+    (item) => item.status !== "PENDING",
+  )
+  const renderRequest = (item: z.infer<typeof ChatRequestSchema>) => (
+    <Card key={item.id}>
+      <CardContent className="space-y-3 p-4">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="font-medium">
+              {item.requesterName} → {item.targetName}
+            </p>
+            <p className="text-muted-foreground mt-1 text-xs">
+              {formatDate(item.createdAt)}
+            </p>
+          </div>
+          <Badge variant={item.status === "PENDING" ? "outline" : "secondary"}>
+            {item.status === "PENDING"
+              ? "待审批"
+              : item.status === "APPROVED"
+                ? "已批准"
+                : "已拒绝"}
+          </Badge>
+        </div>
+        <p className="text-muted-foreground text-sm leading-6">{item.reason}</p>
+        {role === "ADMIN" && item.status === "PENDING" ? (
+          <div className="flex gap-2">
+            <Button
+              size="sm"
+              disabled={review.isPending}
+              onClick={() => review.mutate({ id: item.id, result: "APPROVED" })}
+            >
+              <Check />
+              批准
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={review.isPending}
+              onClick={() => review.mutate({ id: item.id, result: "REJECTED" })}
+            >
+              <X />
+              拒绝
+            </Button>
+          </div>
+        ) : null}
+      </CardContent>
+    </Card>
+  )
   return (
     <section className="space-y-3">
       <div className="flex items-center gap-2">
@@ -300,60 +352,27 @@ function RequestReviewPanel({ role }: { role: SessionUser["role"] }) {
         <h2 className="font-semibold">
           {role === "ADMIN" ? "跨监室私聊审批" : "我的跨监室申请"}
         </h2>
+        {pendingRequests.length ? (
+          <Badge variant="outline">待处理 {pendingRequests.length}</Badge>
+        ) : null}
       </div>
-      <div className="grid gap-3 lg:grid-cols-2">
-        {requests.data.map((item) => (
-          <Card key={item.id}>
-            <CardContent className="space-y-3 p-4">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <p className="font-medium">
-                    {item.requesterName} → {item.targetName}
-                  </p>
-                  <p className="text-muted-foreground mt-1 text-xs">
-                    {formatDate(item.createdAt)}
-                  </p>
-                </div>
-                <Badge
-                  variant={item.status === "PENDING" ? "outline" : "secondary"}
-                >
-                  {item.status === "PENDING"
-                    ? "待审批"
-                    : item.status === "APPROVED"
-                      ? "已批准"
-                      : "已拒绝"}
-                </Badge>
-              </div>
-              <p className="text-muted-foreground text-sm leading-6">
-                {item.reason}
-              </p>
-              {role === "ADMIN" && item.status === "PENDING" ? (
-                <div className="flex gap-2">
-                  <Button
-                    size="sm"
-                    onClick={() =>
-                      review.mutate({ id: item.id, result: "APPROVED" })
-                    }
-                  >
-                    <Check />
-                    批准
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() =>
-                      review.mutate({ id: item.id, result: "REJECTED" })
-                    }
-                  >
-                    <X />
-                    拒绝
-                  </Button>
-                </div>
-              ) : null}
-            </CardContent>
-          </Card>
-        ))}
-      </div>
+      {pendingRequests.length ? (
+        <div className="grid gap-3 lg:grid-cols-2">
+          {pendingRequests.map(renderRequest)}
+        </div>
+      ) : null}
+      {completedRequests.length ? (
+        <details className="group border-border bg-muted/10 overflow-hidden rounded-xl border">
+          <summary className="hover:bg-muted/30 flex cursor-pointer list-none items-center gap-2 px-4 py-3 text-sm font-medium transition-colors [&::-webkit-details-marker]:hidden">
+            <span>已处理申请</span>
+            <Badge variant="secondary">{completedRequests.length}</Badge>
+            <ChevronDown className="text-muted-foreground ml-auto size-4 transition-transform group-open:rotate-180" />
+          </summary>
+          <div className="border-border grid gap-3 border-t p-3 lg:grid-cols-2">
+            {completedRequests.map(renderRequest)}
+          </div>
+        </details>
+      ) : null}
     </section>
   )
 }

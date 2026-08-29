@@ -224,3 +224,21 @@ test("被监管人可以打开响应式聊天工作台", async ({ page }) => {
   await expect(page.getByRole("button", { name: "发起私聊" })).toBeVisible()
   await expect(page.getByText("会话", { exact: true })).toBeVisible()
 })
+
+test("管理员已处理的私聊审批默认折叠", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "desktop-chrome", "折叠交互仅需执行一次")
+  await page.goto("/login")
+  await page.getByLabel("账号").fill("rank_admin")
+  await page.getByLabel("密码").fill("Demo12345")
+  await page.getByRole("button", { name: /登\s*录/ }).click()
+  await expect(page).toHaveURL("/")
+  await page.goto("/chats")
+  const completed = page.locator("details").filter({
+    has: page.getByText("已处理申请", { exact: true }),
+  })
+  await expect(completed).toBeVisible()
+  await expect(completed).not.toHaveAttribute("open", "")
+  await completed.locator("summary").click()
+  await expect(completed).toHaveAttribute("open", "")
+  await expect(completed.getByText(/已批准|已拒绝/).first()).toBeVisible()
+})
