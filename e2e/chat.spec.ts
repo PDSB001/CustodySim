@@ -223,6 +223,13 @@ test("被监管人可以打开响应式聊天工作台", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "监室聊天" })).toBeVisible()
   await expect(page.getByRole("button", { name: "发起私聊" })).toBeVisible()
   await expect(page.getByText("会话", { exact: true })).toBeVisible()
+  const completed = page.locator("details").filter({
+    has: page.getByText("已处理申请", { exact: true }),
+  })
+  await expect(completed).toBeVisible()
+  await expect(completed).not.toHaveAttribute("open", "")
+  await completed.locator("summary").click()
+  await expect(completed.getByText(/已批准|已拒绝/).first()).toBeVisible()
 })
 
 test("管理员已处理的私聊审批默认折叠", async ({ page }, testInfo) => {

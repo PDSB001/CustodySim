@@ -98,6 +98,7 @@ const ChatRequestSchema = z.object({
   status: z.string(),
   reviewComment: z.string().nullable(),
   reviewerName: z.string().nullable(),
+  conversationId: z.string().nullable(),
   reviewedAt: z.string().nullable(),
   createdAt: z.string(),
 })
@@ -270,8 +271,22 @@ function RequestReviewPanel({ role }: { role: SessionUser["role"] }) {
   const requests = useQuery({
     queryKey: ["chat-requests"],
     queryFn: () => requestApi("/api/chat/requests", ChatRequestsSchema),
-    refetchInterval: 30_000,
+    refetchInterval: (query) =>
+      query.state.data?.some((item) => item.status === "PENDING")
+        ? 5_000
+        : 30_000,
   })
+  const approvedConversationKey =
+    requests.data
+      ?.filter((item) => item.status === "APPROVED" && item.conversationId)
+      .map((item) => item.conversationId)
+      .sort()
+      .join(":") ?? ""
+  useEffect(() => {
+    if (role !== "SUPERVISED" || !approvedConversationKey) return
+    client.invalidateQueries({ queryKey: ["chat-conversations"] })
+    client.invalidateQueries({ queryKey: ["chat-realtime-token"] })
+  }, [approvedConversationKey, client, role])
   const review = useMutation({
     mutationFn: ({
       id,
