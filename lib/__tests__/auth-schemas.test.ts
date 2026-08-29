@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { ChangePasswordSchema } from "@/lib/auth-schemas"
+import { ChangePasswordSchema, MfaSetupSchema } from "@/lib/auth-schemas"
 
 describe("ChangePasswordSchema", () => {
   const valid = {
@@ -30,5 +30,15 @@ describe("ChangePasswordSchema", () => {
       ChangePasswordSchema.safeParse({ ...valid, newPassword: "abcdefgh" })
         .success,
     ).toBe(false)
+  })
+})
+
+describe("MfaSetupSchema", () => {
+  it("requires the current password before enrollment", () => {
+    expect(MfaSetupSchema.safeParse({ password: "Current123" }).success).toBe(
+      true,
+    )
+    expect(MfaSetupSchema.safeParse({ password: "" }).success).toBe(false)
+    expect(MfaSetupSchema.safeParse({}).success).toBe(false)
   })
 })

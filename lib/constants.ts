@@ -50,6 +50,10 @@ export const PRISONER_CUSTODY_STATUS_LABELS: Record<
 
 export const AUTH_COOKIE_NAME = "custodysim_session"
 export const AUTH_TOKEN_TTL_SECONDS = 60 * 60 * 8
+export const MFA_CHALLENGE_COOKIE_NAME = "custodysim_mfa_challenge"
+export const MFA_TRUSTED_DEVICE_COOKIE_NAME = "custodysim_mfa_trusted_device"
+export const MFA_CHALLENGE_TTL_SECONDS = 5 * 60
+export const MFA_TRUSTED_DEVICE_TTL_SECONDS = 60 * 60 * 24 * 30
 
 export const ORGANIZATION_CATEGORIES = [
   "ROOT",

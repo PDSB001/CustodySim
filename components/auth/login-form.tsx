@@ -36,6 +36,15 @@ export function LoginForm() {
         setSubmitting(false)
         return
       }
+      const requiresMfa =
+        typeof data.data === "object" &&
+        data.data !== null &&
+        "requiresMfa" in data.data &&
+        data.data.requiresMfa === true
+      if (requiresMfa) {
+        window.location.replace("/mfa")
+        return
+      }
       const mustChangePassword =
         typeof data.data === "object" &&
         data.data !== null &&

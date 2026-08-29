@@ -268,6 +268,72 @@ export const loginRateLimits = pgTable(
   (table) => [index("login_rate_limits_blocked_idx").on(table.blockedUntil)],
 )
 
+export const mfaFactors = pgTable(
+  "mfa_factors",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    secretEncrypted: text("secret_encrypted").notNull(),
+    enabled: boolean("enabled").notNull().default(false),
+    verifiedAt: timestamp("verified_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [uniqueIndex("mfa_factors_user_unique").on(table.userId)],
+)
+
+export const mfaRecoveryCodes = pgTable(
+  "mfa_recovery_codes",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    factorId: uuid("factor_id")
+      .notNull()
+      .references(() => mfaFactors.id, { onDelete: "cascade" }),
+    codeHash: varchar("code_hash", { length: 64 }).notNull(),
+    usedAt: timestamp("used_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("mfa_recovery_codes_factor_hash_unique").on(
+      table.factorId,
+      table.codeHash,
+    ),
+  ],
+)
+
+export const mfaTrustedDevices = pgTable(
+  "mfa_trusted_devices",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    tokenHash: varchar("token_hash", { length: 64 }).notNull().unique(),
+    label: varchar("label", { length: 100 }).notNull().default("受信任设备"),
+    ip: varchar("ip", { length: 64 }),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    lastUsedAt: timestamp("last_used_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index("mfa_trusted_devices_user_idx").on(table.userId),
+    index("mfa_trusted_devices_expiry_idx").on(table.expiresAt),
+  ],
+)
+
 export const supervisionRelations = pgTable(
   "supervision_relations",
   {

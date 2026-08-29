@@ -4,12 +4,13 @@ import { NextRequest } from "next/server"
 import { failure, success } from "@/lib/api-response"
 import { writeAuditLog } from "@/lib/audit"
 import { hashPassword, signToken, verifyPassword } from "@/lib/auth"
-import { setAuthCookie } from "@/lib/auth-cookie"
+import { clearMfaTrustedDeviceCookie, setAuthCookie } from "@/lib/auth-cookie"
 import { ChangePasswordSchema, SessionUserSchema } from "@/lib/auth-schemas"
 import { db } from "@/lib/db"
 import { users } from "@/lib/db/schema"
 import { computePasswordMeta, validatePassword } from "@/lib/password-rule"
 import { getSessionUser } from "@/lib/session"
+import { revokeTrustedDevicesInTransaction } from "@/lib/mfa-server"
 
 export const runtime = "nodejs"
 
@@ -41,19 +42,36 @@ export async function POST(request: NextRequest) {
     if (await verifyPassword(parsed.data.newPassword, user.passwordHash))
       return failure("VALIDATION_ERROR", "新密码不能与当前密码相同", 400)
     const tokenVersion = user.tokenVersion + 1
-    const [updated] = await db
-      .update(users)
-      .set({
-        passwordHash: await hashPassword(parsed.data.newPassword),
-        passwordMeta: JSON.stringify(
-          computePasswordMeta(parsed.data.newPassword),
-        ),
-        mustChangePassword: false,
-        tokenVersion,
-        updatedAt: new Date(),
-      })
-      .where(eq(users.id, user.id))
-      .returning()
+    const passwordHash = await hashPassword(parsed.data.newPassword)
+    const [updated] = await db.transaction(async (tx) => {
+      const changed = await tx
+        .update(users)
+        .set({
+          passwordHash,
+          passwordMeta: JSON.stringify(
+            computePasswordMeta(parsed.data.newPassword),
+          ),
+          mustChangePassword: false,
+          tokenVersion,
+          updatedAt: new Date(),
+        })
+        .where(eq(users.id, user.id))
+        .returning()
+      const changedUser = changed[0]
+      if (!changedUser) return []
+      await revokeTrustedDevicesInTransaction(tx, changedUser.id)
+      await writeAuditLog(
+        {
+          actor: sessionUser,
+          action: "CHANGE_PASSWORD",
+          actionLabel: "修改本人密码",
+          entityType: "user",
+          entityId: changedUser.id,
+        },
+        tx,
+      )
+      return [changedUser]
+    })
     if (
       !updated ||
       !["ADMIN", "SUPERVISOR", "SUPERVISED"].includes(updated.role)
@@ -77,13 +95,7 @@ export async function POST(request: NextRequest) {
         role: safeUser.role,
       }),
     )
-    await writeAuditLog({
-      actor: sessionUser,
-      action: "CHANGE_PASSWORD",
-      actionLabel: "修改本人密码",
-      entityType: "user",
-      entityId: updated.id,
-    })
+    clearMfaTrustedDeviceCookie(response)
     return response
   } catch (error) {
     console.error("[API auth/change-password POST]", error)

@@ -9,6 +9,7 @@ import { hashPassword } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { users } from "@/lib/db/schema"
 import { computePasswordMeta, validatePassword } from "@/lib/password-rule"
+import { revokeTrustedDevicesInTransaction } from "@/lib/mfa-server"
 
 type RouteContext = { params: Promise<{ id: string }> }
 
@@ -33,23 +34,32 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
       .where(eq(users.id, id))
       .limit(1)
     if (!existing) return failure("NOT_FOUND", "用户不存在", 404)
-    await db
-      .update(users)
-      .set({
-        passwordHash: await hashPassword(parsed.data.password),
-        passwordMeta: JSON.stringify(computePasswordMeta(parsed.data.password)),
-        mustChangePassword: true,
-        tokenVersion: existing.tokenVersion + 1,
-        updatedAt: new Date(),
-      })
-      .where(eq(users.id, id))
-    await writeAuditLog({
-      actor,
-      action: "RESET_PASSWORD",
-      actionLabel: "重置用户密码",
-      entityType: "user",
-      entityId: id,
-      detail: { username: existing.username },
+    const passwordHash = await hashPassword(parsed.data.password)
+    await db.transaction(async (tx) => {
+      await tx
+        .update(users)
+        .set({
+          passwordHash,
+          passwordMeta: JSON.stringify(
+            computePasswordMeta(parsed.data.password),
+          ),
+          mustChangePassword: true,
+          tokenVersion: existing.tokenVersion + 1,
+          updatedAt: new Date(),
+        })
+        .where(eq(users.id, id))
+      await revokeTrustedDevicesInTransaction(tx, id)
+      await writeAuditLog(
+        {
+          actor,
+          action: "RESET_PASSWORD",
+          actionLabel: "重置用户密码",
+          entityType: "user",
+          entityId: id,
+          detail: { username: existing.username },
+        },
+        tx,
+      )
     })
     return success({ id })
   } catch (error) {

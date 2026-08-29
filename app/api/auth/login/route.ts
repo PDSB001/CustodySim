@@ -3,17 +3,23 @@ import { NextRequest } from "next/server"
 
 import { success, failure } from "@/lib/api-response"
 import { getRequestIp } from "@/lib/admin-api"
-import { signToken, verifyPassword } from "@/lib/auth"
-import { setAuthCookie } from "@/lib/auth-cookie"
+import { signMfaChallenge, signToken, verifyPassword } from "@/lib/auth"
+import {
+  clearMfaChallengeCookie,
+  setAuthCookie,
+  setMfaChallengeCookie,
+} from "@/lib/auth-cookie"
 import { LoginSchema, SessionUserSchema } from "@/lib/auth-schemas"
 import { db } from "@/lib/db"
-import { users } from "@/lib/db/schema"
+import { mfaFactors, users } from "@/lib/db/schema"
 import { writeLoginLog } from "@/lib/login-log-server"
 import {
   clearLoginFailures,
   getLoginRetryAfterSeconds,
   recordLoginFailure,
 } from "@/lib/login-rate-limit"
+import { getValidTrustedDevice } from "@/lib/mfa-server"
+import { MFA_TRUSTED_DEVICE_COOKIE_NAME } from "@/lib/constants"
 
 export const runtime = "nodejs"
 
@@ -70,6 +76,26 @@ export async function POST(request: NextRequest) {
       organizationId: user.organizationId,
       mustChangePassword: user.mustChangePassword,
     })
+    const [mfaFactor] = await db
+      .select({ enabled: mfaFactors.enabled })
+      .from(mfaFactors)
+      .where(eq(mfaFactors.userId, user.id))
+      .limit(1)
+    const trustedDevice = mfaFactor?.enabled
+      ? await getValidTrustedDevice(
+          user.id,
+          request.cookies.get(MFA_TRUSTED_DEVICE_COOKIE_NAME)?.value,
+        )
+      : null
+    if (mfaFactor?.enabled && !trustedDevice) {
+      const response = success({ requiresMfa: true })
+      setMfaChallengeCookie(
+        response,
+        await signMfaChallenge(user.id, user.tokenVersion),
+      )
+      return response
+    }
+
     const token = await signToken({
       userId: user.id,
       tokenVersion: user.tokenVersion,
@@ -78,6 +104,7 @@ export async function POST(request: NextRequest) {
     await clearLoginFailures(parsed.data.username, ip)
     const response = success(sessionUser)
     setAuthCookie(response, token)
+    clearMfaChallengeCookie(response)
     await writeLoginLog({
       userId: user.id,
       username: user.username,

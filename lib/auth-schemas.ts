@@ -16,6 +16,31 @@ export const LoginSchema = z.object({
   password: z.string().min(1, "请输入密码").max(128),
 })
 
+export const MfaVerificationSchema = z.object({
+  code: z
+    .string()
+    .trim()
+    .min(6, "请输入验证器代码或恢复码")
+    .max(32, "验证代码格式不正确"),
+  trustDevice: z.boolean().optional().default(true),
+})
+
+export const MfaCodeSchema = z.object({
+  code: z
+    .string()
+    .trim()
+    .min(6, "请输入验证器代码或恢复码")
+    .max(32, "验证代码格式不正确"),
+})
+
+export const MfaSetupSchema = z.object({
+  password: z.string().min(1, "请输入当前密码").max(128),
+})
+
+export const DisableMfaSchema = MfaCodeSchema.extend({
+  password: z.string().min(1, "请输入当前密码").max(128),
+})
+
 export const ChangePasswordSchema = z
   .object({
     currentPassword: z.string().min(1, "请输入当前密码").max(128),
@@ -34,3 +59,4 @@ export const ChangePasswordSchema = z
 
 export type LoginInput = z.infer<typeof LoginSchema>
 export type ChangePasswordInput = z.infer<typeof ChangePasswordSchema>
+export type MfaVerificationInput = z.infer<typeof MfaVerificationSchema>

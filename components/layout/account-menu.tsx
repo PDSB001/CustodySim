@@ -1,6 +1,6 @@
 "use client"
 
-import { ChevronDown, KeyRound, LogOut } from "lucide-react"
+import { ChevronDown, KeyRound, LogOut, ShieldCheck } from "lucide-react"
 import Link from "next/link"
 
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
@@ -58,6 +58,12 @@ export function AccountMenu({
           <Link href="/change-password">
             <KeyRound />
             修改密码
+          </Link>
+        </DropdownMenuItem>
+        <DropdownMenuItem asChild>
+          <Link href="/security">
+            <ShieldCheck />
+            双重验证
           </Link>
         </DropdownMenuItem>
         <DropdownMenuItem

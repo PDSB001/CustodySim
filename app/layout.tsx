@@ -1,4 +1,5 @@
 import type { Metadata } from "next"
+import { headers } from "next/headers"
 
 import { AppProviders } from "@/components/providers"
 
@@ -9,13 +10,15 @@ export const metadata: Metadata = {
   description: "监管任务、执行、审核与档案闭环管理平台",
 }
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
+  const nonce = (await headers()).get("x-nonce") ?? undefined
+
   return (
     <html lang="zh-CN" className="h-full" suppressHydrationWarning>
       <body className="bg-background text-foreground min-h-full font-sans antialiased">
-        <AppProviders>{children}</AppProviders>
+        <AppProviders nonce={nonce}>{children}</AppProviders>
       </body>
     </html>
   )

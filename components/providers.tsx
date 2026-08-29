@@ -8,7 +8,8 @@ import { Toaster } from "@/components/ui/sonner"
 
 export function AppProviders({
   children,
-}: Readonly<{ children: React.ReactNode }>) {
+  nonce,
+}: Readonly<{ children: React.ReactNode; nonce?: string }>) {
   const [queryClient] = useState(
     () =>
       new QueryClient({
@@ -27,6 +28,7 @@ export function AppProviders({
       defaultTheme="light"
       enableSystem
       disableTransitionOnChange
+      nonce={nonce}
     >
       <QueryClientProvider client={queryClient}>
         {children}
