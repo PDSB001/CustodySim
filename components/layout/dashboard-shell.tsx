@@ -72,6 +72,7 @@ const navSections = [
       },
       { href: "/supervision/makeups", label: "补卡审核", icon: TimerReset },
       { href: "/scores", label: "积分与禁闭", icon: Trophy },
+      { href: "/isolation-settings", label: "禁闭设置", icon: ShieldCheck },
       { href: "/profile-reviews", label: "档案审核", icon: FileCheck2 },
       { href: "/applications", label: "申请审核", icon: ClipboardList },
     ],

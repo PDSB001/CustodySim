@@ -760,6 +760,16 @@ export const isolationOrders = pgTable(
   ],
 )
 
+export const isolationSettings = pgTable("isolation_settings", {
+  id: varchar("id", { length: 40 }).primaryKey().default("default"),
+  templateId: uuid("template_id").references(() => reportTemplates.id, {
+    onDelete: "set null",
+  }),
+  scheduleTime: varchar("schedule_time", { length: 5 }).notNull().default("19:00"),
+  timeoutMinutes: integer("timeout_minutes").notNull().default(240),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+})
+
 export const scoreWeekReviews = pgTable(
   "score_week_reviews",
   {

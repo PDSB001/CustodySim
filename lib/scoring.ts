@@ -6,8 +6,11 @@ import {
   checkinTasks,
   isolationOrders,
   isolationReflectionTasks,
+  isolationSettings,
   persons,
   reportTasks,
+  reportTemplateFields,
+  reportTemplates,
   scoreEvents,
   scoreWeekReviews,
   users,
@@ -363,7 +366,14 @@ export async function runWeeklyScoreReview(now = new Date()) {
   return evaluated
 }
 
-const reflectionTemplateSnapshot = {
+type IsolationTemplateSnapshot = {
+  name: string
+  kind: string
+  content: string
+  fields: Array<{ name: string; type: string; required: boolean; options: unknown[] }>
+}
+
+const reflectionTemplateSnapshot: IsolationTemplateSnapshot = {
   name: "禁闭期间每日检讨",
   kind: "REPORT",
   content: "请如实复盘当日行为，说明问题、影响与次日具体改进计划。审核通过后将向全体发布。",
@@ -390,16 +400,51 @@ export async function ensureIsolationReflectionTask(
     )
     .limit(1)
   if (existing) return existing.taskId
-  const scheduleAt = new Date(`${dayKey}T19:00:00+08:00`)
-  const deadline = new Date(`${dayKey}T23:00:00+08:00`)
+  const [settings] = await db
+    .select()
+    .from(isolationSettings)
+    .where(eq(isolationSettings.id, "default"))
+    .limit(1)
+  let templateSnapshot = reflectionTemplateSnapshot
+  let title = reflectionTemplateSnapshot.name
+  if (settings?.templateId) {
+    const [template] = await db
+      .select()
+      .from(reportTemplates)
+      .where(eq(reportTemplates.id, settings.templateId))
+      .limit(1)
+    if (template) {
+      const fields = await db
+        .select()
+        .from(reportTemplateFields)
+        .where(eq(reportTemplateFields.templateId, template.id))
+      title = template.name
+      templateSnapshot = {
+        name: template.name,
+        kind: template.kind,
+        content: template.content ?? "",
+        fields: fields.map((field) => ({
+          name: field.name,
+          type: field.type,
+          required: field.required,
+          options: Array.isArray(field.options) ? field.options : [],
+        })),
+      }
+    }
+  }
+  const scheduleTime = settings?.scheduleTime ?? "19:00"
+  const scheduleAt = new Date(`${dayKey}T${scheduleTime}:00+08:00`)
+  const deadline = new Date(
+    scheduleAt.getTime() + (settings?.timeoutMinutes ?? 240) * 60_000,
+  )
   const supervisors = await getSupervisorIdsForSupervised(order.supervisedId)
   const [task] = await db
     .insert(reportTasks)
     .values({
-      title: "禁闭期间每日检讨",
+      title,
       supervisedId: order.supervisedId,
       supervisorId: [...supervisors][0] ?? null,
-      templateSnapshot: reflectionTemplateSnapshot,
+      templateSnapshot,
       payload: { isolationOrderId: order.id, dayKey },
       source: "ISOLATION",
       scheduleAt,
