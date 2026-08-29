@@ -39,7 +39,10 @@ export async function PUT(request: NextRequest) {
   try {
     const [saved] = await db.insert(isolationSettings).values({ id: "default", ...parsed.data, templateId: parsed.data.templateIds[0] ?? null, updatedAt: new Date() }).onConflictDoUpdate({ target: isolationSettings.id, set: { ...parsed.data, templateId: parsed.data.templateIds[0] ?? null, updatedAt: new Date() } }).returning()
     if (!saved) return failure("INTERNAL_ERROR", "保存禁闭设置失败", 500)
-    await writeAuditLog({ actor, action: "UPDATE", actionLabel: "更新禁闭设置", entityType: "isolation_settings", entityId: saved.id, detail: parsed.data })
+    // The singleton settings row uses the string key "default", while audit
+    // entity IDs are UUIDs. Keep the change in the audit log without writing
+    // an invalid UUID value.
+    await writeAuditLog({ actor, action: "UPDATE", actionLabel: "更新禁闭设置", entityType: "isolation_settings", entityId: null, detail: parsed.data })
     return success(saved)
   } catch (error) {
     console.error("[API isolation-settings PUT]", error)
