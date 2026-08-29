@@ -3,6 +3,8 @@ import { z } from "zod"
 export const CHAT_RECALL_WINDOW_MS = 5 * 60 * 1000
 export const CHAT_USER_RETENTION_DAYS = 14
 export const CHAT_AUDIT_RETENTION_DAYS = 28
+export const CHAT_SEND_RATE_LIMIT_COUNT = 10
+export const CHAT_SEND_RATE_LIMIT_WINDOW_MS = 10 * 1000
 
 export const ChatCreateConversationSchema = z.object({
   kind: z.enum(["ROOM", "DIRECT"]),

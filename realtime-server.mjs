@@ -5,12 +5,19 @@ import pg from "pg"
 import { Server } from "socket.io"
 
 const port = Number.parseInt(process.env.REALTIME_PORT || "3001", 10)
+const retentionDays = Number.parseInt(
+  process.env.CHAT_RETENTION_DAYS || "28",
+  10,
+)
+const cleanupIntervalMs = 6 * 60 * 60 * 1000
 const authSecret = process.env.AUTH_SECRET
 const databaseUrl = process.env.DATABASE_URL
 
 if (!authSecret || authSecret.length < 32)
   throw new Error("AUTH_SECRET must contain at least 32 characters")
 if (!databaseUrl) throw new Error("DATABASE_URL is required")
+if (!Number.isInteger(retentionDays) || retentionDays < 1)
+  throw new Error("CHAT_RETENTION_DAYS must be a positive integer")
 
 const configuredOrigins = (process.env.APP_ORIGIN || "")
   .split(",")
@@ -26,6 +33,7 @@ const httpServer = createServer((request, response) => {
   response.writeHead(404)
   response.end()
 })
+const maintenancePool = new pg.Pool({ connectionString: databaseUrl })
 
 const io = new Server(httpServer, {
   path: "/socket.io",
@@ -103,6 +111,23 @@ async function listenForChatEvents() {
 
 let listener = null
 let shuttingDown = false
+let cleanupRunning = false
+async function cleanupExpiredChatMessages() {
+  if (cleanupRunning) return
+  cleanupRunning = true
+  try {
+    const result = await maintenancePool.query(
+      "delete from chat_messages where created_at < now() - ($1 * interval '1 day')",
+      [retentionDays],
+    )
+    if (result.rowCount)
+      console.log(`> Deleted ${result.rowCount} expired chat messages`)
+  } catch (error) {
+    console.error("[chat retention cleanup]", error)
+  } finally {
+    cleanupRunning = false
+  }
+}
 async function connectListener() {
   try {
     listener = await listenForChatEvents()
@@ -116,11 +141,14 @@ async function connectListener() {
 process.on("SIGTERM", async () => {
   shuttingDown = true
   if (listener) await listener.end().catch(() => undefined)
+  await maintenancePool.end().catch(() => undefined)
   io.close()
   httpServer.close(() => process.exit(0))
 })
 
 connectListener()
+cleanupExpiredChatMessages()
+setInterval(cleanupExpiredChatMessages, cleanupIntervalMs).unref()
 httpServer.listen(port, "0.0.0.0", () => {
   console.log(`> Chat realtime server listening on port ${port}`)
 })

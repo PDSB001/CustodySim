@@ -81,7 +81,7 @@ pnpm db:bootstrap-admin
 
 启用双重验证前必须配置独立且至少 32 字符的 `MFA_ENCRYPTION_KEY`。该密钥用于加密验证器密钥以及保护恢复码和受信任设备令牌，轮换 `AUTH_SECRET` 时不要同时修改它；修改后，已有验证器、恢复码和受信任设备都会失效。
 
-聊天实时服务通过 `pnpm dev:realtime` 单独启动，默认监听 `3001` 端口。开发环境可配置 `NEXT_PUBLIC_CHAT_REALTIME_URL=http://localhost:3001`；生产环境应由反向代理把同源 `/socket.io` 转发至该端口。`ecosystem.config.cjs` 会同时启动 Web 与实时服务。消息读取对普通用户限制为14天、监管人员为28天；请每日执行 `pnpm chat:cleanup`，在28天后硬删除消息及其级联的已读记录。
+聊天实时服务通过 `pnpm dev:realtime` 单独启动，默认监听 `3001` 端口。开发环境可配置 `NEXT_PUBLIC_CHAT_REALTIME_URL=http://localhost:3001`；生产环境应由反向代理把同源 `/socket.io` 转发至该端口。`ecosystem.config.cjs` 会同时启动 Web 与实时服务。消息读取对普通用户限制为14天、监管人员为28天；实时服务启动时及此后每6小时会自动硬删除超过28天的消息及其级联已读记录，`pnpm chat:cleanup` 仅用于运维时手动补偿执行。
 
 演示数据只能在非生产环境中、显式设置 `ALLOW_DEMO_SEED=true` 后通过 `pnpm db:seed` 创建，不能用于生产环境。
 

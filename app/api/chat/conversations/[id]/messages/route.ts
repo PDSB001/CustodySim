@@ -1,9 +1,14 @@
-import { and, desc, eq, gte, inArray, lt } from "drizzle-orm"
+import { and, desc, eq, gte, inArray, lt, sql } from "drizzle-orm"
 import { NextRequest } from "next/server"
 import { z } from "zod"
 
 import { failure, success } from "@/lib/api-response"
-import { ChatMessageDraftSchema, retentionCutoff } from "@/lib/chat"
+import {
+  ChatMessageDraftSchema,
+  CHAT_SEND_RATE_LIMIT_COUNT,
+  CHAT_SEND_RATE_LIMIT_WINDOW_MS,
+  retentionCutoff,
+} from "@/lib/chat"
 import { getChatConversationAccess, notifyChatEvent } from "@/lib/chat-server"
 import { db } from "@/lib/db"
 import {
@@ -15,6 +20,8 @@ import {
 import { getSessionUser } from "@/lib/session"
 
 const IdSchema = z.string().uuid()
+
+class ChatRateLimitError extends Error {}
 
 export async function GET(
   request: NextRequest,
@@ -98,6 +105,23 @@ export async function POST(
   try {
     const message = await db.transaction(async (tx) => {
       const now = new Date()
+      await tx.execute(
+        sql`select pg_advisory_xact_lock(hashtextextended(${`chat-send:${actor.id}`}, 0))`,
+      )
+      const [usage] = await tx
+        .select({ count: sql<number>`count(*)::int` })
+        .from(chatMessages)
+        .where(
+          and(
+            eq(chatMessages.senderId, actor.id),
+            gte(
+              chatMessages.createdAt,
+              new Date(now.getTime() - CHAT_SEND_RATE_LIMIT_WINDOW_MS),
+            ),
+          ),
+        )
+      if ((usage?.count ?? 0) >= CHAT_SEND_RATE_LIMIT_COUNT)
+        throw new ChatRateLimitError()
       const [created] = await tx
         .insert(chatMessages)
         .values({
@@ -133,6 +157,8 @@ export async function POST(
       { status: 201 },
     )
   } catch (error) {
+    if (error instanceof ChatRateLimitError)
+      return failure("RATE_LIMITED", "消息发送过于频繁，请稍后再试", 429)
     console.error("[API chat messages POST]", error)
     return failure("INTERNAL_ERROR", "发送消息失败", 500)
   }
