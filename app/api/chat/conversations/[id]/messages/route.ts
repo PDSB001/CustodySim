@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, inArray, lt, sql } from "drizzle-orm"
+import { and, desc, eq, gte, inArray, sql } from "drizzle-orm"
 import { NextRequest } from "next/server"
 import { z } from "zod"
 
@@ -35,14 +35,22 @@ export async function GET(
   if (!conversation) return failure("NOT_FOUND", "会话不存在", 404)
   try {
     const beforeValue = request.nextUrl.searchParams.get("before")
-    const before = beforeValue ? new Date(beforeValue) : null
-    if (before && Number.isNaN(before.getTime()))
-      return failure("VALIDATION_ERROR", "分页时间无效", 400)
+    const before = beforeValue ? IdSchema.safeParse(beforeValue) : null
+    if (before && !before.success)
+      return failure("VALIDATION_ERROR", "分页游标无效", 400)
     const conditions = [
       eq(chatMessages.conversationId, conversation.id),
       gte(chatMessages.createdAt, retentionCutoff(actor.role)),
     ]
-    if (before) conditions.push(lt(chatMessages.createdAt, before))
+    if (before?.success)
+      conditions.push(sql<boolean>`
+        (${chatMessages.createdAt}, ${chatMessages.id}) < (
+          select boundary.created_at, boundary.id
+          from chat_messages boundary
+          where boundary.id = ${before.data}::uuid
+            and boundary.conversation_id = ${conversation.id}::uuid
+        )
+      `)
     const rows = (
       await db
         .select({
@@ -57,17 +65,21 @@ export async function GET(
         .from(chatMessages)
         .leftJoin(users, eq(users.id, chatMessages.senderId))
         .where(and(...conditions))
-        .orderBy(desc(chatMessages.createdAt))
+        .orderBy(desc(chatMessages.createdAt), desc(chatMessages.id))
         .limit(50)
     ).reverse()
     const readRows = rows.length
       ? await db
           .select({ messageId: chatMessageReads.messageId })
           .from(chatMessageReads)
+          .innerJoin(users, eq(users.id, chatMessageReads.userId))
           .where(
-            inArray(
-              chatMessageReads.messageId,
-              rows.map((row) => row.id),
+            and(
+              inArray(
+                chatMessageReads.messageId,
+                rows.map((row) => row.id),
+              ),
+              eq(users.role, "SUPERVISED"),
             ),
           )
       : []
@@ -152,7 +164,7 @@ export async function POST(
         senderName: actor.name,
         recalledAt: null,
         createdAt: message.createdAt.toISOString(),
-        readCount: 1,
+        readCount: actor.role === "SUPERVISED" ? 1 : 0,
       },
       { status: 201 },
     )

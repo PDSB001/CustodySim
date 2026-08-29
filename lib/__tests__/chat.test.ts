@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest"
 import {
   buildDirectConversationKey,
   canRecallChatMessage,
+  hasCompleteChatScope,
   retentionCutoff,
 } from "@/lib/chat"
 
@@ -20,6 +21,13 @@ describe("chat policy", () => {
     expect(retentionCutoff("ADMIN", now).toISOString()).toBe(
       "2026-08-01T00:00:00.000Z",
     )
+  })
+
+  it("requires the supervisor scope to cover every chat participant", () => {
+    const scope = new Set(["user-a", "user-b"])
+    expect(hasCompleteChatScope(["user-a", "user-b"], scope)).toBe(true)
+    expect(hasCompleteChatScope(["user-a", "user-c"], scope)).toBe(false)
+    expect(hasCompleteChatScope([], scope)).toBe(false)
   })
 
   it("allows only the sender to recall within five minutes", () => {

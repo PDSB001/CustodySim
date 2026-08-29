@@ -1,6 +1,7 @@
 import { and, eq, inArray, isNull, sql } from "drizzle-orm"
 
 import { db } from "@/lib/db"
+import { hasCompleteChatScope } from "@/lib/chat"
 import {
   chatConversationMembers,
   chatConversations,
@@ -55,48 +56,90 @@ export async function getChatConversationAccess(
     )
     .limit(1)
   if (!conversation) return null
-  if (actor.role === "ADMIN") return conversation
-
-  if (conversation.type === "ROOM") {
-    if (!conversation.roomOrganizationId) return null
-    if (actor.role === "SUPERVISED") {
-      const roomId = await getSupervisedRoom(actor.id)
-      return roomId === conversation.roomOrganizationId ? conversation : null
-    }
-    const scopedIds = await getSupervisedUserIdsForSupervisor(actor.id)
-    if (scopedIds.size === 0) return null
-    const [roomMember] = await db
-      .select({ id: persons.id })
-      .from(persons)
-      .where(
-        and(
-          eq(persons.organizationId, conversation.roomOrganizationId),
-          inArray(persons.userId, [...scopedIds]),
-          eq(persons.status, "active"),
-        ),
-      )
-      .limit(1)
-    return roomMember ? conversation : null
-  }
-
-  const memberIds = await getConversationMemberIds(conversationId)
-  if (actor.role === "SUPERVISED")
-    return memberIds.includes(actor.id) ? conversation : null
-  const scopedIds = await getSupervisedUserIdsForSupervisor(actor.id)
-  return memberIds.length > 0 && memberIds.every((id) => scopedIds.has(id))
-    ? conversation
-    : null
+  return (
+    (await filterAccessibleChatConversations(actor, [conversation]))[0] ?? null
+  )
 }
 
-export async function listAccessibleConversationIds(actor: SessionUser) {
-  const rows = await db
-    .select({ id: chatConversations.id })
-    .from(chatConversations)
-    .where(eq(chatConversations.status, "ACTIVE"))
-  const ids: string[] = []
-  for (const row of rows)
-    if (await getChatConversationAccess(actor, row.id)) ids.push(row.id)
-  return ids
+export async function filterAccessibleChatConversations(
+  actor: SessionUser,
+  conversations: ChatConversationRecord[],
+) {
+  const active = conversations.filter((item) => item.status === "ACTIVE")
+  if (actor.role === "ADMIN" || active.length === 0) return active
+
+  const conversationIds = active.map((item) => item.id)
+  const memberRows = await db
+    .select({
+      conversationId: chatConversationMembers.conversationId,
+      userId: chatConversationMembers.userId,
+    })
+    .from(chatConversationMembers)
+    .where(
+      and(
+        inArray(chatConversationMembers.conversationId, conversationIds),
+        isNull(chatConversationMembers.leftAt),
+      ),
+    )
+  const memberIds = new Map<string, string[]>()
+  for (const row of memberRows)
+    memberIds.set(row.conversationId, [
+      ...(memberIds.get(row.conversationId) ?? []),
+      row.userId,
+    ])
+
+  if (actor.role === "SUPERVISED") {
+    const roomId = await getSupervisedRoom(actor.id)
+    return active.filter((conversation) =>
+      conversation.type === "ROOM"
+        ? Boolean(roomId && conversation.roomOrganizationId === roomId)
+        : (memberIds.get(conversation.id) ?? []).includes(actor.id),
+    )
+  }
+
+  const scopedIds = await getSupervisedUserIdsForSupervisor(actor.id)
+  if (scopedIds.size === 0) return []
+  const roomIds = [
+    ...new Set(
+      active.flatMap((conversation) =>
+        conversation.type === "ROOM" && conversation.roomOrganizationId
+          ? [conversation.roomOrganizationId]
+          : [],
+      ),
+    ),
+  ]
+  const roomMemberRows = roomIds.length
+    ? await db
+        .select({
+          organizationId: persons.organizationId,
+          userId: users.id,
+        })
+        .from(persons)
+        .innerJoin(users, eq(users.id, persons.userId))
+        .where(
+          and(
+            inArray(persons.organizationId, roomIds),
+            eq(persons.personType, "SUPERVISED"),
+            eq(persons.status, "active"),
+            eq(users.status, "active"),
+          ),
+        )
+    : []
+  const roomMemberIds = new Map<string, string[]>()
+  for (const row of roomMemberRows) {
+    if (!row.organizationId) continue
+    roomMemberIds.set(row.organizationId, [
+      ...(roomMemberIds.get(row.organizationId) ?? []),
+      row.userId,
+    ])
+  }
+  return active.filter((conversation) => {
+    const ids =
+      conversation.type === "ROOM" && conversation.roomOrganizationId
+        ? (roomMemberIds.get(conversation.roomOrganizationId) ?? [])
+        : (memberIds.get(conversation.id) ?? [])
+    return hasCompleteChatScope(ids, scopedIds)
+  })
 }
 
 export async function getChatUserSummary(userId: string) {

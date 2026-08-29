@@ -40,6 +40,7 @@ export async function PATCH(
             eq(chatDirectRequests.status, "PENDING"),
           ),
         )
+        .for("update")
         .limit(1)
       if (!chatRequest) return null
 
@@ -97,7 +98,7 @@ export async function PATCH(
           ),
         )
         .returning()
-      if (!updated) return null
+      if (!updated) throw new Error("审批状态并发更新失败")
       await writeAuditLog(
         {
           actor,

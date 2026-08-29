@@ -55,12 +55,14 @@ io.use(async (socket, next) => {
     if (
       payload.purpose !== "chat-realtime" ||
       typeof payload.sub !== "string" ||
+      typeof payload.exp !== "number" ||
       !Array.isArray(payload.conversationIds) ||
       !payload.conversationIds.every((id) => typeof id === "string")
     )
       throw new Error("invalid token")
     socket.data.userId = payload.sub
     socket.data.conversationIds = new Set(payload.conversationIds)
+    socket.data.expiresAt = payload.exp * 1000
     next()
   } catch {
     next(new Error("unauthorized"))
@@ -68,6 +70,11 @@ io.use(async (socket, next) => {
 })
 
 io.on("connection", (socket) => {
+  const expiryTimer = setTimeout(
+    () => socket.disconnect(true),
+    Math.max(0, socket.data.expiresAt - Date.now()),
+  )
+  socket.once("disconnect", () => clearTimeout(expiryTimer))
   socket.on("conversation:join", async (conversationId, acknowledge) => {
     if (
       typeof conversationId === "string" &&

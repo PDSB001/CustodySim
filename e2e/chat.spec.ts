@@ -74,6 +74,7 @@ test("聊天完整链路：同监室、撤回、跨监室审批", async ({}, tes
       liu,
       "post",
       "/api/chat/realtime-token",
+      { conversationId: direct.data.id },
     )
     realtimeSocket = io("http://127.0.0.1:3001", {
       path: "/socket.io",
@@ -84,6 +85,10 @@ test("聊天完整链路：同监室、撤回、跨监室审批", async ({}, tes
       realtimeSocket!.once("connect", resolve)
       realtimeSocket!.once("connect_error", reject)
     })
+    const deniedJoin = (await realtimeSocket
+      .timeout(5_000)
+      .emitWithAck("conversation:join", room.data.id)) as { ok: boolean }
+    expect(deniedJoin.ok).toBe(false)
     const joinResult = (await realtimeSocket
       .timeout(5_000)
       .emitWithAck("conversation:join", direct.data.id)) as { ok: boolean }
@@ -150,9 +155,18 @@ test("聊天完整链路：同监室、撤回、跨监室审批", async ({}, tes
       Array<{ id: string; unreadCount: number }>
     >(admin, "get", "/api/chat/conversations")
     expect(
-      adminAfterRead.data.find((conversation) => conversation.id === direct.data.id)
-        ?.unreadCount,
+      adminAfterRead.data.find(
+        (conversation) => conversation.id === direct.data.id,
+      )?.unreadCount,
     ).toBe(0)
+    const senderView = await call<Array<{ id: string; readCount: number }>>(
+      liu,
+      "get",
+      `/api/chat/conversations/${direct.data.id}/messages`,
+    )
+    expect(
+      senderView.data.find((item) => item.id === message.data.id)?.readCount,
+    ).toBe(2)
     await call(liu, "post", `/api/chat/messages/${message.data.id}/recall`)
     const recalled = await call<
       Array<{ id: string; content: string | null; recalledAt: string | null }>

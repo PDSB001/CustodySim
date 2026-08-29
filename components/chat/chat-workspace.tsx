@@ -115,11 +115,13 @@ function useChatRealtime(selectedConversationId: string | null) {
   const client = useQueryClient()
   const socketRef = useRef<Socket | null>(null)
   const token = useQuery({
-    queryKey: ["chat-realtime-token"],
+    queryKey: ["chat-realtime-token", selectedConversationId],
     queryFn: () =>
       requestApi("/api/chat/realtime-token", RealtimeTokenSchema, {
         method: "POST",
+        body: JSON.stringify({ conversationId: selectedConversationId }),
       }),
+    enabled: Boolean(selectedConversationId),
     staleTime: 4 * 60 * 1000,
     refetchInterval: 4 * 60 * 1000,
     retry: false,
@@ -379,7 +381,7 @@ export function ChatWorkspace({ user }: { user: SessionUser }) {
     enabled: Boolean(selectedId),
     initialPageParam: null as string | null,
     getNextPageParam: (lastPage) =>
-      lastPage.length === 50 ? lastPage[0]?.createdAt : undefined,
+      lastPage.length === 50 ? lastPage[0]?.id : undefined,
     refetchInterval: 10_000,
   })
   const messageList = useMemo(
@@ -625,7 +627,10 @@ export function ChatWorkspace({ user }: { user: SessionUser }) {
                           >
                             {mine ? (
                               <span className="text-muted-foreground text-[11px]">
-                                {message.readCount > 1 ? "已读" : "已发送"}
+                                {message.readCount >
+                                (user.role === "SUPERVISED" ? 1 : 0)
+                                  ? "已读"
+                                  : "已发送"}
                               </span>
                             ) : null}
                             {canRecall ? (

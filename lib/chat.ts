@@ -20,6 +20,10 @@ export const ChatReadSchema = z.object({
   messageId: z.string().uuid(),
 })
 
+export const ChatRealtimeTokenSchema = z.object({
+  conversationId: z.string().uuid(),
+})
+
 export const ChatRequestReviewSchema = z.object({
   result: z.enum(["APPROVED", "REJECTED"]),
   comment: z.string().trim().max(500).optional(),
@@ -30,6 +34,16 @@ export function buildDirectConversationKey(
   rightUserId: string,
 ) {
   return [leftUserId, rightUserId].sort().join(":")
+}
+
+export function hasCompleteChatScope(
+  participantIds: string[],
+  scopedIds: ReadonlySet<string>,
+) {
+  return (
+    participantIds.length > 0 &&
+    participantIds.every((participantId) => scopedIds.has(participantId))
+  )
 }
 
 export function retentionCutoff(role: string, now = new Date()) {
