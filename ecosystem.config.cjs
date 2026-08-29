@@ -29,15 +29,16 @@ module.exports = {
   apps: [
     {
       name: "custodysim",
-      script: "node_modules/.next/standalone/server.js",
-      instances: "max",
-      exec_mode: "cluster",
+      script: ".next/standalone/server.js",
+      instances: 1,
+      exec_mode: "fork",
       env: {
         NODE_ENV: "production",
         PORT: 3000,
         ...loadEnvLocal(),
       },
       max_memory_restart: "300M",
+      kill_timeout: 30000,
       log_date_format: "YYYY-MM-DD HH:mm:ss",
       error_file: "/var/log/custodysim/error.log",
       out_file: "/var/log/custodysim/out.log",
@@ -53,6 +54,7 @@ module.exports = {
         ...loadEnvLocal(),
       },
       max_memory_restart: "200M",
+      kill_timeout: 10000,
       log_date_format: "YYYY-MM-DD HH:mm:ss",
       error_file: "/var/log/custodysim/chat-realtime-error.log",
       out_file: "/var/log/custodysim/chat-realtime.log",
