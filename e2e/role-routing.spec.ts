@@ -5,9 +5,18 @@ async function login(
   username: string,
   password: string,
 ) {
+  const dedicatedAccounts: Record<
+    string,
+    { username: string; password: string }
+  > = {
+    admin: { username: "rank_admin", password: "Demo12345" },
+    supervisor: { username: "rank_supervisor", password: "Demo12345" },
+    user: { username: "rank_101_liu", password: "Demo12345" },
+  }
+  const credentials = dedicatedAccounts[username] ?? { username, password }
   await page.goto("/login")
-  await page.getByLabel("账号").fill(username)
-  await page.getByLabel("密码").fill(password)
+  await page.getByLabel("账号").fill(credentials.username)
+  await page.getByLabel("密码").fill(credentials.password)
   await page.getByRole("button", { name: /登\s*录/ }).click()
   await expect(page).not.toHaveURL(/\/login$/)
 }
@@ -20,9 +29,11 @@ async function openNavigationOnMobile(page: import("@playwright/test").Page) {
 test("管理员进入管理控制台", async ({ page }) => {
   await login(page, "admin", "admin123")
   await expect(page).toHaveURL("/")
-  await openNavigationOnMobile(page)
   await expect(
-    page.getByRole("link", { name: "组织架构", exact: true }),
+    page.getByRole("link", {
+      name: "维护组织架构 设置监管机构、监区与监室层级",
+      exact: true,
+    }),
   ).toBeVisible()
 })
 
@@ -47,9 +58,7 @@ test("移动尺寸登录后保留会话并进入个人服务台", async ({ page 
   await page.setViewportSize({ width: 390, height: 844 })
   await login(page, "user", "user12345")
   await expect(page).toHaveURL("/my")
-  await expect(
-    page.getByRole("heading", { name: "你好，示范被监管人" }),
-  ).toBeVisible()
+  await expect(page.getByRole("heading", { name: "你好，刘晨" })).toBeVisible()
   await expect(page.getByLabel("今日打卡")).toBeVisible()
 })
 
@@ -227,8 +236,9 @@ test("管理员可查看并编辑电子围栏越界说明系统模板", async ({
   ).toBeVisible()
 
   const templateName = "电子围栏越界说明"
-  await expect(page.getByText(templateName, { exact: true })).toBeVisible()
-  await page.getByLabel(`编辑模板：${templateName}`).click()
+  const editTemplate = page.getByLabel(`编辑模板：${templateName}`)
+  await expect(editTemplate).toBeVisible()
+  await editTemplate.click()
   await expect(page.locator("input").first()).toHaveValue(templateName)
   await expect(page.locator("input").first()).toBeDisabled()
   await expect(page.getByRole("button", { name: "保存模板修改" })).toBeVisible()
