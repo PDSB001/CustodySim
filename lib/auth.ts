@@ -70,6 +70,18 @@ export async function signMfaChallenge(userId: string, tokenVersion: number) {
     .sign(getAuthSecret())
 }
 
+export async function signChatRealtimeToken(
+  userId: string,
+  conversationIds: string[],
+) {
+  return new SignJWT({ purpose: "chat-realtime", conversationIds })
+    .setProtectedHeader({ alg: "HS256" })
+    .setSubject(userId)
+    .setIssuedAt()
+    .setExpirationTime("5m")
+    .sign(getAuthSecret())
+}
+
 export async function verifyMfaChallenge(
   token: string,
 ): Promise<MfaChallengePayload | null> {

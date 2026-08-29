@@ -106,7 +106,10 @@ export const electronicFences = pgTable(
     latitude: varchar("latitude", { length: 32 }).notNull(),
     longitude: varchar("longitude", { length: 32 }).notNull(),
     radiusMeters: integer("radius_meters").notNull(),
-    boundaryPoints: jsonb("boundary_points").$type<Array<{ latitude: number; longitude: number }>>().notNull().default([]),
+    boundaryPoints: jsonb("boundary_points")
+      .$type<Array<{ latitude: number; longitude: number }>>()
+      .notNull()
+      .default([]),
     coordinateSystem: varchar("coordinate_system", { length: 20 })
       .notNull()
       .default("GCJ02"),
@@ -832,9 +835,13 @@ export const isolationSettings = pgTable("isolation_settings", {
     onDelete: "set null",
   }),
   templateIds: jsonb("template_ids").notNull().default([]),
-  scheduleTime: varchar("schedule_time", { length: 5 }).notNull().default("19:00"),
+  scheduleTime: varchar("schedule_time", { length: 5 })
+    .notNull()
+    .default("19:00"),
   timeoutMinutes: integer("timeout_minutes").notNull().default(240),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
 })
 
 export const scoreWeekReviews = pgTable(
@@ -870,7 +877,9 @@ export const isolationReflectionTasks = pgTable(
       .notNull()
       .references(() => reportTasks.id, { onDelete: "cascade" }),
     dayKey: varchar("day_key", { length: 10 }).notNull(),
-    templateKey: varchar("template_key", { length: 80 }).notNull().default("default"),
+    templateKey: varchar("template_key", { length: 80 })
+      .notNull()
+      .default("default"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -1146,5 +1155,136 @@ export const applicationReviews = pgTable(
       table.reviewerId,
       table.result,
     ),
+  ],
+)
+
+export const chatConversations = pgTable(
+  "chat_conversations",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    type: varchar("type", { length: 20 }).notNull(),
+    title: varchar("title", { length: 160 }),
+    roomOrganizationId: uuid("room_organization_id").references(
+      () => organizations.id,
+    ),
+    directKey: varchar("direct_key", { length: 80 }),
+    status: varchar("status", { length: 20 }).notNull().default("ACTIVE"),
+    createdBy: uuid("created_by").references(() => users.id),
+    lastMessageAt: timestamp("last_message_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("chat_conversations_room_unique").on(table.roomOrganizationId),
+    uniqueIndex("chat_conversations_direct_key_unique").on(table.directKey),
+    index("chat_conversations_last_message_idx").on(table.lastMessageAt),
+  ],
+)
+
+export const chatConversationMembers = pgTable(
+  "chat_conversation_members",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    conversationId: uuid("conversation_id")
+      .notNull()
+      .references(() => chatConversations.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    joinedAt: timestamp("joined_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    leftAt: timestamp("left_at", { withTimezone: true }),
+  },
+  (table) => [
+    uniqueIndex("chat_conversation_members_unique").on(
+      table.conversationId,
+      table.userId,
+    ),
+    index("chat_conversation_members_user_idx").on(table.userId, table.leftAt),
+  ],
+)
+
+export const chatDirectRequests = pgTable(
+  "chat_direct_requests",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    requesterId: uuid("requester_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    targetId: uuid("target_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    reason: varchar("reason", { length: 500 }).notNull(),
+    status: varchar("status", { length: 20 }).notNull().default("PENDING"),
+    conversationId: uuid("conversation_id").references(
+      () => chatConversations.id,
+      { onDelete: "set null" },
+    ),
+    reviewedBy: uuid("reviewed_by").references(() => users.id),
+    reviewComment: varchar("review_comment", { length: 500 }),
+    reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index("chat_direct_requests_requester_idx").on(
+      table.requesterId,
+      table.status,
+    ),
+    index("chat_direct_requests_target_idx").on(table.targetId, table.status),
+  ],
+)
+
+export const chatMessages = pgTable(
+  "chat_messages",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    conversationId: uuid("conversation_id")
+      .notNull()
+      .references(() => chatConversations.id, { onDelete: "cascade" }),
+    senderId: uuid("sender_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    type: varchar("type", { length: 20 }).notNull().default("TEXT"),
+    content: text("content"),
+    recalledAt: timestamp("recalled_at", { withTimezone: true }),
+    recalledBy: uuid("recalled_by").references(() => users.id),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index("chat_messages_conversation_created_idx").on(
+      table.conversationId,
+      table.createdAt,
+    ),
+    index("chat_messages_created_at_idx").on(table.createdAt),
+  ],
+)
+
+export const chatMessageReads = pgTable(
+  "chat_message_reads",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    messageId: uuid("message_id")
+      .notNull()
+      .references(() => chatMessages.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    readAt: timestamp("read_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("chat_message_reads_unique").on(table.messageId, table.userId),
+    index("chat_message_reads_user_idx").on(table.userId, table.readAt),
   ],
 )

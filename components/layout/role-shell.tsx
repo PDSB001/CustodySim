@@ -8,6 +8,7 @@ import {
   FileText,
   MapPinned,
   Menu,
+  MessageCircle,
   ShieldCheck,
   TimerReset,
   Trophy,
@@ -48,7 +49,12 @@ const workspaceConfig = {
       { href: "/supervisor/reports", label: "执行汇报", icon: FileText },
       { href: "/supervisor/scores", label: "积分排行", icon: Trophy },
       { href: "/supervisor/notices", label: "通知公告", icon: BellRing },
-      { href: "/supervisor/applications", label: "申请审核", icon: ClipboardCheck },
+      { href: "/supervisor/chat", label: "聊天监管", icon: MessageCircle },
+      {
+        href: "/supervisor/applications",
+        label: "申请审核",
+        icon: ClipboardCheck,
+      },
       {
         href: "/supervisor/profile-reviews",
         label: "档案会签",
@@ -67,6 +73,7 @@ const workspaceConfig = {
       { href: "/my/checkins", label: "打卡记录", icon: CalendarCheck2 },
       { href: "/my/electronic-fence", label: "电子围栏", icon: MapPinned },
       { href: "/my/notices", label: "通知公告", icon: BellRing },
+      { href: "/my/chat", label: "监室聊天", icon: MessageCircle },
       { href: "/my/profile", label: "个人档案", icon: FileText },
       { href: "/my/scores", label: "积分排行", icon: Trophy },
       { href: "/my/applications", label: "我的申请", icon: ClipboardCheck },
@@ -113,8 +120,7 @@ function WorkspaceSidebar({
                 <span>{label}</span>
               </>
             )
-            const isMapEntry =
-              href === "/my/electronic-fence"
+            const isMapEntry = href === "/my/electronic-fence"
             return isMapEntry ? (
               <a
                 key={href}

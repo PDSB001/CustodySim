@@ -42,5 +42,20 @@ module.exports = {
       error_file: "/var/log/custodysim/error.log",
       out_file: "/var/log/custodysim/out.log",
     },
+    {
+      name: "custodysim-chat-realtime",
+      script: "realtime-server.mjs",
+      instances: 1,
+      exec_mode: "fork",
+      env: {
+        NODE_ENV: "production",
+        REALTIME_PORT: 3001,
+        ...loadEnvLocal(),
+      },
+      max_memory_restart: "200M",
+      log_date_format: "YYYY-MM-DD HH:mm:ss",
+      error_file: "/var/log/custodysim/chat-realtime-error.log",
+      out_file: "/var/log/custodysim/chat-realtime.log",
+    },
   ],
 }

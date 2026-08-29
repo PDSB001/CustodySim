@@ -82,6 +82,7 @@ const navSections = [
     entries: [
       { href: "/ui-config", label: "标语与文案", icon: MessageSquareText },
       { href: "/notices", label: "通知中心", icon: MessageSquareText },
+      { href: "/chats", label: "聊天监管", icon: MessageSquareText },
       { href: "/official-seals", label: "印章中心", icon: Stamp },
     ],
   },
@@ -149,32 +150,32 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
               >
                 <div>
                   {section.entries.map(({ href, label, icon: Icon }) => {
-              const active = pathIsActive(pathname, href)
-              const children = (
-                <>
-                  <Icon className="app-nav-item__icon" />
-                  <span>{label}</span>
-                </>
-              )
-              return href === "/electronic-fences" ? (
-                <a
-                  key={href}
-                  className={`app-nav-item ${active ? "is-active" : ""}`}
-                  href={href}
-                  onClick={onNavigate}
-                >
-                  {children}
-                </a>
-              ) : (
-                <Link
-                  key={href}
-                  className={`app-nav-item ${active ? "is-active" : ""}`}
-                  href={href}
-                  onClick={onNavigate}
-                >
-                  {children}
-                </Link>
-              )
+                    const active = pathIsActive(pathname, href)
+                    const children = (
+                      <>
+                        <Icon className="app-nav-item__icon" />
+                        <span>{label}</span>
+                      </>
+                    )
+                    return href === "/electronic-fences" ? (
+                      <a
+                        key={href}
+                        className={`app-nav-item ${active ? "is-active" : ""}`}
+                        href={href}
+                        onClick={onNavigate}
+                      >
+                        {children}
+                      </a>
+                    ) : (
+                      <Link
+                        key={href}
+                        className={`app-nav-item ${active ? "is-active" : ""}`}
+                        href={href}
+                        onClick={onNavigate}
+                      >
+                        {children}
+                      </Link>
+                    )
                   })}
                 </div>
               </div>
