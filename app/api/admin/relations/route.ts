@@ -52,43 +52,46 @@ export async function POST(request: NextRequest) {
       400,
     )
   try {
-    const [relation] = await db
-      .insert(supervisionRelations)
-      .values({
-        name: parsed.data.name,
-        status: parsed.data.status,
-        startDate: parsed.data.startDate
-          ? new Date(parsed.data.startDate)
-          : null,
-        endDate: parsed.data.endDate ? new Date(parsed.data.endDate) : null,
-      })
-      .returning()
-    if (!relation) return failure("INTERNAL_ERROR", "创建监管关系失败", 500)
-    const insertedScopes = await db
-      .insert(supervisionRelationScopes)
-      .values([
-        ...parsed.data.supervisorScopes.map((scope) => ({
-          ...scope,
-          relationId: relation.id,
-          side: "SUPERVISOR",
-        })),
-        ...parsed.data.supervisedScopes.map((scope) => ({
-          ...scope,
-          relationId: relation.id,
-          side: "SUPERVISED",
-        })),
-      ])
-      .returning()
-    await writeAuditLog({
-      actor,
-      action: "CREATE",
-      actionLabel: "创建监管关系",
-      entityType: "supervision_relation",
-      entityId: relation.id,
-      detail: { name: relation.name },
-    })
-    return success(
-      {
+    const result = await db.transaction(async (tx) => {
+      const [relation] = await tx
+        .insert(supervisionRelations)
+        .values({
+          name: parsed.data.name,
+          status: parsed.data.status,
+          startDate: parsed.data.startDate
+            ? new Date(parsed.data.startDate)
+            : null,
+          endDate: parsed.data.endDate ? new Date(parsed.data.endDate) : null,
+        })
+        .returning()
+      if (!relation) throw new Error("创建监管关系失败")
+      const insertedScopes = await tx
+        .insert(supervisionRelationScopes)
+        .values([
+          ...parsed.data.supervisorScopes.map((scope) => ({
+            ...scope,
+            relationId: relation.id,
+            side: "SUPERVISOR",
+          })),
+          ...parsed.data.supervisedScopes.map((scope) => ({
+            ...scope,
+            relationId: relation.id,
+            side: "SUPERVISED",
+          })),
+        ])
+        .returning()
+      await writeAuditLog(
+        {
+          actor,
+          action: "CREATE",
+          actionLabel: "创建监管关系",
+          entityType: "supervision_relation",
+          entityId: relation.id,
+          detail: { name: relation.name },
+        },
+        tx,
+      )
+      return {
         ...relation,
         supervisorScopes: insertedScopes.filter(
           (scope) => scope.side === "SUPERVISOR",
@@ -96,9 +99,9 @@ export async function POST(request: NextRequest) {
         supervisedScopes: insertedScopes.filter(
           (scope) => scope.side === "SUPERVISED",
         ),
-      },
-      { status: 201 },
-    )
+      }
+    })
+    return success(result, { status: 201 })
   } catch (error) {
     console.error("[API relations POST]", error)
     return failure("INTERNAL_ERROR", "服务器错误", 500)

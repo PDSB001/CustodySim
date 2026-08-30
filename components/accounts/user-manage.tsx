@@ -75,11 +75,11 @@ export function UserManage() {
     phone: "",
   })
   const users = useQuery({
-    queryKey: ["users"],
+    queryKey: ["admin-users", "full"],
     queryFn: () => requestApi("/api/admin/users", UsersSchema),
   })
   const organizations = useQuery({
-    queryKey: ["organizations"],
+    queryKey: ["admin-organizations", "options"],
     queryFn: () => requestApi("/api/admin/orgs", z.array(OrganizationSchema)),
   })
   const create = useMutation({
@@ -93,7 +93,7 @@ export function UserManage() {
         }),
       }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["users"] })
+      queryClient.invalidateQueries({ queryKey: ["admin-users"] })
       setOpen(false)
       setForm({
         username: "",
@@ -112,11 +112,13 @@ export function UserManage() {
     mutationFn: (id: string) =>
       requestApi(
         `/api/admin/users/${id}/reset-password`,
-        z.object({ id: z.string() }),
-        { method: "POST", body: JSON.stringify({ password: "admin123" }) },
+        z.object({ id: z.string(), temporaryPassword: z.string() }),
+        { method: "POST" },
       ),
-    onSuccess: () =>
-      toast.success("密码已重置为 admin123，用户下次登录必须修改密码"),
+    onSuccess: ({ temporaryPassword }) =>
+      toast.success(`临时密码：${temporaryPassword}（请立即安全告知用户）`, {
+        duration: 20_000,
+      }),
     onError: (error) =>
       toast.error(error instanceof Error ? error.message : "重置失败"),
   })
@@ -310,7 +312,7 @@ export function UserManage() {
                       onClick={() => {
                         if (
                           window.confirm(
-                            `将 ${user.name} 的密码重置为 admin123？`,
+                            `为 ${user.name} 生成一次性随机临时密码？`,
                           )
                         )
                           reset.mutate(user.id)

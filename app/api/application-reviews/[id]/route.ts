@@ -6,7 +6,12 @@ import { ApplicationReviewSchema } from "@/lib/admin-schemas"
 import { failure, success } from "@/lib/api-response"
 import { writeAuditLog } from "@/lib/audit"
 import { db } from "@/lib/db"
-import { applicationReviews, applications, persons } from "@/lib/db/schema"
+import {
+  applicationReviews,
+  applications,
+  isolationOrders,
+  persons,
+} from "@/lib/db/schema"
 import {
   isLeaveActive,
   isTemporaryReleaseActive,
@@ -19,6 +24,7 @@ import { getSessionUser } from "@/lib/session"
 const ParamsSchema = z.object({ id: z.string().uuid() })
 type RouteContext = { params: Promise<{ id: string }> }
 class ReviewConflictError extends Error {}
+class ActiveIsolationConflictError extends Error {}
 
 export async function PATCH(request: NextRequest, context: RouteContext) {
   const actor = await getSessionUser()
@@ -117,6 +123,23 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
           application.type === "TEMPORARY_OUT_OF_CUSTODY"
             ? scheduledAbsenceStatus
             : transition.custodyStatus
+        if (
+          custodyStatus === "ON_LEAVE" ||
+          custodyStatus === "TEMPORARY_OUT_OF_CUSTODY"
+        ) {
+          const [activeIsolation] = await tx
+            .select({ id: isolationOrders.id })
+            .from(isolationOrders)
+            .where(
+              and(
+                eq(isolationOrders.supervisedId, application.userId),
+                eq(isolationOrders.status, "ACTIVE"),
+                gt(isolationOrders.endAt, new Date()),
+              ),
+            )
+            .limit(1)
+          if (activeIsolation) throw new ActiveIsolationConflictError()
+        }
         if (custodyStatus)
           await tx
             .update(persons)
@@ -142,6 +165,8 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
   } catch (error) {
     if (error instanceof ReviewConflictError)
       return failure("CONFLICT", "该申请已由其他请求处理", 409)
+    if (error instanceof ActiveIsolationConflictError)
+      return failure("CONFLICT", "当前存在有效禁闭令，不能批准外出类申请", 409)
     console.error("[API application-reviews PATCH]", error)
     return failure("INTERNAL_ERROR", "服务器错误", 500)
   }

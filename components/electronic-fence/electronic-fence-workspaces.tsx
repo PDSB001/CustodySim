@@ -23,6 +23,7 @@ import {
 } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
 import { toast } from "@/components/ui/toast"
+import { CustodyProfileSchema } from "@/lib/custody-profile-schema"
 
 const FenceSchema = z.object({
   id: z.string(),
@@ -54,16 +55,6 @@ const AdminFenceSchema = z.object({
       fence: FenceSchema.nullable(),
     }),
   ),
-})
-
-const CustodyProfileSchema = z.object({
-  custodyStatus: z.enum([
-    "IN_CUSTODY",
-    "ON_LEAVE",
-    "TEMPORARY_OUT_OF_CUSTODY",
-    "OUT_OF_CUSTODY",
-  ]),
-  geofenceApplicable: z.boolean(),
 })
 
 const DeleteFenceSchema = z.object({

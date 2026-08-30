@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm"
+import { and, eq, inArray } from "drizzle-orm"
 import { NextRequest } from "next/server"
 import { z } from "zod"
 import { failure, success } from "@/lib/api-response"
@@ -62,30 +62,41 @@ export async function POST(request: NextRequest) {
   if (!check.valid)
     return failure("VALIDATION_ERROR", JSON.stringify(check.errors), 400)
   const now = new Date()
-  const [submission] = await db
-    .insert(reportSubmissions)
-    .values({
-      taskId: task.id,
-      userId: actor.id,
-      content: JSON.stringify(parsed.data.data),
-      data: parsed.data.data,
-      status: "SUBMITTED",
-    })
-    .onConflictDoUpdate({
-      target: reportSubmissions.taskId,
-      set: {
+  const submission = await db.transaction(async (tx) => {
+    const [claimedTask] = await tx
+      .update(reportTasks)
+      .set({ status: "SUBMITTED", updatedAt: now })
+      .where(
+        and(
+          eq(reportTasks.id, task.id),
+          inArray(reportTasks.status, ["PENDING", "RETURNED"]),
+        ),
+      )
+      .returning({ id: reportTasks.id })
+    if (!claimedTask) return null
+    const [created] = await tx
+      .insert(reportSubmissions)
+      .values({
+        taskId: task.id,
+        userId: actor.id,
         content: JSON.stringify(parsed.data.data),
         data: parsed.data.data,
         status: "SUBMITTED",
-        updatedAt: now,
-      },
-    })
-    .returning()
-  await db
-    .update(reportTasks)
-    .set({ status: "SUBMITTED", updatedAt: now })
-    .where(eq(reportTasks.id, task.id))
+      })
+      .onConflictDoUpdate({
+        target: reportSubmissions.taskId,
+        set: {
+          content: JSON.stringify(parsed.data.data),
+          data: parsed.data.data,
+          status: "SUBMITTED",
+          updatedAt: now,
+        },
+      })
+      .returning()
+    if (!created) throw new Error("提交记录创建失败")
+    return created
+  })
   return submission
     ? success(submission, { status: 201 })
-    : failure("INTERNAL_ERROR", "提交失败", 500)
+    : failure("CONFLICT", "任务状态已变化，请刷新后重试", 409)
 }

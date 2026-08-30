@@ -27,12 +27,10 @@ import {
 } from "@/lib/rule-cycle"
 import { getSupervisorIdsForSupervised } from "@/lib/supervision-scope"
 import { recordScoreEvent, SCORE_POLICY } from "@/lib/scoring"
+import { getShanghaiDateAtTime } from "@/lib/shanghai-datetime"
 
 function dateAtSlot(date: Date, slot: string) {
-  const [hours, minutes] = slot.split(":").map(Number)
-  const result = new Date(date)
-  result.setHours(hours, minutes, 0, 0)
-  return result
+  return getShanghaiDateAtTime(date, slot)
 }
 
 function stableIndex(seed: string, length: number) {

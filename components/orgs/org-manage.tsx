@@ -195,7 +195,7 @@ export function OrgManage() {
   const [editingName, setEditingName] = useState("")
   const [expanded, setExpanded] = useState<Record<string, boolean>>({})
   const organizations = useQuery({
-    queryKey: ["organizations"],
+    queryKey: ["admin-organizations", "full"],
     queryFn: () => requestApi("/api/admin/orgs", OrganizationsSchema),
   })
   const parent = organizations.data?.find(
@@ -227,7 +227,7 @@ export function OrgManage() {
         body: JSON.stringify({ name, parentId, category, sort: 0 }),
       }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["organizations"] })
+      queryClient.invalidateQueries({ queryKey: ["admin-organizations"] })
       setOpen(false)
       setName("")
       setParentId("")
@@ -243,7 +243,7 @@ export function OrgManage() {
         method: "DELETE",
       }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["organizations"] })
+      queryClient.invalidateQueries({ queryKey: ["admin-organizations"] })
       toast.success("组织已删除")
     },
     onError: (error) =>
@@ -270,7 +270,7 @@ export function OrgManage() {
       )
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["organizations"] })
+      queryClient.invalidateQueries({ queryKey: ["admin-organizations"] })
       setEditingOrganizationId(null)
       setEditingName("")
       toast.success("组织名称已更新")

@@ -103,7 +103,7 @@ export function RuleManage() {
     queryFn: () => requestApi("/api/admin/rule-groups", z.array(Group)),
   })
   const users = useQuery({
-    queryKey: ["users"],
+    queryKey: ["admin-users", "rule-options"],
     queryFn: () => requestApi("/api/admin/users", z.array(User)),
   })
   const templates = useQuery({

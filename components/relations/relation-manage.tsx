@@ -46,7 +46,7 @@ export function RelationManage() {
     queryFn: () => requestApi("/api/admin/relations", z.array(Relation)),
   })
   const users = useQuery({
-    queryKey: ["users"],
+    queryKey: ["admin-users", "relation-options"],
     queryFn: () => requestApi("/api/admin/users", z.array(User)),
   })
   const create = useMutation({

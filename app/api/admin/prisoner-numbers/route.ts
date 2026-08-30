@@ -1,4 +1,4 @@
-import { asc, eq } from "drizzle-orm"
+import { asc, eq, sql } from "drizzle-orm"
 import { NextRequest } from "next/server"
 
 import { failure, success } from "@/lib/api-response"
@@ -72,17 +72,21 @@ export async function POST(request: NextRequest) {
           )[0]
         if (!rule) throw new Error("编号规则初始化失败")
         if (rule.generationMode === "SEQUENTIAL") {
-          const nextSequence = rule.currentSeq + 1
+          const [advancedRule] = await tx
+            .update(numberingRules)
+            .set({
+              currentSeq: sql`${numberingRules.currentSeq} + 1`,
+              updatedAt: new Date(),
+            })
+            .where(eq(numberingRules.id, rule.id))
+            .returning({ currentSeq: numberingRules.currentSeq })
+          if (!advancedRule) throw new Error("编号序列更新失败")
           number = buildCode({
             prefix: rule.prefix,
             dateFormat: rule.dateFormat,
             minLength: rule.minLength,
-            sequence: nextSequence,
+            sequence: advancedRule.currentSeq,
           })
-          await tx
-            .update(numberingRules)
-            .set({ currentSeq: nextSequence, updatedAt: new Date() })
-            .where(eq(numberingRules.id, rule.id))
         } else {
           for (let attempt = 0; attempt < 12; attempt += 1) {
             const candidate = buildRandomCode({

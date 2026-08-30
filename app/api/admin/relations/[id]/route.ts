@@ -25,43 +25,48 @@ export async function PATCH(
   if (!params.success || !body.success)
     return failure("VALIDATION_ERROR", "参数不合法", 400)
   try {
-    const [updated] = await db
-      .update(supervisionRelations)
-      .set({
-        name: body.data.name,
-        status: body.data.status,
-        startDate: body.data.startDate ? new Date(body.data.startDate) : null,
-        endDate: body.data.endDate ? new Date(body.data.endDate) : null,
-        updatedAt: new Date(),
-      })
-      .where(eq(supervisionRelations.id, params.data.id))
-      .returning()
-    if (!updated) return failure("NOT_FOUND", "监管关系不存在", 404)
-    await db.transaction(async (tx) => {
+    const updated = await db.transaction(async (tx) => {
+      const [relation] = await tx
+        .update(supervisionRelations)
+        .set({
+          name: body.data.name,
+          status: body.data.status,
+          startDate: body.data.startDate ? new Date(body.data.startDate) : null,
+          endDate: body.data.endDate ? new Date(body.data.endDate) : null,
+          updatedAt: new Date(),
+        })
+        .where(eq(supervisionRelations.id, params.data.id))
+        .returning()
+      if (!relation) return null
       await tx
         .delete(supervisionRelationScopes)
-        .where(eq(supervisionRelationScopes.relationId, updated.id))
+        .where(eq(supervisionRelationScopes.relationId, relation.id))
       await tx.insert(supervisionRelationScopes).values([
         ...body.data.supervisorScopes.map((scope) => ({
           ...scope,
-          relationId: updated.id,
+          relationId: relation.id,
           side: "SUPERVISOR" as const,
         })),
         ...body.data.supervisedScopes.map((scope) => ({
           ...scope,
-          relationId: updated.id,
+          relationId: relation.id,
           side: "SUPERVISED" as const,
         })),
       ])
+      await writeAuditLog(
+        {
+          actor,
+          action: "UPDATE",
+          actionLabel: "编辑监管关系",
+          entityType: "supervision_relation",
+          entityId: relation.id,
+          detail: { name: relation.name },
+        },
+        tx,
+      )
+      return relation
     })
-    await writeAuditLog({
-      actor,
-      action: "UPDATE",
-      actionLabel: "编辑监管关系",
-      entityType: "supervision_relation",
-      entityId: updated.id,
-      detail: { name: updated.name },
-    })
+    if (!updated) return failure("NOT_FOUND", "监管关系不存在", 404)
     return success(updated)
   } catch (error) {
     console.error("[API relations PATCH]", error)
@@ -81,7 +86,10 @@ export async function DELETE(
     const [deleted] = await db
       .delete(supervisionRelations)
       .where(eq(supervisionRelations.id, params.data.id))
-      .returning({ id: supervisionRelations.id, name: supervisionRelations.name })
+      .returning({
+        id: supervisionRelations.id,
+        name: supervisionRelations.name,
+      })
     if (!deleted) return failure("NOT_FOUND", "监管关系不存在", 404)
     await writeAuditLog({
       actor,

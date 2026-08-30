@@ -34,7 +34,9 @@ export function getShanghaiDateKey(now: Date = new Date()): string {
  * 视为上海本地时间，输出带 +08:00 后缀的 ISO 8601。
  * 解析失败返回 null。
  */
-export function shanghaiLocalToIso(local: string | null | undefined): string | null {
+export function shanghaiLocalToIso(
+  local: string | null | undefined,
+): string | null {
   if (typeof local !== "string") return null
   const match = local.match(/^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})(?::(\d{2}))?$/)
   if (!match) return null
@@ -87,7 +89,10 @@ export function legacyDateAllDay(
   if (typeof date !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return null
   const start = new Date(`${date}T00:00:00+08:00`)
   if (Number.isNaN(start.getTime())) return null
-  return { startMs: start.getTime(), endMs: start.getTime() + 24 * 60 * 60 * 1000 }
+  return {
+    startMs: start.getTime(),
+    endMs: start.getTime() + 24 * 60 * 60 * 1000,
+  }
 }
 
 /**
@@ -129,4 +134,19 @@ export function resolvePeriod(
     payload[legacyStartKey] as string | null | undefined,
     payload[legacyEndKey] as string | null | undefined,
   )
+}
+
+export function getShanghaiDayRange(now: Date = new Date()) {
+  const start = new Date(`${getShanghaiDateKey(now)}T00:00:00+08:00`)
+  return { start, end: new Date(start.getTime() + 24 * 60 * 60 * 1000) }
+}
+
+export function getShanghaiDateAtTime(now: Date, time: string) {
+  return new Date(`${getShanghaiDateKey(now)}T${time}:00+08:00`)
+}
+
+export function getShanghaiCalendarParts(now: Date = new Date()) {
+  const [year, month, day] = getShanghaiDateKey(now).split("-").map(Number)
+  const utcDate = new Date(Date.UTC(year, month - 1, day))
+  return { year, month, day, weekday: utcDate.getUTCDay() }
 }

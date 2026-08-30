@@ -9,16 +9,24 @@ export const LOGIN_RATE_LIMIT_MAX_FAILURES = 5
 export const LOGIN_RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000
 export const LOGIN_RATE_LIMIT_BLOCK_MS = 15 * 60 * 1000
 
-function buildRateLimitKey(scope: "account" | "network", value: string) {
+function buildRateLimitKey(
+  scope: "account" | "network",
+  value: string,
+  namespace = "login",
+) {
   return createHash("sha256")
-    .update(`custodysim:login-rate-limit:v1:${scope}:${value}`)
+    .update(`custodysim:rate-limit:v1:${namespace}:${scope}:${value}`)
     .digest("hex")
 }
 
-export function getLoginRateLimitKeys(username: string, ip?: string | null) {
+export function getLoginRateLimitKeys(
+  username: string,
+  ip?: string | null,
+  namespace = "login",
+) {
   return [
-    buildRateLimitKey("account", username.trim().toLowerCase()),
-    buildRateLimitKey("network", ip?.trim() || "unknown"),
+    buildRateLimitKey("account", username.trim().toLowerCase(), namespace),
+    buildRateLimitKey("network", ip?.trim() || "unknown", namespace),
   ]
 }
 
@@ -33,10 +41,11 @@ export async function getLoginRetryAfterSeconds(
   username: string,
   ip?: string | null,
   now = new Date(),
+  namespace = "login",
 ) {
   return db.transaction(async (tx) => {
     let retryAfterSeconds = 0
-    for (const key of getLoginRateLimitKeys(username, ip)) {
+    for (const key of getLoginRateLimitKeys(username, ip, namespace)) {
       await lockRateLimitKey(tx, key)
       const [entry] = await tx
         .select({ blockedUntil: loginRateLimits.blockedUntil })
@@ -57,9 +66,10 @@ export async function recordLoginFailure(
   username: string,
   ip?: string | null,
   now = new Date(),
+  namespace = "login",
 ) {
   await db.transaction(async (tx) => {
-    for (const key of getLoginRateLimitKeys(username, ip)) {
+    for (const key of getLoginRateLimitKeys(username, ip, namespace)) {
       await lockRateLimitKey(tx, key)
       const [entry] = await tx
         .select()
@@ -96,9 +106,13 @@ export async function recordLoginFailure(
   })
 }
 
-export async function clearLoginFailures(username: string, ip?: string | null) {
+export async function clearLoginFailures(
+  username: string,
+  ip?: string | null,
+  namespace = "login",
+) {
   await db.transaction(async (tx) => {
-    for (const key of getLoginRateLimitKeys(username, ip)) {
+    for (const key of getLoginRateLimitKeys(username, ip, namespace)) {
       await lockRateLimitKey(tx, key)
       await tx.delete(loginRateLimits).where(eq(loginRateLimits.key, key))
     }

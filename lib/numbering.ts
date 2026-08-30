@@ -1,10 +1,13 @@
+import { getShanghaiCalendarParts } from "@/lib/shanghai-datetime"
+
 export function formatDatePart(date: Date, format: string) {
   if (format === "NONE") return ""
+  const parts = getShanghaiCalendarParts(date)
   const values = {
-    yyyy: String(date.getFullYear()),
-    yy: String(date.getFullYear()).slice(-2),
-    MM: String(date.getMonth() + 1).padStart(2, "0"),
-    dd: String(date.getDate()).padStart(2, "0"),
+    yyyy: String(parts.year),
+    yy: String(parts.year).slice(-2),
+    MM: String(parts.month).padStart(2, "0"),
+    dd: String(parts.day).padStart(2, "0"),
   }
   return format.replace(
     /yyyy|yy|MM|dd/g,

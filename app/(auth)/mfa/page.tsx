@@ -31,14 +31,14 @@ export default async function MfaPage() {
             </span>
             <div className="border-brand-500/30 bg-brand-500/10 text-brand-700 mt-7 inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold tracking-[0.12em]">
               <ShieldCheck className="size-3" />
-              账户安全
+              登录安全
             </div>
             <h1 className="font-display text-foreground mt-4 text-3xl font-bold tracking-[-0.025em] sm:text-4xl">
-              双重验证
+              完成安全验证
             </h1>
             <p className="text-muted-foreground mt-3 text-sm leading-6">
-              打开已绑定的验证器，输入当前 6
-              位代码。也可以使用尚未用过的恢复码。
+              请打开已绑定的验证器，输入当前的 6 位验证码。
+              如果无法使用验证器，也可以输入恢复码。
             </p>
             <div className="mt-8">
               <MfaLoginForm />

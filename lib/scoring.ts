@@ -1,4 +1,4 @@
-import { and, eq, gt, gte, lt, lte } from "drizzle-orm"
+import { and, eq, gt, gte, lt, lte, sql } from "drizzle-orm"
 
 import { db } from "@/lib/db"
 import {
@@ -18,10 +18,7 @@ import {
 } from "@/lib/db/schema"
 import { getSupervisorIdsForSupervised } from "@/lib/supervision-scope"
 import { getShanghaiDateKey } from "@/lib/shanghai-datetime"
-import {
-  ensureIsolationReportTemplate,
-  ISOLATION_REPORT_TEMPLATE_NAME,
-} from "@/lib/isolation-report-template"
+import { ensureIsolationReportTemplate } from "@/lib/isolation-report-template"
 
 export const SCORE_POLICY = {
   dailyCheckinBase: 5,
@@ -52,8 +49,7 @@ export function getDailyCheckinScore({
   makeupCount: number
   missingCount: number
 }) {
-  if (normalCheckinCount === 0)
-    return SCORE_POLICY.dailyCheckinNoCheckinPenalty
+  if (normalCheckinCount === 0) return SCORE_POLICY.dailyCheckinNoCheckinPenalty
   return Math.max(
     0,
     SCORE_POLICY.dailyCheckinBase -
@@ -66,11 +62,6 @@ function shiftWeekKey(weekKey: string, weeks: number) {
   const date = new Date(`${weekKey}T00:00:00Z`)
   date.setUTCDate(date.getUTCDate() + weeks * 7)
   return date.toISOString().slice(0, 10)
-}
-
-function isShanghaiMonday(now = new Date()) {
-  const [year, month, day] = getShanghaiDateKey(now).split("-").map(Number)
-  return new Date(Date.UTC(year, (month ?? 1) - 1, day)).getUTCDay() === 1
 }
 
 export function getTaskOutcomeScoreDelta({
@@ -92,6 +83,7 @@ export async function recordScoreEvent({
   operatorId = null,
   now = new Date(),
   weekKey,
+  executor = db,
 }: {
   supervisedId: string
   points: number
@@ -101,10 +93,11 @@ export async function recordScoreEvent({
   operatorId?: string | null
   now?: Date
   weekKey?: string
+  executor?: Pick<typeof db, "insert">
 }) {
   if (!Number.isInteger(points) || points === 0)
     throw new Error("积分变动必须是非零整数")
-  const [event] = await db
+  const [event] = await executor
     .insert(scoreEvents)
     .values({
       supervisedId,
@@ -256,7 +249,10 @@ export async function runCheckinDailyScoreSweep(now = new Date()) {
     })
     .from(checkinTasks)
     .where(lt(checkinTasks.scheduleAt, todayStart))
-  const pendingSettlements = new Map<string, { supervisedId: string; dayKey: string }>()
+  const pendingSettlements = new Map<
+    string,
+    { supervisedId: string; dayKey: string }
+  >()
   for (const task of candidates) {
     const dayKey = getShanghaiDateKey(task.scheduleAt)
     pendingSettlements.set(`${task.supervisedId}:${dayKey}`, {
@@ -266,7 +262,13 @@ export async function runCheckinDailyScoreSweep(now = new Date()) {
   }
   let settled = 0
   for (const candidate of pendingSettlements.values()) {
-    if (await settleCheckinDailyScore(candidate.supervisedId, candidate.dayKey, now))
+    if (
+      await settleCheckinDailyScore(
+        candidate.supervisedId,
+        candidate.dayKey,
+        now,
+      )
+    )
       settled += 1
   }
   return settled
@@ -291,7 +293,6 @@ export async function getActiveIsolationOrder(
 }
 
 export async function runWeeklyScoreReview(now = new Date()) {
-  if (!isShanghaiMonday(now)) return 0
   await runCheckinDailyScoreSweep(now)
   const completedWeekKey = shiftWeekKey(getShanghaiWeekKey(now), -1)
   const weekStartAt = new Date(`${getShanghaiWeekKey(now)}T00:00:00+08:00`)
@@ -302,7 +303,11 @@ export async function runWeeklyScoreReview(now = new Date()) {
   let evaluated = 0
   for (const user of supervisedUsers) {
     const [existing] = await db
-      .select({ id: scoreWeekReviews.id })
+      .select({
+        id: scoreWeekReviews.id,
+        result: scoreWeekReviews.result,
+        totalScore: scoreWeekReviews.totalScore,
+      })
       .from(scoreWeekReviews)
       .where(
         and(
@@ -311,31 +316,39 @@ export async function runWeeklyScoreReview(now = new Date()) {
         ),
       )
       .limit(1)
-    if (existing) continue
-    const events = await db
-      .select({ points: scoreEvents.points })
-      .from(scoreEvents)
-      .where(
-        and(
-          eq(scoreEvents.supervisedId, user.id),
-          eq(scoreEvents.weekKey, completedWeekKey),
-        ),
-      )
-    const totalScore = events.reduce((total, event) => total + event.points, 0)
-    const result = totalScore < SCORE_POLICY.isolationThreshold ? "ISOLATION" : "CLEAR"
-    const [review] = await db
-      .insert(scoreWeekReviews)
-      .values({
-        supervisedId: user.id,
-        weekKey: completedWeekKey,
-        totalScore,
-        result,
-        evaluatedAt: now,
-      })
-      .onConflictDoNothing()
-      .returning({ id: scoreWeekReviews.id })
+    const events = existing
+      ? []
+      : await db
+          .select({ points: scoreEvents.points })
+          .from(scoreEvents)
+          .where(
+            and(
+              eq(scoreEvents.supervisedId, user.id),
+              eq(scoreEvents.weekKey, completedWeekKey),
+            ),
+          )
+    const totalScore = existing
+      ? existing.totalScore
+      : events.reduce((total, event) => total + event.points, 0)
+    const result =
+      existing?.result ??
+      (totalScore < SCORE_POLICY.isolationThreshold ? "ISOLATION" : "CLEAR")
+    const [createdReview] = existing
+      ? []
+      : await db
+          .insert(scoreWeekReviews)
+          .values({
+            supervisedId: user.id,
+            weekKey: completedWeekKey,
+            totalScore,
+            result,
+            evaluatedAt: now,
+          })
+          .onConflictDoNothing()
+          .returning({ id: scoreWeekReviews.id })
+    const review = existing ?? createdReview
     if (!review) continue
-    evaluated += 1
+    if (createdReview) evaluated += 1
     if (result !== "ISOLATION") continue
     const [profile] = await db
       .select({ custodyStatus: persons.custodyStatus })
@@ -385,13 +398,19 @@ type IsolationTemplateSnapshot = {
   name: string
   kind: string
   content: string
-  fields: Array<{ name: string; type: string; required: boolean; options: unknown[] }>
+  fields: Array<{
+    name: string
+    type: string
+    required: boolean
+    options: unknown[]
+  }>
 }
 
 const reflectionTemplateSnapshot: IsolationTemplateSnapshot = {
   name: "禁闭期间每日检讨",
   kind: "REPORT",
-  content: "请如实复盘当日行为，说明问题、影响与次日具体改进计划。审核通过后将向全体发布。",
+  content:
+    "请如实复盘当日行为，说明问题、影响与次日具体改进计划。审核通过后将向全体发布。",
   fields: [
     { name: "当日检讨", type: "TEXTAREA", required: true, options: [] },
     { name: "改进计划", type: "TEXTAREA", required: true, options: [] },
@@ -409,18 +428,16 @@ export async function ensureIsolationReflectionTask(
     .from(isolationSettings)
     .where(eq(isolationSettings.id, "default"))
     .limit(1)
-  const configuredTemplateIds = Array.isArray(settings?.templateIds) && settings.templateIds.length
-    ? settings.templateIds.filter((id): id is string => typeof id === "string")
-    : [settings?.templateId ?? (await ensureIsolationReportTemplate()).id]
+  const configuredTemplateIds =
+    Array.isArray(settings?.templateIds) && settings.templateIds.length
+      ? settings.templateIds.filter(
+          (id): id is string => typeof id === "string",
+        )
+      : [settings?.templateId ?? (await ensureIsolationReportTemplate()).id]
   const supervisors = await getSupervisorIdsForSupervised(order.supervisedId)
   let firstTaskId: string | null = null
   for (const configuredTemplateId of configuredTemplateIds) {
     const templateKey = configuredTemplateId
-    const [existing] = await db.select({ taskId: isolationReflectionTasks.taskId }).from(isolationReflectionTasks).where(and(eq(isolationReflectionTasks.isolationOrderId, order.id), eq(isolationReflectionTasks.dayKey, dayKey), eq(isolationReflectionTasks.templateKey, templateKey))).limit(1)
-    if (existing) {
-      firstTaskId ??= existing.taskId
-      continue
-    }
     let templateSnapshot = reflectionTemplateSnapshot
     let title = reflectionTemplateSnapshot.name
     const [template] = await db
@@ -448,31 +465,52 @@ export async function ensureIsolationReflectionTask(
     }
     const scheduleTime = settings?.scheduleTime ?? "19:00"
     const scheduleAt = new Date(`${dayKey}T${scheduleTime}:00+08:00`)
-    const deadline = new Date(scheduleAt.getTime() + (settings?.timeoutMinutes ?? 240) * 60_000)
-    const [task] = await db
-    .insert(reportTasks)
-    .values({
-      title,
-      supervisedId: order.supervisedId,
-      supervisorId: [...supervisors][0] ?? null,
-      templateSnapshot,
-      payload: {
+    const deadline = new Date(
+      scheduleAt.getTime() + (settings?.timeoutMinutes ?? 240) * 60_000,
+    )
+    const taskId = await db.transaction(async (tx) => {
+      await tx.execute(
+        sql`select pg_advisory_xact_lock(hashtext(${`isolation-reflection:${order.id}:${dayKey}:${templateKey}`}))`,
+      )
+      const [existing] = await tx
+        .select({ taskId: isolationReflectionTasks.taskId })
+        .from(isolationReflectionTasks)
+        .where(
+          and(
+            eq(isolationReflectionTasks.isolationOrderId, order.id),
+            eq(isolationReflectionTasks.dayKey, dayKey),
+            eq(isolationReflectionTasks.templateKey, templateKey),
+          ),
+        )
+        .limit(1)
+      if (existing) return existing.taskId
+      const [task] = await tx
+        .insert(reportTasks)
+        .values({
+          title,
+          supervisedId: order.supervisedId,
+          supervisorId: [...supervisors].sort()[0] ?? null,
+          templateSnapshot,
+          payload: {
+            isolationOrderId: order.id,
+            dayKey,
+            isReflection: true,
+          },
+          source: "ISOLATION",
+          scheduleAt,
+          deadline,
+        })
+        .returning({ id: reportTasks.id })
+      if (!task) throw new Error("创建禁闭检讨任务失败")
+      await tx.insert(isolationReflectionTasks).values({
         isolationOrderId: order.id,
+        taskId: task.id,
         dayKey,
-        isReflection: title === ISOLATION_REPORT_TEMPLATE_NAME,
-      },
-      source: "ISOLATION",
-      scheduleAt,
-      deadline,
+        templateKey,
       })
-      .returning({ id: reportTasks.id })
-    if (!task) continue
-    const [link] = await db
-    .insert(isolationReflectionTasks)
-      .values({ isolationOrderId: order.id, taskId: task.id, dayKey, templateKey })
-    .onConflictDoNothing()
-    .returning({ taskId: isolationReflectionTasks.taskId })
-    firstTaskId ??= link?.taskId ?? null
+      return task.id
+    })
+    firstTaskId ??= taskId
   }
   return firstTaskId
 }
@@ -483,7 +521,10 @@ export async function runIsolationSweep(now = new Date()) {
     .select()
     .from(isolationOrders)
     .where(
-      and(eq(isolationOrders.status, "ACTIVE"), lte(isolationOrders.endAt, now)),
+      and(
+        eq(isolationOrders.status, "ACTIVE"),
+        lte(isolationOrders.endAt, now),
+      ),
     )
   for (const expiredOrder of expiredOrders) {
     await db.transaction(async (tx) => {
@@ -515,8 +556,11 @@ export async function runIsolationSweep(now = new Date()) {
   const activeOrders = await db
     .select()
     .from(isolationOrders)
-    .where(and(eq(isolationOrders.status, "ACTIVE"), gt(isolationOrders.endAt, now)))
-  for (const order of activeOrders) await ensureIsolationReflectionTask(order, now)
+    .where(
+      and(eq(isolationOrders.status, "ACTIVE"), gt(isolationOrders.endAt, now)),
+    )
+  for (const order of activeOrders)
+    await ensureIsolationReflectionTask(order, now)
   return activeOrders.length
 }
 

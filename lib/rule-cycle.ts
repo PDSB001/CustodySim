@@ -18,16 +18,20 @@ export function parseSlots(value: unknown) {
 }
 
 export function computeCycle(frequency: RuleFrequency, date = new Date()) {
-  const year = date.getFullYear()
-  const month = `${date.getMonth() + 1}`.padStart(2, "0")
-  const day = `${date.getDate()}`.padStart(2, "0")
+  const {
+    year,
+    month: monthNumber,
+    day: dayNumber,
+    weekday,
+  } = getShanghaiCalendarParts(date)
+  const month = `${monthNumber}`.padStart(2, "0")
+  const day = `${dayNumber}`.padStart(2, "0")
   if (frequency === "DAILY") return `${year}-${month}-${day}`
   if (frequency === "MONTHLY") return `${year}-${month}`
   if (frequency === "ONCE") return "once"
-  const firstDay = new Date(date)
-  const offset = (firstDay.getDay() + 6) % 7
-  firstDay.setDate(firstDay.getDate() - offset)
-  return `${firstDay.getFullYear()}-W${`${Math.ceil((firstDay.getDate() + 1) / 7)}`.padStart(2, "0")}`
+  const firstDay = new Date(Date.UTC(year, monthNumber - 1, dayNumber))
+  firstDay.setUTCDate(firstDay.getUTCDate() - ((weekday + 6) % 7))
+  return `${firstDay.getUTCFullYear()}-W${`${Math.ceil((firstDay.getUTCDate() + 1) / 7)}`.padStart(2, "0")}`
 }
 
 export function computeDeadline(scheduleAt: Date, timeoutMinutes: number) {
@@ -35,18 +39,24 @@ export function computeDeadline(scheduleAt: Date, timeoutMinutes: number) {
 }
 
 export function isRuleScheduledForDate(rule: SchedulableRule, date: Date) {
-  if (rule.startDate && date < new Date(rule.startDate.toDateString()))
+  const dateKey = getShanghaiDateKey(date)
+  if (rule.startDate && dateKey < getShanghaiDateKey(rule.startDate))
     return false
-  if (rule.endDate && date > new Date(rule.endDate.toDateString())) return false
+  if (rule.endDate && dateKey > getShanghaiDateKey(rule.endDate)) return false
+  const { day, weekday } = getShanghaiCalendarParts(date)
   const scheduleDays = Array.isArray(rule.scheduleDays)
     ? rule.scheduleDays.filter((day): day is number => typeof day === "number")
     : []
   if (rule.freq === "WEEKLY")
-    return scheduleDays.includes(((date.getDay() + 6) % 7) + 1)
-  if (rule.freq === "MONTHLY") return scheduleDays.includes(date.getDate())
+    return scheduleDays.includes(((weekday + 6) % 7) + 1)
+  if (rule.freq === "MONTHLY") return scheduleDays.includes(day)
   if (rule.freq === "ONCE")
     return Boolean(
-      rule.startDate && rule.startDate.toDateString() === date.toDateString(),
+      rule.startDate && getShanghaiDateKey(rule.startDate) === dateKey,
     )
   return true
 }
+import {
+  getShanghaiCalendarParts,
+  getShanghaiDateKey,
+} from "@/lib/shanghai-datetime"

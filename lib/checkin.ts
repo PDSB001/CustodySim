@@ -41,7 +41,11 @@ import {
   getSupervisedUserIdsForActor,
   isEffectiveSupervisorForSupervised,
 } from "@/lib/supervision-scope"
-import { legacyDateAllDay } from "@/lib/shanghai-datetime"
+import {
+  getShanghaiDateAtTime,
+  getShanghaiDayRange,
+  legacyDateAllDay,
+} from "@/lib/shanghai-datetime"
 import type { SessionUser } from "@/lib/session"
 import {
   getActiveIsolationOrder,
@@ -83,18 +87,11 @@ export class CheckinError extends Error {
 }
 
 function dateAtSlot(date: Date, slot: string) {
-  const [hours, minutes] = slot.split(":").map(Number)
-  const value = new Date(date)
-  value.setHours(hours, minutes, 0, 0)
-  return value
+  return getShanghaiDateAtTime(date, slot)
 }
 
 export function getDayRange(date = new Date()) {
-  const start = new Date(date)
-  start.setHours(0, 0, 0, 0)
-  const end = new Date(start)
-  end.setDate(end.getDate() + 1)
-  return { start, end }
+  return getShanghaiDayRange(date)
 }
 
 export function getCheckinTaskStatus(
@@ -115,16 +112,14 @@ export async function getCheckinRulesForUser(userId: string, now = new Date()) {
   const profile = await getCustodyProfileForUser(userId)
   if (
     !profile ||
-    !["IN_CUSTODY", "ON_LEAVE", "ISOLATION"].includes(
-      profile.custodyStatus,
-    )
+    !["IN_CUSTODY", "ON_LEAVE", "ISOLATION"].includes(profile.custodyStatus)
   )
     return []
   const isolationOrder = await getActiveIsolationOrder(userId, now)
   const effectiveCustodyLevel =
     profile.custodyStatus === "ISOLATION" || isolationOrder
-    ? "ISOLATION"
-    : profile.custodyLevel
+      ? "ISOLATION"
+      : profile.custodyLevel
   await ensureCustodyCheckinPresets()
   const [
     activeRules,
@@ -330,7 +325,10 @@ export function startLeaveSystemMakeupScheduler() {
   const timer = setInterval(
     () =>
       void runLeaveSystemMakeupSweep().catch((error: unknown) =>
-        console.error("[checkin] scheduled leave system makeup sweep failed", error),
+        console.error(
+          "[checkin] scheduled leave system makeup sweep failed",
+          error,
+        ),
       ),
     15 * 60 * 1000,
   )
@@ -380,7 +378,9 @@ export async function runCheckinStatusSweep(now = new Date()) {
   return expiredTasks.length
 }
 
-const checkinStatusSchedulerKey = Symbol.for("custodysim.checkin-status-scheduler")
+const checkinStatusSchedulerKey = Symbol.for(
+  "custodysim.checkin-status-scheduler",
+)
 
 export function startCheckinStatusScheduler() {
   const runtime = globalThis as typeof globalThis & {
@@ -405,9 +405,7 @@ export async function getTodayCheckinRecords(userId: string, now = new Date()) {
   const profile = await getCustodyProfileForUser(userId)
   if (
     !profile ||
-    !["IN_CUSTODY", "ON_LEAVE", "ISOLATION"].includes(
-      profile.custodyStatus,
-    )
+    !["IN_CUSTODY", "ON_LEAVE", "ISOLATION"].includes(profile.custodyStatus)
   )
     return []
   await ensureTodayCheckinTasks(userId, now)
@@ -458,7 +456,14 @@ export async function getTodayCheckinRecords(userId: string, now = new Date()) {
     ...row,
     slotLabel:
       parseCheckinSlotSettings(row.slotSettings).find(
-        (item) => item.time === row.scheduleAt.toTimeString().slice(0, 5),
+        (item) =>
+          item.time ===
+          new Intl.DateTimeFormat("en-GB", {
+            timeZone: "Asia/Shanghai",
+            hour: "2-digit",
+            minute: "2-digit",
+            hour12: false,
+          }).format(row.scheduleAt),
       )?.label ?? null,
     status: getCheckinTaskStatus(row.status, row.deadline, now),
   }))
@@ -624,42 +629,51 @@ export async function doCheckin({
   const hasIpLocation = Boolean(
     ipLocation.country || ipLocation.region || ipLocation.city,
   )
-  if (!hasIpLocation)
+  if (!hasIpLocation && !task.allowNoLocation)
     throw new CheckinError("无法获取 IP 定位，打卡需要有效的网络位置", 403)
   const resolvedLocation =
     locationSource === "GPS"
       ? { ...location, source: "GPS", ip: ipLocation }
-      : ipLocation
+      : hasIpLocation
+        ? ipLocation
+        : { source: "UNAVAILABLE" }
   const recordStatus = getRecordStatus(task.scheduleAt, task.deadline, now)
-  const [record] = await db
-    .insert(checkinRecords)
-    .values({
-      taskId: task.id,
-      userId: user.id,
-      checkinAt: now,
-      status: recordStatus,
-      slotIndex: task.slotIndex,
-      location: resolvedLocation,
-      locationSource,
-      lat:
-        locationSource === "GPS" ? (location?.lat?.toString() ?? null) : null,
-      lng:
-        locationSource === "GPS" ? (location?.lng?.toString() ?? null) : null,
-      gpsExpiresAt: locationSource === "GPS" ? getGpsExpiry(now) : null,
-      ip: ip ?? null,
-      clientType: "WEB",
-      browserType: userAgent?.slice(0, 100) ?? null,
-      remark: remark?.trim() || null,
-    })
-    .returning()
-  await db
-    .update(checkinTasks)
-    .set({
-      status: recordStatus === "ON_TIME" ? "COMPLETED" : "LATE",
-      updatedAt: now,
-    })
-    .where(eq(checkinTasks.id, task.id))
-  return record
+  return db.transaction(async (tx) => {
+    const [claimedTask] = await tx
+      .update(checkinTasks)
+      .set({
+        status: recordStatus === "ON_TIME" ? "COMPLETED" : "LATE",
+        updatedAt: now,
+      })
+      .where(
+        and(eq(checkinTasks.id, task.id), eq(checkinTasks.status, "PENDING")),
+      )
+      .returning({ id: checkinTasks.id })
+    if (!claimedTask) throw new CheckinError("该打卡任务已由其他请求处理", 409)
+    const [record] = await tx
+      .insert(checkinRecords)
+      .values({
+        taskId: task.id,
+        userId: user.id,
+        checkinAt: now,
+        status: recordStatus,
+        slotIndex: task.slotIndex,
+        location: resolvedLocation,
+        locationSource,
+        lat:
+          locationSource === "GPS" ? (location?.lat?.toString() ?? null) : null,
+        lng:
+          locationSource === "GPS" ? (location?.lng?.toString() ?? null) : null,
+        gpsExpiresAt: locationSource === "GPS" ? getGpsExpiry(now) : null,
+        ip: ip ?? null,
+        clientType: "WEB",
+        browserType: userAgent?.slice(0, 100) ?? null,
+        remark: remark?.trim() || null,
+      })
+      .returning()
+    if (!record) throw new CheckinError("打卡记录创建失败", 500)
+    return record
+  })
 }
 
 export async function createCheckinMakeup({
@@ -718,40 +732,51 @@ export async function createCheckinMakeup({
           gpsExpiresAt: getGpsExpiry(now).toISOString(),
         }
       : ipLocation
-  const [makeup] = existing
-    ? await db
-        .update(checkinMakeups)
-        .set({
-          reason: reason.trim(),
-          status: "PENDING",
-          location: resolvedLocation,
-          ip: ip ?? null,
-          reviewerId: null,
-          reviewComment: null,
-          reviewedAt: null,
-          createdAt: now,
-        })
-        .where(eq(checkinMakeups.id, existing.id))
-        .returning()
-    : await db
-        .insert(checkinMakeups)
-        .values({
-          taskId,
-          userId: user.id,
-          supervisorId: task.supervisorId,
-          ruleId: task.ruleId,
-          date: task.scheduleAt,
-          slotIndex: task.slotIndex,
-          reason: reason.trim(),
-          location: resolvedLocation,
-          ip: ip ?? null,
-        })
-        .returning()
-  await db
-    .update(checkinTasks)
-    .set({ status: "MAKEUP_PENDING", updatedAt: now })
-    .where(eq(checkinTasks.id, taskId))
-  return makeup
+  return db.transaction(async (tx) => {
+    const [makeup] = existing
+      ? await tx
+          .update(checkinMakeups)
+          .set({
+            reason: reason.trim(),
+            status: "PENDING",
+            location: resolvedLocation,
+            ip: ip ?? null,
+            reviewerId: null,
+            reviewComment: null,
+            reviewedAt: null,
+            createdAt: now,
+          })
+          .where(eq(checkinMakeups.id, existing.id))
+          .returning()
+      : await tx
+          .insert(checkinMakeups)
+          .values({
+            taskId,
+            userId: user.id,
+            supervisorId: task.supervisorId,
+            ruleId: task.ruleId,
+            date: task.scheduleAt,
+            slotIndex: task.slotIndex,
+            reason: reason.trim(),
+            location: resolvedLocation,
+            ip: ip ?? null,
+          })
+          .returning()
+    if (!makeup) throw new CheckinError("补卡申请创建失败", 500)
+    const [updatedTask] = await tx
+      .update(checkinTasks)
+      .set({ status: "MAKEUP_PENDING", updatedAt: now })
+      .where(
+        and(
+          eq(checkinTasks.id, taskId),
+          inArray(checkinTasks.status, ["MISSED", "LATE", "MAKEUP_REJECTED"]),
+        ),
+      )
+      .returning({ id: checkinTasks.id })
+    if (!updatedTask)
+      throw new CheckinError("打卡任务状态已变化，请刷新后重试", 409)
+    return makeup
+  })
 }
 
 export async function reviewCheckinMakeup({
@@ -783,90 +808,93 @@ export async function reviewCheckinMakeup({
     throw new CheckinError("无权审核该补卡", 403)
   if (makeup.status !== "PENDING") throw new CheckinError("该补卡申请已处理")
   const now = new Date()
-  const [updatedMakeup] = await db
-    .update(checkinMakeups)
-    .set({
-      status: result,
-      reviewerId: actor.id,
-      reviewComment: comment?.trim() || null,
-      reviewedAt: now,
-    })
-    .where(
-      and(
-        eq(checkinMakeups.id, makeupId),
-        eq(checkinMakeups.status, "PENDING"),
-      ),
-    )
-    .returning({ id: checkinMakeups.id })
-  if (!updatedMakeup) throw new CheckinError("该补卡申请已由其他请求处理", 409)
-  if (result === "APPROVED") {
-    const makeupLocation = (makeup.location ?? {}) as {
-      source?: string
-      lat?: number
-      lng?: number
-      gpsExpiresAt?: string
-      ip?: IpCoarseLocation
-    }
-    const isGps = makeupLocation.source === "GPS"
-    const gpsStillValid =
-      isGps &&
-      typeof makeupLocation.lat === "number" &&
-      typeof makeupLocation.lng === "number" &&
-      (!makeupLocation.gpsExpiresAt ||
-        new Date(makeupLocation.gpsExpiresAt) > now)
-    const recordLocation = gpsStillValid
-      ? makeupLocation
-      : isGps
-        ? {
-            source: "GPS_PURGED",
-            clearedAt: now.toISOString(),
-            ...(makeupLocation.ip ? { ip: makeupLocation.ip } : {}),
-          }
-        : (makeup.location ?? {})
-    await db
-      .insert(checkinRecords)
-      .values({
-        taskId: makeup.taskId,
-        userId: makeup.userId,
-        checkinAt: now,
-        status: "MAKEUP",
-        slotIndex: makeup.slotIndex,
-        makeupId: makeup.id,
-        remark: comment?.trim() || "补卡审核通过",
-        location: recordLocation,
-        locationSource: gpsStillValid ? "GPS" : isGps ? "GPS_PURGED" : "IP",
-        lat: gpsStillValid ? String(makeupLocation.lat) : null,
-        lng: gpsStillValid ? String(makeupLocation.lng) : null,
-        gpsExpiresAt: gpsStillValid
-          ? makeupLocation.gpsExpiresAt
-            ? new Date(makeupLocation.gpsExpiresAt)
-            : getGpsExpiry(now)
-          : null,
-        ip: makeup.ip ?? null,
-        clientType: "WEB",
+  await db.transaction(async (tx) => {
+    const [updatedMakeup] = await tx
+      .update(checkinMakeups)
+      .set({
+        status: result,
+        reviewerId: actor.id,
+        reviewComment: comment?.trim() || null,
+        reviewedAt: now,
       })
-      .onConflictDoUpdate({
-        target: checkinRecords.taskId,
-        set: {
+      .where(
+        and(
+          eq(checkinMakeups.id, makeupId),
+          eq(checkinMakeups.status, "PENDING"),
+        ),
+      )
+      .returning({ id: checkinMakeups.id })
+    if (!updatedMakeup)
+      throw new CheckinError("该补卡申请已由其他请求处理", 409)
+    if (result === "APPROVED") {
+      const makeupLocation = (makeup.location ?? {}) as {
+        source?: string
+        lat?: number
+        lng?: number
+        gpsExpiresAt?: string
+        ip?: IpCoarseLocation
+      }
+      const isGps = makeupLocation.source === "GPS"
+      const gpsStillValid =
+        isGps &&
+        typeof makeupLocation.lat === "number" &&
+        typeof makeupLocation.lng === "number" &&
+        (!makeupLocation.gpsExpiresAt ||
+          new Date(makeupLocation.gpsExpiresAt) > now)
+      const recordLocation = gpsStillValid
+        ? makeupLocation
+        : isGps
+          ? {
+              source: "GPS_PURGED",
+              clearedAt: now.toISOString(),
+              ...(makeupLocation.ip ? { ip: makeupLocation.ip } : {}),
+            }
+          : (makeup.location ?? {})
+      await tx
+        .insert(checkinRecords)
+        .values({
+          taskId: makeup.taskId,
+          userId: makeup.userId,
+          checkinAt: now,
           status: "MAKEUP",
+          slotIndex: makeup.slotIndex,
           makeupId: makeup.id,
           remark: comment?.trim() || "补卡审核通过",
           location: recordLocation,
           locationSource: gpsStillValid ? "GPS" : isGps ? "GPS_PURGED" : "IP",
           lat: gpsStillValid ? String(makeupLocation.lat) : null,
           lng: gpsStillValid ? String(makeupLocation.lng) : null,
-        },
-      })
-    await db
-      .update(checkinTasks)
-      .set({ status: "MAKEUP_APPROVED", updatedAt: now })
-      .where(eq(checkinTasks.id, makeup.taskId))
-  } else {
-    await db
-      .update(checkinTasks)
-      .set({ status: "MAKEUP_REJECTED", updatedAt: now })
-      .where(eq(checkinTasks.id, makeup.taskId))
-  }
+          gpsExpiresAt: gpsStillValid
+            ? makeupLocation.gpsExpiresAt
+              ? new Date(makeupLocation.gpsExpiresAt)
+              : getGpsExpiry(now)
+            : null,
+          ip: makeup.ip ?? null,
+          clientType: "WEB",
+        })
+        .onConflictDoUpdate({
+          target: checkinRecords.taskId,
+          set: {
+            status: "MAKEUP",
+            makeupId: makeup.id,
+            remark: comment?.trim() || "补卡审核通过",
+            location: recordLocation,
+            locationSource: gpsStillValid ? "GPS" : isGps ? "GPS_PURGED" : "IP",
+            lat: gpsStillValid ? String(makeupLocation.lat) : null,
+            lng: gpsStillValid ? String(makeupLocation.lng) : null,
+          },
+        })
+      await tx
+        .update(checkinTasks)
+        .set({ status: "MAKEUP_APPROVED", updatedAt: now })
+        .where(eq(checkinTasks.id, makeup.taskId))
+    } else {
+      await tx
+        .update(checkinTasks)
+        .set({ status: "MAKEUP_REJECTED", updatedAt: now })
+        .where(eq(checkinTasks.id, makeup.taskId))
+    }
+  })
 }
 
 export async function getCheckinReviewQueue(actor: SessionUser) {

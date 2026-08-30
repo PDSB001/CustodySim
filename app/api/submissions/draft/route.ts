@@ -38,28 +38,41 @@ export async function POST(request: NextRequest) {
     return failure("VALIDATION_ERROR", "该任务当前不可保存草稿", 400)
 
   const now = new Date()
-  const [draft] = await db
-    .insert(reportSubmissions)
-    .values({
-      taskId: task.id,
-      userId: actor.id,
-      content: JSON.stringify(parsed.data.data),
-      data: parsed.data.data,
-      status: "DRAFT",
-      updatedAt: now,
-    })
-    .onConflictDoUpdate({
-      target: reportSubmissions.taskId,
-      set: {
+  const draft = await db.transaction(async (tx) => {
+    const [lockedTask] = await tx
+      .select({ status: reportTasks.status })
+      .from(reportTasks)
+      .where(eq(reportTasks.id, task.id))
+      .limit(1)
+      .for("update")
+    if (!lockedTask || !["PENDING", "RETURNED"].includes(lockedTask.status))
+      return null
+    const [saved] = await tx
+      .insert(reportSubmissions)
+      .values({
+        taskId: task.id,
+        userId: actor.id,
         content: JSON.stringify(parsed.data.data),
         data: parsed.data.data,
         status: "DRAFT",
         updatedAt: now,
-      },
-    })
-    .returning({
-      id: reportSubmissions.id,
-      updatedAt: reportSubmissions.updatedAt,
-    })
-  return draft ? success(draft) : failure("INTERNAL_ERROR", "保存草稿失败", 500)
+      })
+      .onConflictDoUpdate({
+        target: reportSubmissions.taskId,
+        set: {
+          content: JSON.stringify(parsed.data.data),
+          data: parsed.data.data,
+          status: "DRAFT",
+          updatedAt: now,
+        },
+      })
+      .returning({
+        id: reportSubmissions.id,
+        updatedAt: reportSubmissions.updatedAt,
+      })
+    return saved ?? null
+  })
+  return draft
+    ? success(draft)
+    : failure("CONFLICT", "任务状态已变化，请刷新后重试", 409)
 }

@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm"
+import { and, asc, eq, gte, isNull, lte, or } from "drizzle-orm"
 
 import { db } from "@/lib/db"
 import {
@@ -66,6 +66,7 @@ function expandScopesToUsers(
 }
 
 async function getScopeContext() {
+  const now = new Date()
   const [allOrganizations, allUsers, activeRelations, allScopes] =
     await Promise.all([
       db
@@ -82,7 +83,19 @@ async function getScopeContext() {
       db
         .select({ id: supervisionRelations.id })
         .from(supervisionRelations)
-        .where(eq(supervisionRelations.status, "active")),
+        .where(
+          and(
+            eq(supervisionRelations.status, "active"),
+            or(
+              isNull(supervisionRelations.startDate),
+              lte(supervisionRelations.startDate, now),
+            ),
+            or(
+              isNull(supervisionRelations.endDate),
+              gte(supervisionRelations.endDate, now),
+            ),
+          ),
+        ),
       db.select().from(supervisionRelationScopes),
     ])
   return {
@@ -189,7 +202,8 @@ export async function getAdminUserId() {
   const [admin] = await db
     .select({ id: users.id })
     .from(users)
-    .where(eq(users.role, "ADMIN"))
+    .where(and(eq(users.role, "ADMIN"), eq(users.status, "active")))
+    .orderBy(asc(users.createdAt), asc(users.id))
     .limit(1)
   return admin?.id ?? null
 }

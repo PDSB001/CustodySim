@@ -34,6 +34,7 @@ module.exports = {
       exec_mode: "fork",
       env: {
         NODE_ENV: "production",
+        TZ: "Asia/Shanghai",
         PORT: 3000,
         ...loadEnvLocal(),
       },
@@ -50,6 +51,7 @@ module.exports = {
       exec_mode: "fork",
       env: {
         NODE_ENV: "production",
+        TZ: "Asia/Shanghai",
         REALTIME_PORT: 3001,
         ...loadEnvLocal(),
       },

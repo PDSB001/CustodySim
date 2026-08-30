@@ -95,7 +95,7 @@ export function PersonManage() {
     queryFn: () => requestApi("/api/admin/persons", PersonsSchema),
   })
   const organizations = useQuery({
-    queryKey: ["organizations"],
+    queryKey: ["admin-organizations", "person-options"],
     queryFn: () => requestApi("/api/admin/orgs", z.array(OrganizationSchema)),
   })
   const create = useMutation({

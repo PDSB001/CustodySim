@@ -40,6 +40,18 @@ export async function PATCH(request: NextRequest, { params }: RouteContext) {
     )
     if (organizationError)
       return failure("VALIDATION_ERROR", organizationError, 400)
+    const [existing] = await db
+      .select({ role: users.role })
+      .from(users)
+      .where(eq(users.id, id))
+      .limit(1)
+    if (!existing) return failure("NOT_FOUND", "用户不存在", 404)
+    if (existing.role !== parsed.data.role)
+      return failure(
+        "VALIDATION_ERROR",
+        "账号角色创建后不可直接修改，请新建正确角色账号以避免人员档案失配",
+        400,
+      )
     const [updated] = await db
       .update(users)
       .set({

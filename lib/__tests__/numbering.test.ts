@@ -21,6 +21,11 @@ describe("numbering", () => {
   it("pads a sequence", () => {
     expect(buildCode({ prefix: "CS", date, sequence: 7 })).toBe("CS2026080007")
   })
+  it("uses the Shanghai date rather than the server local timezone", () => {
+    expect(
+      formatDatePart(new Date("2026-08-24T16:30:00.000Z"), "yyyyMMdd"),
+    ).toBe("20260825")
+  })
   it("uses custom length", () => {
     expect(
       buildCode({

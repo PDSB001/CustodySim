@@ -6,9 +6,12 @@ import { electronicFences, reportTasks } from "@/lib/db/schema"
 import { ensureElectronicFenceReportTemplate } from "@/lib/electronic-fence-report-template"
 import { getSupervisorIdsForSupervised } from "@/lib/supervision-scope"
 
-export async function getCurrentElectronicFence(userId?: string) {
+export async function getCurrentElectronicFence(
+  userId?: string,
+  executor: Pick<typeof db, "select"> = db,
+) {
   if (userId) {
-    const [personalFence] = await db
+    const [personalFence] = await executor
       .select()
       .from(electronicFences)
       .where(
@@ -23,7 +26,7 @@ export async function getCurrentElectronicFence(userId?: string) {
     if (personalFence) return personalFence.enabled ? personalFence : null
   }
 
-  const [fence] = await db
+  const [fence] = await executor
     .select()
     .from(electronicFences)
     .where(
@@ -38,8 +41,11 @@ export async function getCurrentElectronicFence(userId?: string) {
   return fence ?? null
 }
 
-export async function getLatestElectronicFenceLocation(userId: string) {
-  const [report] = await db
+export async function getLatestElectronicFenceLocation(
+  userId: string,
+  executor: Pick<typeof db, "select"> = db,
+) {
+  const [report] = await executor
     .select({
       id: electronicFences.id,
       insideFence: electronicFences.verdict,
@@ -67,6 +73,7 @@ export async function recordElectronicFenceLocation({
   reportedAt,
   verdict,
   transition,
+  executor = db,
 }: {
   userId: string
   fence: Awaited<ReturnType<typeof getCurrentElectronicFence>>
@@ -76,8 +83,9 @@ export async function recordElectronicFenceLocation({
   reportedAt: Date
   verdict: string
   transition: string
+  executor?: Pick<typeof db, "insert">
 }) {
-  const [report] = await db
+  const [report] = await executor
     .insert(electronicFences)
     .values({
       entryType: "LOCATION",
@@ -112,15 +120,17 @@ export async function ensureGeofenceExplanationTask({
   distance,
   radiusMeters,
   now = new Date(),
+  executor = db,
 }: {
   userId: string
   fenceName: string
   distance: number
   radiusMeters: number
   now?: Date
+  executor?: Pick<typeof db, "select" | "insert">
 }) {
   const title = `电子围栏越界说明 · ${dateKey(now)}`
-  const [existing] = await db
+  const [existing] = await executor
     .select({ id: reportTasks.id })
     .from(reportTasks)
     .where(
@@ -137,7 +147,7 @@ export async function ensureGeofenceExplanationTask({
     getSupervisorIdsForSupervised(userId),
     ensureElectronicFenceReportTemplate(),
   ])
-  const [task] = await db
+  const [task] = await executor
     .insert(reportTasks)
     .values({
       title,

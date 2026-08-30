@@ -14,6 +14,12 @@ import {
 } from "@/lib/mfa-server"
 import { getSessionUser } from "@/lib/session"
 import { verifyPassword } from "@/lib/auth"
+import {
+  clearSensitiveActionFailures,
+  getSensitiveActionIp,
+  getSensitiveActionRetryAfterSeconds,
+  recordSensitiveActionFailure,
+} from "@/lib/sensitive-action-rate-limit"
 
 export const runtime = "nodejs"
 
@@ -21,6 +27,10 @@ export async function POST(request: NextRequest) {
   try {
     const sessionUser = await getSessionUser()
     if (!sessionUser) return failure("UNAUTHORIZED", "未登录", 401)
+    const ip = getSensitiveActionIp(request.headers)
+    const retryAfter = await getSensitiveActionRetryAfterSeconds(sessionUser.id, ip)
+    if (retryAfter > 0)
+      return failure("RATE_LIMITED", `尝试过于频繁，请在 ${retryAfter} 秒后重试`, 429)
     const parsed = DisableMfaSchema.safeParse(await request.json())
     if (!parsed.success)
       return failure("VALIDATION_ERROR", "请填写当前密码和验证代码", 400)
@@ -30,8 +40,10 @@ export async function POST(request: NextRequest) {
       .where(eq(users.id, sessionUser.id))
       .limit(1)
     if (!user) return failure("NOT_FOUND", "用户不存在", 404)
-    if (!(await verifyPassword(parsed.data.password, user.passwordHash)))
+    if (!(await verifyPassword(parsed.data.password, user.passwordHash))) {
+      await recordSensitiveActionFailure(sessionUser.id, ip)
       return failure("VALIDATION_ERROR", "当前密码不正确", 400)
+    }
     const result = await db.transaction(async (tx) => {
       const [factor] = await tx
         .select()
@@ -75,8 +87,11 @@ export async function POST(request: NextRequest) {
       return "disabled" as const
     })
     if (result === "missing") return failure("NOT_FOUND", "双重验证未启用", 404)
-    if (result === "invalid")
+    if (result === "invalid") {
+      await recordSensitiveActionFailure(sessionUser.id, ip)
       return failure("VALIDATION_ERROR", "验证器代码或恢复码不正确", 400)
+    }
+    await clearSensitiveActionFailures(sessionUser.id, ip)
     const response = success({ disabled: true })
     clearMfaTrustedDeviceCookie(response)
     return response

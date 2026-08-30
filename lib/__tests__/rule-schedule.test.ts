@@ -62,4 +62,16 @@ describe("rule schedule", () => {
     expect(isRuleScheduledForDate(rule, new Date(2026, 7, 25, 20))).toBe(true)
     expect(isRuleScheduledForDate(rule, new Date(2026, 7, 26))).toBe(false)
   })
+
+  it("uses Shanghai calendar dates at the UTC day boundary", () => {
+    const rule = {
+      freq: "WEEKLY" as const,
+      scheduleDays: [2],
+      startDate: null,
+      endDate: null,
+    }
+    expect(
+      isRuleScheduledForDate(rule, new Date("2026-08-24T16:30:00.000Z")),
+    ).toBe(true)
+  })
 })

@@ -31,12 +31,12 @@ export function MfaLoginForm() {
         error?: { message?: string }
       }
       if (!response.ok || !payload.success) {
-        setError(payload.error?.message || "双重验证失败，请重试。")
+        setError(payload.error?.message || "验证未通过，请检查代码后重试。")
         return
       }
       const user = SessionUserSchema.safeParse(payload.data)
       if (!user.success) {
-        setError("登录响应无效，请重新登录。")
+        setError("登录信息已失效，请返回登录页重试。")
         return
       }
       window.location.replace(
@@ -45,7 +45,7 @@ export function MfaLoginForm() {
           : getRoleHome(user.data.role),
       )
     } catch {
-      setError("网络异常，请检查连接后重试。")
+      setError("暂时无法完成验证，请检查网络后重试。")
     } finally {
       setSubmitting(false)
     }
@@ -58,13 +58,13 @@ export function MfaLoginForm() {
           htmlFor="mfa-code"
           className="text-foreground/70 text-xs font-semibold tracking-wide"
         >
-          验证器代码或恢复码
+          一次性验证码或恢复码
         </label>
         <Input
           id="mfa-code"
           value={code}
           onChange={(event) => setCode(event.target.value)}
-          placeholder="例如 123456 或 ABCD-EFGH-IJKL"
+          placeholder="输入 6 位验证码或恢复码"
           autoComplete="one-time-code"
           inputMode="text"
           disabled={submitting}
@@ -78,7 +78,7 @@ export function MfaLoginForm() {
           onCheckedChange={(checked) => setTrustDevice(checked === true)}
           disabled={submitting}
         />
-        30 天内在此设备免再次验证
+        在此设备保持登录 30 天
       </label>
       {error ? (
         <p
@@ -95,7 +95,7 @@ export function MfaLoginForm() {
         className="from-brand-600 hover:from-brand-700 h-11 w-full rounded-xl bg-gradient-to-r to-[color:var(--chart-5)] text-white shadow-[0_8px_24px_-8px_rgba(112,80,255,0.6)] hover:to-[color:var(--chart-5)]"
       >
         {submitting ? <Loader2 className="size-4 animate-spin" /> : <ShieldCheck className="size-4" />}
-        验证并登录
+        验证并继续
       </Button>
     </form>
   )

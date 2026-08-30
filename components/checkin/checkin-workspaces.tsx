@@ -38,6 +38,7 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { toast } from "@/components/ui/toast"
 import { PRISONER_CUSTODY_STATUS_LABELS } from "@/lib/constants"
+import { CustodyProfileSchema } from "@/lib/custody-profile-schema"
 import { cn } from "@/lib/utils"
 
 const Checkin = z.object({
@@ -63,20 +64,6 @@ const Checkin = z.object({
   makeupStatus: z.string().nullable(),
 })
 const Checkins = z.array(Checkin)
-
-const CustodyProfile = z.object({
-  custodyLevel: z.string(),
-  custodyStatus: z.enum([
-    "IN_CUSTODY",
-    "ISOLATION",
-    "ON_LEAVE",
-    "TEMPORARY_OUT_OF_CUSTODY",
-    "OUT_OF_CUSTODY",
-  ]),
-  canCheckin: z.boolean(),
-  leaveWorkflowEligible: z.boolean(),
-  geofenceApplicable: z.boolean(),
-})
 
 const Makeup = z.object({
   id: z.string(),
@@ -530,7 +517,7 @@ function CheckinCard({
 export function CheckinPanel() {
   const custodyProfile = useQuery({
     queryKey: ["custody-profile"],
-    queryFn: () => requestApi("/api/my/custody-profile", CustodyProfile),
+    queryFn: () => requestApi("/api/my/custody-profile", CustodyProfileSchema),
   })
   const checkins = useQuery({
     queryKey: ["checkins"],
@@ -673,7 +660,7 @@ export function CheckinPanel() {
 export function CheckinHomeCard() {
   const custodyProfile = useQuery({
     queryKey: ["custody-profile"],
-    queryFn: () => requestApi("/api/my/custody-profile", CustodyProfile),
+    queryFn: () => requestApi("/api/my/custody-profile", CustodyProfileSchema),
   })
   const checkins = useQuery({
     queryKey: ["checkins"],

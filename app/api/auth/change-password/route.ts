@@ -11,6 +11,12 @@ import { users } from "@/lib/db/schema"
 import { computePasswordMeta, validatePassword } from "@/lib/password-rule"
 import { getSessionUser } from "@/lib/session"
 import { revokeTrustedDevicesInTransaction } from "@/lib/mfa-server"
+import {
+  clearSensitiveActionFailures,
+  getSensitiveActionIp,
+  getSensitiveActionRetryAfterSeconds,
+  recordSensitiveActionFailure,
+} from "@/lib/sensitive-action-rate-limit"
 
 export const runtime = "nodejs"
 
@@ -18,6 +24,10 @@ export async function POST(request: NextRequest) {
   try {
     const sessionUser = await getSessionUser({ allowPasswordChange: true })
     if (!sessionUser) return failure("UNAUTHORIZED", "未登录", 401)
+    const ip = getSensitiveActionIp(request.headers)
+    const retryAfter = await getSensitiveActionRetryAfterSeconds(sessionUser.id, ip)
+    if (retryAfter > 0)
+      return failure("RATE_LIMITED", `尝试过于频繁，请在 ${retryAfter} 秒后重试`, 429)
     const parsed = ChangePasswordSchema.safeParse(await request.json())
     if (!parsed.success)
       return failure(
@@ -34,8 +44,10 @@ export async function POST(request: NextRequest) {
     if (
       !user ||
       !(await verifyPassword(parsed.data.currentPassword, user.passwordHash))
-    )
+    ) {
+      await recordSensitiveActionFailure(sessionUser.id, ip)
       return failure("VALIDATION_ERROR", "当前密码不正确", 400)
+    }
     const passwordCheck = validatePassword(parsed.data.newPassword)
     if (!passwordCheck.valid)
       return failure("VALIDATION_ERROR", passwordCheck.errors.join("；"), 400)
@@ -96,6 +108,7 @@ export async function POST(request: NextRequest) {
       }),
     )
     clearMfaTrustedDeviceCookie(response)
+    await clearSensitiveActionFailures(sessionUser.id, ip)
     return response
   } catch (error) {
     console.error("[API auth/change-password POST]", error)

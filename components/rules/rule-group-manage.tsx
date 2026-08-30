@@ -35,11 +35,11 @@ export function RuleGroupManage() {
     queryFn: () => requestApi("/api/admin/rule-groups", z.array(RuleGroup)),
   })
   const organizations = useQuery({
-    queryKey: ["organizations"],
+    queryKey: ["admin-organizations", "rule-group-options"],
     queryFn: () => requestApi("/api/admin/orgs", z.array(Organization)),
   })
   const users = useQuery({
-    queryKey: ["users"],
+    queryKey: ["admin-users", "rule-group-options"],
     queryFn: () => requestApi("/api/admin/users", z.array(User)),
   })
   const create = useMutation({

@@ -69,41 +69,50 @@ export async function POST(request: NextRequest) {
     )
     if (organizationError)
       return failure("VALIDATION_ERROR", organizationError, 400)
-    const [created] = await db
-      .insert(users)
-      .values({
-        username: parsed.data.username,
-        name: parsed.data.name,
-        role: parsed.data.role,
-        passwordHash: await hashPassword(parsed.data.password),
-        passwordMeta: JSON.stringify(computePasswordMeta(parsed.data.password)),
-        organizationId: parsed.data.organizationId ?? null,
-        phone: parsed.data.phone ?? null,
-        mustChangePassword: true,
-      })
-      .returning()
-    if (!created) return failure("INTERNAL_ERROR", "创建用户失败", 500)
-    if (created.role === "SUPERVISED")
-      await db.insert(persons).values({
-        name: created.name,
-        personType: "SUPERVISED",
-        organizationId: created.organizationId,
-        userId: created.id,
-        custodyLevel: "GENERAL",
-        custodyStatus: "OUT_OF_CUSTODY",
-      })
-    await writeAuditLog({
-      actor,
-      action: "CREATE",
-      actionLabel: "创建用户",
-      entityType: "user",
-      entityId: created.id,
-      detail: {
-        username: created.username,
-        role: created.role,
-        custodyStatus:
-          created.role === "SUPERVISED" ? "OUT_OF_CUSTODY" : undefined,
-      },
+    const passwordHash = await hashPassword(parsed.data.password)
+    const created = await db.transaction(async (tx) => {
+      const [user] = await tx
+        .insert(users)
+        .values({
+          username: parsed.data.username,
+          name: parsed.data.name,
+          role: parsed.data.role,
+          passwordHash,
+          passwordMeta: JSON.stringify(
+            computePasswordMeta(parsed.data.password),
+          ),
+          organizationId: parsed.data.organizationId ?? null,
+          phone: parsed.data.phone ?? null,
+          mustChangePassword: true,
+        })
+        .returning()
+      if (!user) throw new Error("创建用户失败")
+      if (user.role === "SUPERVISED")
+        await tx.insert(persons).values({
+          name: user.name,
+          personType: "SUPERVISED",
+          organizationId: user.organizationId,
+          userId: user.id,
+          custodyLevel: "GENERAL",
+          custodyStatus: "OUT_OF_CUSTODY",
+        })
+      await writeAuditLog(
+        {
+          actor,
+          action: "CREATE",
+          actionLabel: "创建用户",
+          entityType: "user",
+          entityId: user.id,
+          detail: {
+            username: user.username,
+            role: user.role,
+            custodyStatus:
+              user.role === "SUPERVISED" ? "OUT_OF_CUSTODY" : undefined,
+          },
+        },
+        tx,
+      )
+      return user
     })
     return success(
       {
