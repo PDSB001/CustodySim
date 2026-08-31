@@ -19,16 +19,19 @@ export function AccountMenu({
   user,
   roleLabel,
   onLogout,
+  disabled = false,
 }: {
   user: SessionUser
   roleLabel: string
   onLogout: () => Promise<void>
+  disabled?: boolean
 }) {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <Button
           aria-label="打开账号菜单"
+          disabled={disabled}
           variant="ghost"
           className="border-border/70 bg-card text-foreground hover:border-border hover:bg-muted h-9 gap-1.5 rounded-lg border px-1.5 pr-2 transition-colors"
         >

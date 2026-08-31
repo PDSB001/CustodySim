@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm"
+import { and, eq, inArray } from "drizzle-orm"
 import { NextRequest } from "next/server"
 import { z } from "zod"
 
@@ -73,7 +73,10 @@ export async function POST(request: NextRequest) {
       data.data,
       snapshot.data.fields,
     )
-    const validation = validateFieldPayload(snapshot.data.fields, normalizedData)
+    const validation = validateFieldPayload(
+      snapshot.data.fields,
+      normalizedData,
+    )
     if (!validation.valid)
       return failure("VALIDATION_ERROR", JSON.stringify(validation.errors), 400)
     const [supervisorIds, adminId] = await Promise.all([
@@ -90,7 +93,35 @@ export async function POST(request: NextRequest) {
       supervisorIds: [...supervisorIds],
       adminId,
     })
-    await db.transaction(async (tx) => {
+    const submitted = await db.transaction(async (tx) => {
+      const [lockedRecord] = await tx
+        .select()
+        .from(profileRecords)
+        .where(
+          and(
+            eq(profileRecords.id, record.id),
+            eq(profileRecords.userId, actor.id),
+          ),
+        )
+        .limit(1)
+        .for("update")
+      if (!lockedRecord || !isEditableProfileRecord(lockedRecord.status))
+        return { status: "CONFLICT" as const }
+      const lockedSnapshot = SnapshotSchema.safeParse(lockedRecord.formSnapshot)
+      const lockedData = z
+        .record(z.string(), z.unknown())
+        .safeParse(lockedRecord.data)
+      if (!lockedSnapshot.success || !lockedData.success)
+        return { status: "INVALID" as const }
+      const lockedNormalizedData = applyComputedProfileAge(
+        lockedData.data,
+        lockedSnapshot.data.fields,
+      )
+      if (
+        !validateFieldPayload(lockedSnapshot.data.fields, lockedNormalizedData)
+          .valid
+      )
+        return { status: "INVALID" as const }
       await tx
         .delete(profileRecordReviews)
         .where(eq(profileRecordReviews.recordId, record.id))
@@ -105,13 +136,23 @@ export async function POST(request: NextRequest) {
       await tx
         .update(profileRecords)
         .set({
-          data: normalizedData,
+          data: lockedNormalizedData,
           status: "PENDING_REVIEW",
           submittedAt: new Date(),
           updatedAt: new Date(),
         })
-        .where(eq(profileRecords.id, record.id))
+        .where(
+          and(
+            eq(profileRecords.id, record.id),
+            inArray(profileRecords.status, ["DRAFT", "RETURNED"]),
+          ),
+        )
+      return { status: "SUBMITTED" as const }
     })
+    if (submitted.status === "CONFLICT")
+      return failure("CONFLICT", "档案状态已变化，请刷新后重试", 409)
+    if (submitted.status === "INVALID")
+      return failure("VALIDATION_ERROR", "档案数据已变化，请重新检查", 400)
     await writeAuditLog({
       actor,
       action: "SUBMIT",

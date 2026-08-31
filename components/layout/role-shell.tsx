@@ -16,7 +16,7 @@ import {
 } from "lucide-react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { z } from "zod"
 
 import { AccountMenu } from "@/components/layout/account-menu"
@@ -163,6 +163,8 @@ export function RoleShell({
 }: Readonly<{ user: SessionUser; children: React.ReactNode }>) {
   const pathname = usePathname()
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
+  const [interactive, setInteractive] = useState(false)
+  useEffect(() => setInteractive(true), [])
   const kind: WorkspaceKind =
     user.role === "SUPERVISED" ? "SUPERVISED" : "SUPERVISOR"
   const config = workspaceConfig[kind]
@@ -196,6 +198,7 @@ export function RoleShell({
               <SheetTrigger asChild>
                 <Button
                   aria-label="打开导航"
+                  disabled={!interactive}
                   variant="ghost"
                   size="icon-sm"
                   className="shrink-0 lg:hidden"
@@ -232,6 +235,7 @@ export function RoleShell({
               user={user}
               roleLabel={config.roleLabel}
               onLogout={logout}
+              disabled={!interactive}
             />
           </div>
         </header>

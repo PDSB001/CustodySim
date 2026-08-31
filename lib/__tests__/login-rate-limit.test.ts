@@ -14,6 +14,10 @@ describe("login rate limit", () => {
     expect(LOGIN_RATE_LIMIT_BLOCK_MS).toBe(15 * 60 * 1000)
   })
 
+  it("does not create a shared unknown-network bucket without a trusted IP", () => {
+    expect(getLoginRateLimitKeys("admin", null)).toHaveLength(1)
+  })
+
   it("hashes account and network identifiers into separate stable keys", () => {
     const keys = getLoginRateLimitKeys(" Admin ", "203.0.113.7")
     expect(keys).toHaveLength(2)

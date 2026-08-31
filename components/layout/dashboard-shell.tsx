@@ -23,7 +23,7 @@ import {
 } from "lucide-react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { useState } from "react"
+import { useEffect, useState } from "react"
 
 import { AccountMenu } from "@/components/layout/account-menu"
 import { Button } from "@/components/ui/button"
@@ -212,6 +212,8 @@ export function DashboardShell({
 }: Readonly<{ user: SessionUser; children: React.ReactNode }>) {
   const pathname = usePathname()
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
+  const [interactive, setInteractive] = useState(false)
+  useEffect(() => setInteractive(true), [])
   const logout = async () => {
     setMobileNavOpen(false)
     await fetch("/api/auth/logout", { method: "POST" })
@@ -231,6 +233,7 @@ export function DashboardShell({
               <SheetTrigger asChild>
                 <Button
                   aria-label="打开导航"
+                  disabled={!interactive}
                   variant="ghost"
                   size="icon-sm"
                   className="shrink-0 lg:hidden"
@@ -260,7 +263,12 @@ export function DashboardShell({
           </div>
           <div className="flex shrink-0 items-center gap-1.5">
             <ThemeToggle />
-            <AccountMenu user={user} roleLabel="系统管理员" onLogout={logout} />
+            <AccountMenu
+              user={user}
+              roleLabel="系统管理员"
+              onLogout={logout}
+              disabled={!interactive}
+            />
           </div>
         </header>
         <main className="app-main">{children}</main>

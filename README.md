@@ -19,7 +19,11 @@ This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-
 npx playwright install chromium
 ```
 
-后续数据库写入、任务生成和审核流的集成测试将固定使用独立的 `custodysim_test` 数据库，不会使用 `.env.local` 的业务库。
+端到端测试包含真实数据库写入。首次运行前执行 `pnpm db:setup-e2e`，它会在
+`DATABASE_URL` 所在 PostgreSQL 实例创建或复用 `custodysim_e2e`，同步表结构并初始化
+测试账号。本机 `.env.local` 需要显式配置 `E2E_DATABASE_NAME`，也可用
+`E2E_DATABASE_URL` 指向另一实例；
+测试配置会拒绝与业务库相同的地址，禁止把生产库地址直接用作测试库。
 
 ## 电子围栏
 
@@ -78,6 +82,9 @@ pnpm db:bootstrap-admin
 ```
 
 初始管理员创建后应立即登录改密，并从部署环境移除 `INITIAL_ADMIN_PASSWORD`。生产环境还必须设置 `APP_ORIGIN=https://实际域名`，它用于校验所有写操作的来源；未设置时写操作会被拒绝。
+
+若 Web 服务只允许通过可信反向代理访问，可设置 `TRUST_PROXY=true`，同时确保代理覆盖
+`X-Real-IP`（例如 Nginx 使用 `proxy_set_header X-Real-IP $remote_addr`）。未满足该条件时不要启用，避免客户端伪造登录来源地址。
 
 启用双重验证前必须配置独立且至少 32 字符的 `MFA_ENCRYPTION_KEY`。该密钥用于加密验证器密钥以及保护恢复码和受信任设备令牌，轮换 `AUTH_SECRET` 时不要同时修改它；修改后，已有验证器、恢复码和受信任设备都会失效。
 

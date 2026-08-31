@@ -23,7 +23,10 @@ async function login(
 
 async function openNavigationOnMobile(page: import("@playwright/test").Page) {
   const trigger = page.getByRole("button", { name: "打开导航", exact: true })
-  if (await trigger.isVisible()) await trigger.click()
+  if ((page.viewportSize()?.width ?? 0) < 1024) {
+    await expect(trigger).toBeVisible()
+    await trigger.click()
+  }
 }
 
 test("管理员进入管理控制台", async ({ page }) => {

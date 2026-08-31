@@ -24,6 +24,7 @@ export async function POST(request: NextRequest) {
     .select({
       id: reportTasks.id,
       supervisedId: reportTasks.supervisedId,
+      scheduleAt: reportTasks.scheduleAt,
       deadline: reportTasks.deadline,
       status: reportTasks.status,
     })
@@ -32,20 +33,31 @@ export async function POST(request: NextRequest) {
     .limit(1)
   if (!task || task.supervisedId !== actor.id)
     return failure("FORBIDDEN", "无权保存该任务草稿", 403)
-  if (task.deadline < new Date())
+  const now = new Date()
+  if (task.scheduleAt > now)
+    return failure("VALIDATION_ERROR", "任务尚未到开始时间", 400)
+  if (task.deadline < now)
     return failure("VALIDATION_ERROR", "任务已超过截止时间", 400)
   if (task.status !== "PENDING" && task.status !== "RETURNED")
     return failure("VALIDATION_ERROR", "该任务当前不可保存草稿", 400)
 
-  const now = new Date()
   const draft = await db.transaction(async (tx) => {
     const [lockedTask] = await tx
-      .select({ status: reportTasks.status })
+      .select({
+        status: reportTasks.status,
+        scheduleAt: reportTasks.scheduleAt,
+        deadline: reportTasks.deadline,
+      })
       .from(reportTasks)
       .where(eq(reportTasks.id, task.id))
       .limit(1)
       .for("update")
-    if (!lockedTask || !["PENDING", "RETURNED"].includes(lockedTask.status))
+    if (
+      !lockedTask ||
+      !["PENDING", "RETURNED"].includes(lockedTask.status) ||
+      lockedTask.scheduleAt > now ||
+      lockedTask.deadline < now
+    )
       return null
     const [saved] = await tx
       .insert(reportSubmissions)

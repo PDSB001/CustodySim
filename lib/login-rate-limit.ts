@@ -24,17 +24,20 @@ export function getLoginRateLimitKeys(
   ip?: string | null,
   namespace = "login",
 ) {
-  return [
+  const keys = [
     buildRateLimitKey("account", username.trim().toLowerCase(), namespace),
-    buildRateLimitKey("network", ip?.trim() || "unknown", namespace),
   ]
+  if (ip?.trim()) keys.push(buildRateLimitKey("network", ip.trim(), namespace))
+  return keys
 }
 
 async function lockRateLimitKey(
   tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
   key: string,
 ) {
-  await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`login-rate-limit:${key}`}))`)
+  await tx.execute(
+    sql`select pg_advisory_xact_lock(hashtext(${`login-rate-limit:${key}`}))`,
+  )
 }
 
 export async function getLoginRetryAfterSeconds(
@@ -77,7 +80,9 @@ export async function recordLoginFailure(
         .where(eq(loginRateLimits.key, key))
         .limit(1)
       const windowExpired =
-        !entry || now.getTime() - entry.windowStartedAt.getTime() >= LOGIN_RATE_LIMIT_WINDOW_MS
+        !entry ||
+        now.getTime() - entry.windowStartedAt.getTime() >=
+          LOGIN_RATE_LIMIT_WINDOW_MS
       const attemptCount = windowExpired ? 1 : entry.attemptCount + 1
       const blockedUntil =
         attemptCount >= LOGIN_RATE_LIMIT_MAX_FAILURES

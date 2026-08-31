@@ -1,5 +1,6 @@
 const fs = module.require("node:fs")
 const path = module.require("node:path")
+const logDirectory = path.join(__dirname, ".logs")
 
 // Load variables from .env.local so the standalone server has AUTH_SECRET,
 // DATABASE_URL etc. at runtime (standalone mode does not load .env.local itself).
@@ -41,8 +42,8 @@ module.exports = {
       max_memory_restart: "300M",
       kill_timeout: 30000,
       log_date_format: "YYYY-MM-DD HH:mm:ss",
-      error_file: "/var/log/custodysim/error.log",
-      out_file: "/var/log/custodysim/out.log",
+      error_file: path.join(logDirectory, "error.log"),
+      out_file: path.join(logDirectory, "out.log"),
     },
     {
       name: "custodysim-chat-realtime",
@@ -58,8 +59,8 @@ module.exports = {
       max_memory_restart: "200M",
       kill_timeout: 10000,
       log_date_format: "YYYY-MM-DD HH:mm:ss",
-      error_file: "/var/log/custodysim/chat-realtime-error.log",
-      out_file: "/var/log/custodysim/chat-realtime.log",
+      error_file: path.join(logDirectory, "chat-realtime-error.log"),
+      out_file: path.join(logDirectory, "chat-realtime.log"),
     },
   ],
 }

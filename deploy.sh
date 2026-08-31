@@ -21,6 +21,7 @@ cp -a .next/static/. .next/standalone/.next/static/
 # cannot be accepted silently during an incremental deployment.
 pnpm exec drizzle-kit push --config=drizzle.config.ts --strict
 
+mkdir -p .logs
 pm2 startOrReload ecosystem.config.cjs --only custodysim --update-env
 pm2 startOrRestart ecosystem.config.cjs --only custodysim-chat-realtime --update-env
 pm2 save

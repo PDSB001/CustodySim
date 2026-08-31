@@ -1,4 +1,4 @@
-import { and, eq, gt, gte, lt, lte, sql } from "drizzle-orm"
+import { and, eq, gt, gte, inArray, lt, lte, sql } from "drizzle-orm"
 
 import { db } from "@/lib/db"
 import {
@@ -32,12 +32,18 @@ export const SCORE_POLICY = {
   isolationDurationDays: 3,
 } as const
 
+export const WEEKLY_REVIEW_DELAY_MINUTES = 10
+
 export function getShanghaiWeekKey(now = new Date()) {
   const [year, month, day] = getShanghaiDateKey(now).split("-").map(Number)
   const date = new Date(Date.UTC(year, (month ?? 1) - 1, day))
   const offset = (date.getUTCDay() + 6) % 7
   date.setUTCDate(date.getUTCDate() - offset)
   return date.toISOString().slice(0, 10)
+}
+
+export function getTaskOutcomeWeekKey(scheduleAt: Date) {
+  return getShanghaiWeekKey(scheduleAt)
 }
 
 export function getDailyCheckinScore({
@@ -62,6 +68,14 @@ function shiftWeekKey(weekKey: string, weeks: number) {
   const date = new Date(`${weekKey}T00:00:00Z`)
   date.setUTCDate(date.getUTCDate() + weeks * 7)
   return date.toISOString().slice(0, 10)
+}
+
+export function isWeeklyReviewWindowOpen(now = new Date()) {
+  const currentWeekKey = getShanghaiWeekKey(now)
+  const weekStart = new Date(`${currentWeekKey}T00:00:00+08:00`)
+  return (
+    now.getTime() >= weekStart.getTime() + WEEKLY_REVIEW_DELAY_MINUTES * 60_000
+  )
 }
 
 export function getTaskOutcomeScoreDelta({
@@ -274,6 +288,135 @@ export async function runCheckinDailyScoreSweep(now = new Date()) {
   return settled
 }
 
+export async function reconcileTaskOutcomeScoreWeeks(now = new Date()) {
+  return db.transaction(async (tx) => {
+    const taskEvents = await tx
+      .select({
+        eventId: scoreEvents.id,
+        supervisedId: scoreEvents.supervisedId,
+        weekKey: scoreEvents.weekKey,
+        scheduleAt: reportTasks.scheduleAt,
+      })
+      .from(scoreEvents)
+      .innerJoin(reportTasks, eq(reportTasks.id, scoreEvents.sourceId))
+      .where(eq(scoreEvents.source, "TASK_OUTCOME"))
+    let repaired = 0
+    const affectedReviews = new Map<
+      string,
+      { supervisedId: string; weekKey: string }
+    >()
+    for (const event of taskEvents) {
+      const expectedWeekKey = getTaskOutcomeWeekKey(event.scheduleAt)
+      if (event.weekKey === expectedWeekKey) continue
+      await tx
+        .update(scoreEvents)
+        .set({ weekKey: expectedWeekKey })
+        .where(eq(scoreEvents.id, event.eventId))
+      for (const weekKey of [event.weekKey, expectedWeekKey])
+        affectedReviews.set(`${event.supervisedId}:${weekKey}`, {
+          supervisedId: event.supervisedId,
+          weekKey,
+        })
+      repaired += 1
+    }
+    for (const affected of affectedReviews.values()) {
+      const [review] = await tx
+        .select()
+        .from(scoreWeekReviews)
+        .where(
+          and(
+            eq(scoreWeekReviews.supervisedId, affected.supervisedId),
+            eq(scoreWeekReviews.weekKey, affected.weekKey),
+          ),
+        )
+        .limit(1)
+      if (!review) continue
+      const events = await tx
+        .select({ points: scoreEvents.points })
+        .from(scoreEvents)
+        .where(
+          and(
+            eq(scoreEvents.supervisedId, affected.supervisedId),
+            eq(scoreEvents.weekKey, affected.weekKey),
+          ),
+        )
+      const totalScore = events.reduce(
+        (total, event) => total + event.points,
+        0,
+      )
+      const result =
+        totalScore < SCORE_POLICY.isolationThreshold ? "ISOLATION" : "CLEAR"
+      if (review.totalScore === totalScore && review.result === result) continue
+      await tx
+        .update(scoreWeekReviews)
+        .set({ totalScore, result, evaluatedAt: now })
+        .where(eq(scoreWeekReviews.id, review.id))
+      if (review.result !== "ISOLATION" || result !== "CLEAR") continue
+      const [order] = await tx
+        .select()
+        .from(isolationOrders)
+        .where(
+          and(
+            eq(isolationOrders.supervisedId, affected.supervisedId),
+            eq(isolationOrders.weekKey, affected.weekKey),
+            eq(isolationOrders.status, "ACTIVE"),
+          ),
+        )
+        .limit(1)
+      if (!order) continue
+      const [cancelled] = await tx
+        .update(isolationOrders)
+        .set({ status: "CANCELLED", updatedAt: now })
+        .where(
+          and(
+            eq(isolationOrders.id, order.id),
+            eq(isolationOrders.status, "ACTIVE"),
+          ),
+        )
+        .returning({ id: isolationOrders.id })
+      if (!cancelled) continue
+      await tx
+        .update(persons)
+        .set({ custodyStatus: order.previousCustodyStatus, updatedAt: now })
+        .where(
+          and(
+            eq(persons.userId, affected.supervisedId),
+            eq(persons.custodyStatus, "ISOLATION"),
+          ),
+        )
+      const reflectionTasks = await tx
+        .select({ taskId: isolationReflectionTasks.taskId })
+        .from(isolationReflectionTasks)
+        .where(eq(isolationReflectionTasks.isolationOrderId, order.id))
+      const taskIds = reflectionTasks.map((task) => task.taskId)
+      if (taskIds.length)
+        await tx
+          .update(reportTasks)
+          .set({ status: "CANCELLED", updatedAt: now })
+          .where(
+            and(
+              inArray(reportTasks.id, taskIds),
+              inArray(reportTasks.status, ["PENDING", "SUBMITTED", "RETURNED"]),
+            ),
+          )
+      const [user] = await tx
+        .select({ name: users.name })
+        .from(users)
+        .where(eq(users.id, affected.supervisedId))
+        .limit(1)
+      await tx.insert(notices).values({
+        title: "积分周结更正",
+        content: `${user?.name ?? "相关人员"} 的 ${affected.weekKey} 周积分经跨周流水校正后不再满足禁闭条件，原禁闭决定已撤销。`,
+        targetRole: "ALL",
+        priority: "IMPORTANT",
+        published: true,
+        publishedAt: now,
+      })
+    }
+    return repaired
+  })
+}
+
 export async function getActiveIsolationOrder(
   supervisedId: string,
   now = new Date(),
@@ -293,6 +436,9 @@ export async function getActiveIsolationOrder(
 }
 
 export async function runWeeklyScoreReview(now = new Date()) {
+  // 周一零点刚跨日时，上一自然日的日结流水可能仍在生成。周结必须等待
+  // 安全窗结束，并在读取周积分前主动补跑日结，避免禁闭名单锁定旧分数。
+  if (!isWeeklyReviewWindowOpen(now)) return 0
   await runCheckinDailyScoreSweep(now)
   const completedWeekKey = shiftWeekKey(getShanghaiWeekKey(now), -1)
   const weekStartAt = new Date(`${getShanghaiWeekKey(now)}T00:00:00+08:00`)
@@ -565,18 +711,40 @@ export async function runIsolationSweep(now = new Date()) {
 }
 
 const schedulerKey = Symbol.for("custodysim.isolation-scheduler")
+const ISOLATION_SWEEP_INTERVAL_MS = 5 * 60 * 1000
+
+type IsolationSchedulerState = {
+  alignmentTimer?: ReturnType<typeof setTimeout>
+  intervalTimer?: ReturnType<typeof setInterval>
+  taskOutcomeWeeksReconciled: boolean
+}
 
 export function startIsolationScheduler() {
   const runtime = globalThis as typeof globalThis & {
-    [schedulerKey]?: ReturnType<typeof setInterval>
+    [schedulerKey]?: IsolationSchedulerState
   }
   if (runtime[schedulerKey]) return
+  const state: IsolationSchedulerState = {
+    taskOutcomeWeeksReconciled: false,
+  }
+  runtime[schedulerKey] = state
   const run = () =>
-    void runIsolationSweep().catch((error: unknown) =>
+    void (async () => {
+      if (!state.taskOutcomeWeeksReconciled) {
+        await reconcileTaskOutcomeScoreWeeks()
+        state.taskOutcomeWeeksReconciled = true
+      }
+      await runIsolationSweep()
+    })().catch((error: unknown) =>
       console.error("[isolation] scheduled sweep failed", error),
     )
   run()
-  const timer = setInterval(run, 15 * 60 * 1000)
-  timer.unref?.()
-  runtime[schedulerKey] = timer
+  const delayToBoundary =
+    ISOLATION_SWEEP_INTERVAL_MS - (Date.now() % ISOLATION_SWEEP_INTERVAL_MS)
+  state.alignmentTimer = setTimeout(() => {
+    run()
+    state.intervalTimer = setInterval(run, ISOLATION_SWEEP_INTERVAL_MS)
+    state.intervalTimer.unref?.()
+  }, delayToBoundary)
+  state.alignmentTimer.unref?.()
 }

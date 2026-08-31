@@ -1,4 +1,4 @@
-import { and, eq, inArray, lt, lte } from "drizzle-orm"
+import { and, eq, inArray, isNull, lt, lte } from "drizzle-orm"
 
 import { db } from "@/lib/db"
 import {
@@ -10,6 +10,7 @@ import {
   ruleGroupScopes,
   ruleScopes,
   rules,
+  scoreEvents,
   taskPools,
   taskPoolTemplates,
   users,
@@ -26,7 +27,11 @@ import {
   type RuleFrequency,
 } from "@/lib/rule-cycle"
 import { getSupervisorIdsForSupervised } from "@/lib/supervision-scope"
-import { recordScoreEvent, SCORE_POLICY } from "@/lib/scoring"
+import {
+  getTaskOutcomeWeekKey,
+  recordScoreEvent,
+  SCORE_POLICY,
+} from "@/lib/scoring"
 import { getShanghaiDateAtTime } from "@/lib/shanghai-datetime"
 
 function dateAtSlot(date: Date, slot: string) {
@@ -194,29 +199,58 @@ export async function runLeaveTaskAutoApprovalSweep(now = new Date()) {
 }
 
 export async function runReportTaskOutcomeSweep(now = new Date()) {
-  const expiredTasks = await db
-    .update(reportTasks)
-    .set({ status: "EXPIRED", updatedAt: now })
-    .where(
-      and(
-        inArray(reportTasks.status, ["PENDING", "SUBMITTED", "RETURNED"]),
-        lt(reportTasks.deadline, now),
-      ),
+  return db.transaction(async (tx) => {
+    const newlyExpired = await tx
+      .update(reportTasks)
+      .set({ status: "EXPIRED", updatedAt: now })
+      .where(
+        and(
+          inArray(reportTasks.status, ["PENDING", "SUBMITTED", "RETURNED"]),
+          lt(reportTasks.deadline, now),
+        ),
+      )
+      .returning({
+        id: reportTasks.id,
+        supervisedId: reportTasks.supervisedId,
+        scheduleAt: reportTasks.scheduleAt,
+      })
+    const missingScoreEvents = await tx
+      .select({
+        id: reportTasks.id,
+        supervisedId: reportTasks.supervisedId,
+        scheduleAt: reportTasks.scheduleAt,
+      })
+      .from(reportTasks)
+      .leftJoin(
+        scoreEvents,
+        and(
+          eq(scoreEvents.source, "TASK_OUTCOME"),
+          eq(scoreEvents.sourceId, reportTasks.id),
+        ),
+      )
+      .where(
+        and(
+          eq(reportTasks.status, "EXPIRED"),
+          lt(reportTasks.deadline, now),
+          isNull(scoreEvents.id),
+        ),
+      )
+    const tasks = new Map(
+      [...newlyExpired, ...missingScoreEvents].map((task) => [task.id, task]),
     )
-    .returning({ id: reportTasks.id, supervisedId: reportTasks.supervisedId })
-  await Promise.all(
-    expiredTasks.map((task) =>
-      recordScoreEvent({
+    for (const task of tasks.values())
+      await recordScoreEvent({
         supervisedId: task.supervisedId,
         points: SCORE_POLICY.taskExpired,
         reason: "任务截止时仍未通过",
         source: "TASK_OUTCOME",
         sourceId: task.id,
         now,
-      }),
-    ),
-  )
-  return expiredTasks.length
+        weekKey: getTaskOutcomeWeekKey(task.scheduleAt),
+        executor: tx,
+      })
+    return newlyExpired.length
+  })
 }
 
 const schedulerKey = Symbol.for("custodysim.report-task-scheduler")

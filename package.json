@@ -19,6 +19,7 @@
     "db:push": "drizzle-kit push",
     "db:seed": "tsx --env-file=.env.local scripts/seed.ts",
     "db:seed-scoreboard-demo": "tsx --env-file=.env.local scripts/seed-scoreboard-demo.ts",
+    "db:setup-e2e": "node scripts/setup-e2e-database.mjs",
     "db:bootstrap-admin": "tsx --env-file=.env.local scripts/bootstrap-admin.ts",
     "db:ensure-entry-form": "tsx --env-file=.env.local scripts/ensure-entry-registration-form.ts",
     "db:reconcile-profile-record-sequence": "tsx --env-file=.env.local scripts/reconcile-profile-record-sequence.ts",

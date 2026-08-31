@@ -14,7 +14,11 @@ import {
 } from "@/lib/db/schema"
 import { getOfficialSealData } from "@/lib/seal-server"
 import { getSessionUser } from "@/lib/session"
-import { getTaskOutcomeScoreDelta, recordScoreEvent } from "@/lib/scoring"
+import {
+  getTaskOutcomeWeekKey,
+  getTaskOutcomeScoreDelta,
+  recordScoreEvent,
+} from "@/lib/scoring"
 import { isEffectiveSupervisorForSupervised } from "@/lib/supervision-scope"
 import { ISOLATION_REPORT_TEMPLATE_NAME } from "@/lib/isolation-report-template"
 
@@ -54,6 +58,7 @@ export async function POST(request: NextRequest) {
       supervisedId: reportTasks.supervisedId,
       templateSnapshot: reportTasks.templateSnapshot,
       taskStatus: reportTasks.status,
+      scheduleAt: reportTasks.scheduleAt,
       deadline: reportTasks.deadline,
       taskSource: reportTasks.source,
       taskPayload: reportTasks.payload,
@@ -145,6 +150,7 @@ export async function POST(request: NextRequest) {
           source: "TASK_OUTCOME",
           sourceId: row.taskId,
           operatorId: actor.id,
+          weekKey: getTaskOutcomeWeekKey(row.scheduleAt),
           executor: tx,
         })
       }

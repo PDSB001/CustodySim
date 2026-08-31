@@ -21,7 +21,12 @@ import {
 
 const ManualScoreSchema = z.object({
   supervisedId: z.string().uuid(),
-  points: z.coerce.number().int().min(-10).max(10).refine((value) => value !== 0),
+  points: z.coerce
+    .number()
+    .int()
+    .min(-10)
+    .max(10)
+    .refine((value) => value !== 0),
   reason: z.string().trim().min(2).max(300),
 })
 
@@ -46,10 +51,7 @@ export async function GET(request: NextRequest) {
               .select({ id: users.id })
               .from(users)
               .where(
-                and(
-                  eq(users.role, "SUPERVISED"),
-                  eq(users.status, "active"),
-                ),
+                and(eq(users.role, "SUPERVISED"), eq(users.status, "active")),
               )
           )
             .filter((user) => user.id)
@@ -123,17 +125,21 @@ export async function GET(request: NextRequest) {
             .limit(1)
         : Promise.resolve([]),
     ])
-    const weeks = [...new Set([
-      currentWeekKey,
-      selectedWeek,
-      ...events.map((event) => event.weekKey),
-      ...reviews.map((review) => review.weekKey),
-    ])].sort((left, right) => right.localeCompare(left))
+    const weeks = [
+      ...new Set([
+        currentWeekKey,
+        selectedWeek,
+        ...events.map((event) => event.weekKey),
+        ...reviews.map((review) => review.weekKey),
+      ]),
+    ].sort((left, right) => right.localeCompare(left))
     const actorRoomId = actorProfile[0]?.organizationId ?? null
     const ranking = people
       .map((person) => {
         const { name: rawName, ...personData } = person
-        const ownEvents = events.filter((event) => event.supervisedId === person.id)
+        const ownEvents = events.filter(
+          (event) => event.supervisedId === person.id,
+        )
         const currentScore = ownEvents
           .filter((event) => event.weekKey === selectedWeek)
           .reduce((total, event) => total + event.points, 0)
@@ -150,21 +156,24 @@ export async function GET(request: NextRequest) {
         const canSeeFullName = actor.role !== "SUPERVISED" || isOwn || sameRoom
         const weeklyReview = reviews.find(
           (review) =>
-            review.supervisedId === person.id && review.weekKey === selectedWeek,
+            review.supervisedId === person.id &&
+            review.weekKey === selectedWeek,
         )
         const actualName = rawName ?? "未命名"
         return {
           ...personData,
           name: canSeeFullName ? actualName : maskName(actualName),
           currentScore,
-          activeIsolation: (actor.role !== "SUPERVISED" || isOwn || sameRoom) && activeIsolation
-            ? {
-                id: activeIsolation.id,
-                triggerScore: activeIsolation.triggerScore,
-                startAt: activeIsolation.startAt,
-                endAt: activeIsolation.endAt,
-            }
-            : null,
+          activeIsolation:
+            (actor.role !== "SUPERVISED" || isOwn || sameRoom) &&
+            activeIsolation
+              ? {
+                  id: activeIsolation.id,
+                  triggerScore: activeIsolation.triggerScore,
+                  startAt: activeIsolation.startAt,
+                  endAt: activeIsolation.endAt,
+                }
+              : null,
           weeklyReview: weeklyReview
             ? {
                 result: weeklyReview.result,
@@ -174,13 +183,15 @@ export async function GET(request: NextRequest) {
             : null,
           events:
             actor.role !== "SUPERVISED" || isOwn
-              ? ownEvents.filter((event) => event.weekKey === selectedWeek).slice(0, 8)
+              ? ownEvents.filter((event) => event.weekKey === selectedWeek)
               : [],
+          canViewDetails: actor.role !== "SUPERVISED" || isOwn,
         }
       })
       .sort(
         (left, right) =>
-          right.currentScore - left.currentScore || left.name.localeCompare(right.name),
+          right.currentScore - left.currentScore ||
+          left.name.localeCompare(right.name),
       )
     return success({
       selectedWeek,
@@ -200,8 +211,11 @@ export async function POST(request: NextRequest) {
   if (actor.role === "SUPERVISED")
     return failure("FORBIDDEN", "仅管理人员可调整积分", 403)
   const parsed = ManualScoreSchema.safeParse(await request.json())
-  if (!parsed.success) return failure("VALIDATION_ERROR", "积分调整参数不合法", 400)
-  if (!(await isEffectiveSupervisorForSupervised(actor, parsed.data.supervisedId)))
+  if (!parsed.success)
+    return failure("VALIDATION_ERROR", "积分调整参数不合法", 400)
+  if (
+    !(await isEffectiveSupervisorForSupervised(actor, parsed.data.supervisedId))
+  )
     return failure("FORBIDDEN", "不在监管范围内", 403)
   try {
     const event = await recordScoreEvent({

@@ -244,7 +244,11 @@ export async function ensureTodayCheckinTasks(
   return tasks
 }
 
-async function ensureLeaveSystemMakeups(userId: string, now: Date) {
+async function ensureAbsenceSystemMakeups(
+  userId: string,
+  custodyStatus: "ON_LEAVE" | "TEMPORARY_OUT_OF_CUSTODY",
+  now: Date,
+) {
   const { start, end } = getDayRange(now)
   const tasks = await db
     .select({
@@ -273,10 +277,18 @@ async function ensureLeaveSystemMakeups(userId: string, now: Date) {
           checkinAt: now,
           status: "SYSTEM_MAKEUP",
           slotIndex: task.slotIndex,
-          location: { source: "LEAVE_SYSTEM_MAKEUP" },
+          location: {
+            source:
+              custodyStatus === "ON_LEAVE"
+                ? "LEAVE_SYSTEM_MAKEUP"
+                : "TEMPORARY_RELEASE_SYSTEM_MAKEUP",
+          },
           locationSource: "SYSTEM",
           clientType: "SYSTEM",
-          remark: "请假有效期内系统补卡",
+          remark:
+            custodyStatus === "ON_LEAVE"
+              ? "请假有效期内系统补卡"
+              : "临时离监有效期内系统免打卡",
         })
         .onConflictDoNothing()
       await tx
@@ -293,19 +305,29 @@ async function ensureLeaveSystemMakeups(userId: string, now: Date) {
 
 export async function runLeaveSystemMakeupSweep(now = new Date()) {
   const profiles = await db
-    .select({ userId: persons.userId })
+    .select({
+      userId: persons.userId,
+      custodyStatus: persons.custodyStatus,
+    })
     .from(persons)
     .where(
       and(
         eq(persons.personType, "SUPERVISED"),
-        eq(persons.custodyStatus, "ON_LEAVE"),
+        inArray(persons.custodyStatus, [
+          "ON_LEAVE",
+          "TEMPORARY_OUT_OF_CUSTODY",
+        ]),
       ),
     )
   let created = 0
   for (const profile of profiles) {
     if (!profile.userId) continue
     await ensureTodayCheckinTasks(profile.userId, now)
-    created += await ensureLeaveSystemMakeups(profile.userId, now)
+    created += await ensureAbsenceSystemMakeups(
+      profile.userId,
+      profile.custodyStatus as "ON_LEAVE" | "TEMPORARY_OUT_OF_CUSTODY",
+      now,
+    )
   }
   return created
 }
@@ -350,16 +372,20 @@ async function markExpiredCheckins(userId: string, now: Date) {
 }
 
 export async function runCheckinStatusSweep(now = new Date()) {
-  const leaveProfiles = await db
+  await runLeaveSystemMakeupSweep(now)
+  const absenceProfiles = await db
     .select({ userId: persons.userId })
     .from(persons)
     .where(
       and(
         eq(persons.personType, "SUPERVISED"),
-        eq(persons.custodyStatus, "ON_LEAVE"),
+        inArray(persons.custodyStatus, [
+          "ON_LEAVE",
+          "TEMPORARY_OUT_OF_CUSTODY",
+        ]),
       ),
     )
-  const leaveUserIds = leaveProfiles.flatMap((profile) =>
+  const absenceUserIds = absenceProfiles.flatMap((profile) =>
     profile.userId ? [profile.userId] : [],
   )
   const expiredTasks = await db
@@ -369,8 +395,8 @@ export async function runCheckinStatusSweep(now = new Date()) {
       and(
         eq(checkinTasks.status, "PENDING"),
         lt(checkinTasks.deadline, now),
-        leaveUserIds.length
-          ? notInArray(checkinTasks.supervisedId, leaveUserIds)
+        absenceUserIds.length
+          ? notInArray(checkinTasks.supervisedId, absenceUserIds)
           : undefined,
       ),
     )
@@ -410,7 +436,7 @@ export async function getTodayCheckinRecords(userId: string, now = new Date()) {
     return []
   await ensureTodayCheckinTasks(userId, now)
   if (profile.custodyStatus === "ON_LEAVE")
-    await ensureLeaveSystemMakeups(userId, now)
+    await ensureAbsenceSystemMakeups(userId, "ON_LEAVE", now)
   await markExpiredCheckins(userId, now)
   const { start, end } = getDayRange(now)
   const rows = await db

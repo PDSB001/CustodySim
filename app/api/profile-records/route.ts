@@ -169,7 +169,12 @@ export async function POST(request: NextRequest) {
             officialSealData: null,
             updatedAt: new Date(),
           })
-          .where(eq(profileRecords.id, existing.id))
+          .where(
+            and(
+              eq(profileRecords.id, existing.id),
+              inArray(profileRecords.status, ["DRAFT", "RETURNED"]),
+            ),
+          )
           .returning()
       : await db
           .insert(profileRecords)
@@ -182,7 +187,7 @@ export async function POST(request: NextRequest) {
             ...signature,
           })
           .returning()
-    if (!saved) return failure("INTERNAL_ERROR", "保存档案失败", 500)
+    if (!saved) return failure("CONFLICT", "档案状态已变化，请刷新后重试", 409)
     return success(saved, { status: existing ? 200 : 201 })
   } catch (error) {
     console.error("[API profile-records POST]", error)
