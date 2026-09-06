@@ -305,6 +305,17 @@ export async function reconcileTaskOutcomeScoreWeeks(now = new Date()) {
       string,
       { supervisedId: string; weekKey: string }
     >()
+    // Correctly attributed late events and daily-score adjustments also change
+    // completed reviews, even when no legacy event needs moving between weeks.
+    const completedReviews = await tx
+      .select({
+        supervisedId: scoreWeekReviews.supervisedId,
+        weekKey: scoreWeekReviews.weekKey,
+      })
+      .from(scoreWeekReviews)
+      .where(lt(scoreWeekReviews.weekKey, getShanghaiWeekKey(now)))
+    for (const review of completedReviews)
+      affectedReviews.set(`${review.supervisedId}:${review.weekKey}`, review)
     for (const event of taskEvents) {
       const expectedWeekKey = getTaskOutcomeWeekKey(event.scheduleAt)
       if (event.weekKey === expectedWeekKey) continue
@@ -439,7 +450,10 @@ export async function runWeeklyScoreReview(now = new Date()) {
   // 周一零点刚跨日时，上一自然日的日结流水可能仍在生成。周结必须等待
   // 安全窗结束，并在读取周积分前主动补跑日结，避免禁闭名单锁定旧分数。
   if (!isWeeklyReviewWindowOpen(now)) return 0
+  const { runReportTaskOutcomeSweep } = await import("@/lib/task-engine")
+  await runReportTaskOutcomeSweep(now)
   await runCheckinDailyScoreSweep(now)
+  await reconcileTaskOutcomeScoreWeeks(now)
   const completedWeekKey = shiftWeekKey(getShanghaiWeekKey(now), -1)
   const weekStartAt = new Date(`${getShanghaiWeekKey(now)}T00:00:00+08:00`)
   const supervisedUsers = await db
@@ -615,6 +629,21 @@ export async function ensureIsolationReflectionTask(
       scheduleAt.getTime() + (settings?.timeoutMinutes ?? 240) * 60_000,
     )
     const taskId = await db.transaction(async (tx) => {
+      // Serialize with cancellation so a stale scheduler snapshot cannot create
+      // a task after the cancellation transaction has removed pending work.
+      const [activeOrder] = await tx
+        .select({ id: isolationOrders.id })
+        .from(isolationOrders)
+        .where(
+          and(
+            eq(isolationOrders.id, order.id),
+            eq(isolationOrders.status, "ACTIVE"),
+            lte(isolationOrders.startAt, now),
+            gt(isolationOrders.endAt, now),
+          ),
+        )
+        .for("update")
+      if (!activeOrder) return null
       await tx.execute(
         sql`select pg_advisory_xact_lock(hashtext(${`isolation-reflection:${order.id}:${dayKey}:${templateKey}`}))`,
       )

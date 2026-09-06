@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm"
+import { and, eq } from "drizzle-orm"
 import { NextRequest } from "next/server"
 
 import { failure, success } from "@/lib/api-response"
@@ -25,9 +25,16 @@ export async function POST(request: NextRequest) {
     const sessionUser = await getSessionUser({ allowPasswordChange: true })
     if (!sessionUser) return failure("UNAUTHORIZED", "未登录", 401)
     const ip = getSensitiveActionIp(request.headers)
-    const retryAfter = await getSensitiveActionRetryAfterSeconds(sessionUser.id, ip)
+    const retryAfter = await getSensitiveActionRetryAfterSeconds(
+      sessionUser.id,
+      ip,
+    )
     if (retryAfter > 0)
-      return failure("RATE_LIMITED", `尝试过于频繁，请在 ${retryAfter} 秒后重试`, 429)
+      return failure(
+        "RATE_LIMITED",
+        `尝试过于频繁，请在 ${retryAfter} 秒后重试`,
+        429,
+      )
     const parsed = ChangePasswordSchema.safeParse(await request.json())
     if (!parsed.success)
       return failure(
@@ -67,7 +74,15 @@ export async function POST(request: NextRequest) {
           tokenVersion,
           updatedAt: new Date(),
         })
-        .where(eq(users.id, user.id))
+        .where(
+          and(
+            eq(users.id, user.id),
+            eq(users.passwordHash, user.passwordHash),
+            eq(users.tokenVersion, user.tokenVersion),
+            eq(users.role, user.role),
+            eq(users.status, "active"),
+          ),
+        )
         .returning()
       const changedUser = changed[0]
       if (!changedUser) return []
@@ -84,10 +99,9 @@ export async function POST(request: NextRequest) {
       )
       return [changedUser]
     })
-    if (
-      !updated ||
-      !["ADMIN", "SUPERVISOR", "SUPERVISED"].includes(updated.role)
-    )
+    if (!updated)
+      return failure("CONFLICT", "账号状态或密码已变化，请重新登录后操作", 409)
+    if (!["ADMIN", "SUPERVISOR", "SUPERVISED"].includes(updated.role))
       return failure("INTERNAL_ERROR", "密码更新失败", 500)
 
     const safeUser = SessionUserSchema.parse({

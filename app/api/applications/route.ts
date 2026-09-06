@@ -4,7 +4,10 @@ import { NextRequest } from "next/server"
 import { ApplicationDraftSchema } from "@/lib/admin-schemas"
 import { failure, success } from "@/lib/api-response"
 import { writeAuditLog } from "@/lib/audit"
-import { APPLICATION_TYPE_LABELS, buildApplicationReviewerIds } from "@/lib/application"
+import {
+  APPLICATION_TYPE_LABELS,
+  buildApplicationReviewerIds,
+} from "@/lib/application"
 import { db } from "@/lib/db"
 import {
   applicationReviews,
@@ -14,7 +17,10 @@ import {
 } from "@/lib/db/schema"
 import { getSessionUser } from "@/lib/session"
 import { shanghaiLocalToIso } from "@/lib/shanghai-datetime"
-import { getAdminUserId, getSupervisorIdsForSupervised } from "@/lib/supervision-scope"
+import {
+  getAdminUserId,
+  getSupervisorIdsForSupervised,
+} from "@/lib/supervision-scope"
 
 export async function GET() {
   const actor = await getSessionUser()
@@ -41,7 +47,10 @@ export async function GET() {
         .from(applications)
         .where(eq(applications.userId, actor.id))
         .orderBy(desc(applications.createdAt)),
-      db.select().from(applicationReviews).orderBy(asc(applicationReviews.step)),
+      db
+        .select()
+        .from(applicationReviews)
+        .orderBy(asc(applicationReviews.step)),
     ])
     return success(
       rows.map((row) => ({
@@ -61,15 +70,18 @@ export async function POST(request: NextRequest) {
   if (actor.role !== "SUPERVISED")
     return failure("FORBIDDEN", "仅被监管人可发起申请", 403)
   const parsed = ApplicationDraftSchema.safeParse(await request.json())
-  if (!parsed.success)
-    return failure("VALIDATION_ERROR", "申请数据不合法", 400)
+  if (!parsed.success) return failure("VALIDATION_ERROR", "申请数据不合法", 400)
   try {
     const [supervisorIds, adminId] = await Promise.all([
       getSupervisorIdsForSupervised(actor.id),
       getAdminUserId(),
     ])
     if (!adminId)
-      return failure("VALIDATION_ERROR", "尚未配置管理处审核账号，无法提交", 400)
+      return failure(
+        "VALIDATION_ERROR",
+        "尚未配置管理处审核账号，无法提交",
+        400,
+      )
 
     let archiveSnapshot: Record<string, unknown> | null = null
     if (parsed.data.type === "SENTENCE_REDUCTION") {
@@ -113,21 +125,21 @@ export async function POST(request: NextRequest) {
           title: APPLICATION_TYPE_LABELS[parsed.data.type],
           reason: parsed.data.reason,
           payload:
-                      parsed.data.type === "LEAVE"
-                        ? {
-                            leaveStartAt: shanghaiLocalToIso(parsed.data.leaveStartAt),
-                            leaveEndAt: shanghaiLocalToIso(parsed.data.leaveEndAt),
-                          }
-                        : parsed.data.type === "TEMPORARY_OUT_OF_CUSTODY"
-                          ? {
-                              temporaryReleaseStartAt: shanghaiLocalToIso(
-                                parsed.data.temporaryReleaseStartAt,
-                              ),
-                              temporaryReleaseEndAt: shanghaiLocalToIso(
-                                parsed.data.temporaryReleaseEndAt,
-                              ),
-                            }
-                          : {},
+            parsed.data.type === "LEAVE"
+              ? {
+                  leaveStartAt: shanghaiLocalToIso(parsed.data.leaveStartAt),
+                  leaveEndAt: shanghaiLocalToIso(parsed.data.leaveEndAt),
+                }
+              : parsed.data.type === "TEMPORARY_OUT_OF_CUSTODY"
+                ? {
+                    temporaryReleaseStartAt: shanghaiLocalToIso(
+                      parsed.data.temporaryReleaseStartAt,
+                    ),
+                    temporaryReleaseEndAt: shanghaiLocalToIso(
+                      parsed.data.temporaryReleaseEndAt,
+                    ),
+                  }
+                : {},
           archiveRecordId: parsed.data.archiveRecordId ?? null,
           archiveSnapshot,
           status: "PENDING_REVIEW",
@@ -143,15 +155,18 @@ export async function POST(request: NextRequest) {
           result: step === 0 ? "PENDING" : "WAITING",
         })),
       )
+      await writeAuditLog(
+        {
+          actor,
+          action: "SUBMIT",
+          actionLabel: `提交${application.title}`,
+          entityType: "application",
+          entityId: application.id,
+          detail: { type: application.type, reviewerCount: reviewerIds.length },
+        },
+        tx,
+      )
       return application
-    })
-    await writeAuditLog({
-      actor,
-      action: "SUBMIT",
-      actionLabel: `提交${result.title}`,
-      entityType: "application",
-      entityId: result.id,
-      detail: { type: result.type, reviewerCount: reviewerIds.length },
     })
     return success(result, { status: 201 })
   } catch (error) {

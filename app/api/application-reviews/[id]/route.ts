@@ -33,7 +33,9 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     return failure("FORBIDDEN", "仅监管人或管理处可审核申请", 403)
   const [params, parsed] = await Promise.all([
     context.params.then((value) => ParamsSchema.safeParse(value)),
-    request.json().then((value: unknown) => ApplicationReviewSchema.safeParse(value)),
+    request
+      .json()
+      .then((value: unknown) => ApplicationReviewSchema.safeParse(value)),
   ])
   if (!params.success || !parsed.success)
     return failure("VALIDATION_ERROR", "审核参数不合法", 400)
@@ -75,6 +77,22 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
         )
         .returning({ id: applicationReviews.id })
       if (!updatedReview) throw new ReviewConflictError()
+      await writeAuditLog(
+        {
+          actor,
+          action: "REVIEW",
+          actionLabel:
+            parsed.data.result === "APPROVED" ? "通过申请审核" : "处理申请审核",
+          entityType: "application",
+          entityId: application.id,
+          detail: {
+            reviewId: review.id,
+            result: parsed.data.result,
+            type: application.type,
+          },
+        },
+        tx,
+      )
       const [nextReview] =
         parsed.data.result === "APPROVED"
           ? await tx
@@ -151,15 +169,6 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
         .update(applicationReviews)
         .set({ result: "PENDING" })
         .where(eq(applicationReviews.id, nextReview!.id))
-    })
-    await writeAuditLog({
-      actor,
-      action: "REVIEW",
-      actionLabel:
-        parsed.data.result === "APPROVED" ? "通过申请审核" : "处理申请审核",
-      entityType: "application",
-      entityId: application.id,
-      detail: { reviewId: review.id, result: parsed.data.result, type: application.type },
     })
     return success({ id: review.id, result: parsed.data.result })
   } catch (error) {

@@ -58,6 +58,7 @@ export async function POST(request: NextRequest) {
       supervisedId: reportTasks.supervisedId,
       templateSnapshot: reportTasks.templateSnapshot,
       taskStatus: reportTasks.status,
+      taskUpdatedAt: reportTasks.updatedAt,
       scheduleAt: reportTasks.scheduleAt,
       deadline: reportTasks.deadline,
       taskSource: reportTasks.source,
@@ -99,7 +100,21 @@ export async function POST(request: NextRequest) {
   let outcome
   try {
     outcome = await db.transaction(async (tx) => {
+      const [lockedTask] = await tx
+        .select()
+        .from(reportTasks)
+        .where(eq(reportTasks.id, row.taskId))
+        .for("update")
       const now = new Date()
+      if (
+        !lockedTask ||
+        lockedTask.status !== "SUBMITTED" ||
+        lockedTask.supervisedId !== row.supervisedId ||
+        lockedTask.updatedAt.getTime() !== row.taskUpdatedAt.getTime() ||
+        lockedTask.scheduleAt > now ||
+        lockedTask.deadline < now
+      )
+        throw new ReviewConflictError()
       const [updatedTask] = await tx
         .update(reportTasks)
         .set({

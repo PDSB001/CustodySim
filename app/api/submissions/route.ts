@@ -61,8 +61,21 @@ export async function POST(request: NextRequest) {
   const check = validateFieldPayload(template.fields, parsed.data.data)
   if (!check.valid)
     return failure("VALIDATION_ERROR", JSON.stringify(check.errors), 400)
-  const now = new Date()
   const submission = await db.transaction(async (tx) => {
+    const [lockedTask] = await tx
+      .select()
+      .from(reportTasks)
+      .where(eq(reportTasks.id, task.id))
+      .for("update")
+    const now = new Date()
+    if (
+      !lockedTask ||
+      lockedTask.supervisedId !== actor.id ||
+      !["PENDING", "RETURNED"].includes(lockedTask.status) ||
+      lockedTask.scheduleAt > now ||
+      lockedTask.deadline < now
+    )
+      return null
     const [claimedTask] = await tx
       .update(reportTasks)
       .set({ status: "SUBMITTED", updatedAt: now })

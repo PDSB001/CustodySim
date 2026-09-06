@@ -78,6 +78,7 @@ function statusLabel(status: string) {
       SUBMITTED: "待审核",
       APPROVED: "已通过",
       EXPIRED: "已逾期",
+      CANCELLED: "已取消",
       REJECTED: "未通过",
     }[status] ?? status
   )

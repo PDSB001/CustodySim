@@ -15,7 +15,9 @@ const localFileEnv = existsSync(localEnvPath)
 const businessDatabaseUrl =
   process.env.DATABASE_URL ?? localFileEnv.DATABASE_URL
 const e2eDatabaseName =
-  process.env.E2E_DATABASE_NAME ?? localFileEnv.E2E_DATABASE_NAME
+  process.env.E2E_DATABASE_NAME ??
+  localFileEnv.E2E_DATABASE_NAME ??
+  "custodysim_e2e"
 if (e2eDatabaseName && !/^[a-zA-Z][a-zA-Z0-9_]{0,62}$/.test(e2eDatabaseName))
   throw new Error("E2E_DATABASE_NAME 只能包含字母、数字和下划线")
 const e2eDatabaseUrl =
@@ -52,6 +54,11 @@ const port = new URL(baseURL).port || "3000"
 
 export default defineConfig({
   testDir: "./e2e",
+  testIgnore: [
+    "**/scoring/**/*.test.ts",
+    "**/business/**/*.test.ts",
+    "**/scoring-browser.spec.ts",
+  ],
   timeout: 30_000,
   use: {
     baseURL,

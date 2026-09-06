@@ -218,26 +218,34 @@ export async function POST(request: NextRequest) {
   )
     return failure("FORBIDDEN", "不在监管范围内", 403)
   try {
-    const event = await recordScoreEvent({
-      supervisedId: parsed.data.supervisedId,
-      points: parsed.data.points,
-      reason: parsed.data.reason,
-      source: "MANUAL",
-      operatorId: actor.id,
-    })
-    if (!event) return failure("CONFLICT", "积分流水写入冲突，请重试", 409)
-    await writeAuditLog({
-      actor,
-      action: "SCORE",
-      actionLabel: parsed.data.points > 0 ? "手动加分" : "手动扣分",
-      entityType: "score_event",
-      entityId: event.id,
-      detail: {
+    const event = await db.transaction(async (tx) => {
+      const created = await recordScoreEvent({
         supervisedId: parsed.data.supervisedId,
         points: parsed.data.points,
         reason: parsed.data.reason,
-      },
+        source: "MANUAL",
+        operatorId: actor.id,
+        executor: tx,
+      })
+      if (!created) return null
+      await writeAuditLog(
+        {
+          actor,
+          action: "SCORE",
+          actionLabel: parsed.data.points > 0 ? "手动加分" : "手动扣分",
+          entityType: "score_event",
+          entityId: created.id,
+          detail: {
+            supervisedId: parsed.data.supervisedId,
+            points: parsed.data.points,
+            reason: parsed.data.reason,
+          },
+        },
+        tx,
+      )
+      return created
     })
+    if (!event) return failure("CONFLICT", "积分流水写入冲突，请重试", 409)
     return success(event, { status: 201 })
   } catch (error) {
     console.error("[API scores POST]", error)

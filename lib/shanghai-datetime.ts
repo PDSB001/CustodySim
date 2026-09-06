@@ -41,7 +41,8 @@ export function shanghaiLocalToIso(
   const match = local.match(/^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})(?::(\d{2}))?$/)
   if (!match) return null
   const [, date, time, seconds] = match
-  return `${date}T${time}:${seconds ?? "00"}+08:00`
+  const iso = `${date}T${time}:${seconds ?? "00"}+08:00`
+  return parseIso(iso) ? iso : null
 }
 
 /**
@@ -51,6 +52,16 @@ export function shanghaiLocalToIso(
  */
 export function parseIso(iso: string | null | undefined): Date | null {
   if (typeof iso !== "string") return null
+  const calendar = iso.match(/^(\d{4})-(\d{2})-(\d{2})T/i)
+  if (!calendar) return null
+  const [, yearText, monthText, dayText] = calendar
+  const year = Number(yearText)
+  const month = Number(monthText)
+  const day = Number(dayText)
+  const leap = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0)
+  const days = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+  // Date normalizes e.g. February 30 into March instead of rejecting it.
+  if (month < 1 || month > 12 || day < 1 || day > days[month - 1]) return null
   // 必须包含时区标识
   if (!/[zZ]|[+-]\d{2}:?\d{2}$/.test(iso)) return null
   const d = new Date(iso)
@@ -87,8 +98,8 @@ export function legacyDateAllDay(
   date: string | null | undefined,
 ): { startMs: number; endMs: number } | null {
   if (typeof date !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return null
-  const start = new Date(`${date}T00:00:00+08:00`)
-  if (Number.isNaN(start.getTime())) return null
+  const start = parseIso(`${date}T00:00:00+08:00`)
+  if (!start) return null
   return {
     startMs: start.getTime(),
     endMs: start.getTime() + 24 * 60 * 60 * 1000,

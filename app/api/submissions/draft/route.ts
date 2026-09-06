@@ -44,6 +44,7 @@ export async function POST(request: NextRequest) {
   const draft = await db.transaction(async (tx) => {
     const [lockedTask] = await tx
       .select({
+        supervisedId: reportTasks.supervisedId,
         status: reportTasks.status,
         scheduleAt: reportTasks.scheduleAt,
         deadline: reportTasks.deadline,
@@ -52,8 +53,10 @@ export async function POST(request: NextRequest) {
       .where(eq(reportTasks.id, task.id))
       .limit(1)
       .for("update")
+    const now = new Date()
     if (
       !lockedTask ||
+      lockedTask.supervisedId !== actor.id ||
       !["PENDING", "RETURNED"].includes(lockedTask.status) ||
       lockedTask.scheduleAt > now ||
       lockedTask.deadline < now
