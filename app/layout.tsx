@@ -7,7 +7,7 @@ import "./globals.css"
 
 export const metadata: Metadata = {
   title: "CustodySim 监管任务模拟系统",
-  description: "监管任务、执行、审核与档案闭环管理平台",
+  description: "模拟监禁中的监室日程、点名报到、任务呈报与在押档案",
 }
 
 export default async function RootLayout({

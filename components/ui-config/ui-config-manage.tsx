@@ -24,8 +24,8 @@ const UiConfigItem = z.object({
 const UiConfigList = z.array(UiConfigItem)
 
 const SCOPE_LABELS: Record<string, string> = {
-  SUPERVISOR: "监管者工作台",
-  SUPERVISED: "被监管者服务台",
+  SUPERVISOR: "值班室首页",
+  SUPERVISED: "监室首页",
 }
 
 export function UiConfigManage() {
@@ -74,7 +74,7 @@ export function UiConfigManage() {
       <PageHeader
         eyebrow="界面管理"
         title="标语与文案"
-        description="配置监管者与被监管者登录后看到的标题、副标题与顶部滚动标语；{name} 会被替换为当前用户名。"
+        description="设置值班室与监室首页的迎接语、执行提示和监所标语；{name} 代表当前登录人员姓名。"
       />
 
       <div className="grid gap-5 lg:grid-cols-2">

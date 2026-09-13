@@ -3,17 +3,22 @@ import { NextRequest } from "next/server"
 
 import { failure, success } from "@/lib/api-response"
 import { writeAuditLog } from "@/lib/audit"
-import { clearMfaTrustedDeviceCookie } from "@/lib/auth-cookie"
+import { clearMfaTrustedDeviceCookie, setAuthCookie } from "@/lib/auth-cookie"
 import { DisableMfaSchema } from "@/lib/auth-schemas"
 import { db } from "@/lib/db"
-import { mfaFactors, mfaRecoveryCodes, users } from "@/lib/db/schema"
-import { decryptMfaSecret, verifyTotpCode } from "@/lib/mfa"
 import {
-  consumeRecoveryCodeInTransaction,
+  mfaFactors,
+  mfaRecoveryCodes,
+  mfaLoginChallenges,
+  users,
+} from "@/lib/db/schema"
+import {
+  consumeMfaCodeInTransaction,
   revokeTrustedDevicesInTransaction,
 } from "@/lib/mfa-server"
 import { getSessionUser } from "@/lib/session"
-import { verifyPassword } from "@/lib/auth"
+import { signToken, verifyPassword } from "@/lib/auth"
+import { queueSecurityNotice } from "@/lib/security-mail-server"
 import {
   clearSensitiveActionFailures,
   getSensitiveActionIp,
@@ -28,14 +33,24 @@ export async function POST(request: NextRequest) {
     const sessionUser = await getSessionUser()
     if (!sessionUser) return failure("UNAUTHORIZED", "未登录", 401)
     const ip = getSensitiveActionIp(request.headers)
-    const retryAfter = await getSensitiveActionRetryAfterSeconds(sessionUser.id, ip)
+    const retryAfter = await getSensitiveActionRetryAfterSeconds(
+      sessionUser.id,
+      ip,
+    )
     if (retryAfter > 0)
-      return failure("RATE_LIMITED", `尝试过于频繁，请在 ${retryAfter} 秒后重试`, 429)
+      return failure(
+        "RATE_LIMITED",
+        `尝试过于频繁，请在 ${retryAfter} 秒后重试`,
+        429,
+      )
     const parsed = DisableMfaSchema.safeParse(await request.json())
     if (!parsed.success)
       return failure("VALIDATION_ERROR", "请填写当前密码和验证代码", 400)
     const [user] = await db
-      .select({ passwordHash: users.passwordHash })
+      .select({
+        passwordHash: users.passwordHash,
+        tokenVersion: users.tokenVersion,
+      })
       .from(users)
       .where(eq(users.id, sessionUser.id))
       .limit(1)
@@ -45,6 +60,19 @@ export async function POST(request: NextRequest) {
       return failure("VALIDATION_ERROR", "当前密码不正确", 400)
     }
     const result = await db.transaction(async (tx) => {
+      const [current] = await tx
+        .select()
+        .from(users)
+        .where(eq(users.id, sessionUser.id))
+        .for("update")
+      if (
+        !current ||
+        current.status !== "active" ||
+        current.role !== sessionUser.role ||
+        current.passwordHash !== user.passwordHash ||
+        current.tokenVersion !== user.tokenVersion
+      )
+        return "invalid" as const
       const [factor] = await tx
         .select()
         .from(mfaFactors)
@@ -57,17 +85,11 @@ export async function POST(request: NextRequest) {
         .limit(1)
         .for("update")
       if (!factor) return "missing" as const
-      const verifiedByTotp = verifyTotpCode(
-        decryptMfaSecret(factor.secretEncrypted),
+      const verified = await consumeMfaCodeInTransaction(
+        tx,
+        factor,
         parsed.data.code,
       )
-      const verified =
-        verifiedByTotp ||
-        (await consumeRecoveryCodeInTransaction(
-          tx,
-          factor.id,
-          parsed.data.code,
-        ))
       if (!verified) return "invalid" as const
       await tx
         .delete(mfaRecoveryCodes)
@@ -84,7 +106,19 @@ export async function POST(request: NextRequest) {
         },
         tx,
       )
-      return "disabled" as const
+      await tx
+        .update(users)
+        .set({ tokenVersion: current.tokenVersion + 1 })
+        .where(eq(users.id, current.id))
+      await tx
+        .delete(mfaLoginChallenges)
+        .where(eq(mfaLoginChallenges.userId, current.id))
+      await queueSecurityNotice(
+        tx,
+        current.id,
+        "账号的双重验证已关闭，所有受信任设备已撤销；如非本人操作，请立即联系管理员。",
+      )
+      return current.tokenVersion + 1
     })
     if (result === "missing") return failure("NOT_FOUND", "双重验证未启用", 404)
     if (result === "invalid") {
@@ -93,6 +127,14 @@ export async function POST(request: NextRequest) {
     }
     await clearSensitiveActionFailures(sessionUser.id, ip)
     const response = success({ disabled: true })
+    setAuthCookie(
+      response,
+      await signToken({
+        userId: sessionUser.id,
+        tokenVersion: result,
+        role: sessionUser.role,
+      }),
+    )
     clearMfaTrustedDeviceCookie(response)
     return response
   } catch (error) {

@@ -729,7 +729,7 @@
     align-items: flex-start;
     justify-content: space-between;
     gap: 1rem;
-    padding: 0.1rem 0.1rem 1.1rem;
+    padding: 0.1rem 0.1rem 0.25rem;
     flex-wrap: wrap;
   }
   .page-header__eyebrow {
@@ -823,6 +823,75 @@
   }
   .surface-panel__body {
     padding: 1.1rem 1.1rem;
+  }
+
+  .priority-action {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 1rem;
+    padding: 1.15rem;
+    transition: border-color 150ms ease;
+  }
+  .priority-action:hover {
+    border-color: var(--brand-500);
+  }
+  .priority-action__cta {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    color: var(--brand-700);
+    font-size: 0.85rem;
+    font-weight: 600;
+  }
+  .app-nav-item:focus-visible,
+  .priority-action:focus-visible {
+    outline: 2px solid var(--brand-300);
+    outline-offset: 3px;
+  }
+  @media (max-width: 640px) {
+    .priority-action {
+      grid-template-columns: auto minmax(0, 1fr);
+      gap: 0.7rem;
+      padding: 1rem;
+    }
+    .priority-action__cta {
+      grid-column: 2;
+    }
+    .surface-panel__head {
+      flex-wrap: wrap;
+      gap: 0.4rem;
+    }
+    .metric-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 0.65rem;
+    }
+    .metric-cell {
+      padding: 0.8rem;
+      min-width: 0;
+    }
+    .metric-cell:last-child:nth-child(odd) {
+      grid-column: 1 / -1;
+    }
+    .metric-cell:last-child:nth-child(odd) .metric-cell__value {
+      font-size: 1.25rem;
+    }
+    .page-header__actions {
+      flex-wrap: wrap;
+      max-width: 100%;
+    }
+    .app-nav-item {
+      min-height: 2.75rem;
+    }
+    .app-sidebar {
+      height: 100dvh;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .page-enter,
+    .workspace-enter {
+      animation: none;
+    }
   }
 
   /* Metric 卡（克制，去掉装饰） */

@@ -53,8 +53,8 @@ const UsersSchema = z.array(UserSchema)
 
 const ROLE_LABELS: Record<string, string> = {
   ADMIN: "管理员",
-  SUPERVISOR: "监管人",
-  SUPERVISED: "被监管人",
+  SUPERVISOR: "监管员",
+  SUPERVISED: "在押人员",
 }
 
 function roleBadgeTone(role: string): "brand" | "info" | "warning" {
@@ -136,7 +136,7 @@ export function UserManage() {
       <PageHeader
         eyebrow="账户与权限"
         title="账户管理"
-        description="创建并维护管理员、监管人和被监管人账号。"
+        description="创建并维护管理员、监管员和在押人员账号。"
         action={
           <Dialog open={open} onOpenChange={setOpen}>
             <DialogTrigger asChild>
@@ -190,8 +190,8 @@ export function UserManage() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="ADMIN">管理员</SelectItem>
-                      <SelectItem value="SUPERVISOR">监管人</SelectItem>
-                      <SelectItem value="SUPERVISED">被监管人</SelectItem>
+                      <SelectItem value="SUPERVISOR">监管员</SelectItem>
+                      <SelectItem value="SUPERVISED">在押人员</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>

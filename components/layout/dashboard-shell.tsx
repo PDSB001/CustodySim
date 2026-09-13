@@ -31,10 +31,10 @@ import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
 import { ThemeToggle } from "@/components/layout/theme-toggle"
 import type { SessionUser } from "@/lib/session"
 
-const navSections = [
+const navigationSource = [
   {
     label: "概览",
-    entries: [{ href: "/", label: "工作台", icon: LayoutDashboard }],
+    entries: [{ href: "/", label: "当班总览", icon: LayoutDashboard }],
   },
   {
     label: "基础资料",
@@ -59,20 +59,22 @@ const navSections = [
       { href: "/electronic-fences", label: "电子围栏", icon: MapPinned },
       { href: "/audit-logs", label: "操作审计", icon: FileClock },
       { href: "/login-logs", label: "登录日志", icon: LogIn },
+      { href: "/security-mail", label: "安全邮件", icon: ShieldCheck },
     ],
   },
   {
     label: "监管执行",
     entries: [
-      { href: "/supervision/tasks", label: "执行任务", icon: ClipboardList },
+      { href: "/supervision/tasks", label: "任务批阅", icon: ClipboardList },
       {
         href: "/supervision/checkins",
-        label: "日常打卡",
+        label: "点名记录",
         icon: CalendarCheck2,
       },
       { href: "/supervision/makeups", label: "补卡审核", icon: TimerReset },
       { href: "/scores", label: "积分与禁闭", icon: Trophy },
       { href: "/isolation-settings", label: "禁闭设置", icon: ShieldCheck },
+      { href: "/auto-review", label: "自动审核", icon: Settings2 },
       { href: "/profile-reviews", label: "档案审核", icon: FileCheck2 },
       { href: "/applications", label: "申请审核", icon: ClipboardList },
     ],
@@ -81,12 +83,63 @@ const navSections = [
     label: "界面",
     entries: [
       { href: "/ui-config", label: "标语与文案", icon: MessageSquareText },
-      { href: "/notices", label: "通知中心", icon: MessageSquareText },
+      { href: "/notices", label: "监所通知", icon: MessageSquareText },
       { href: "/chats", label: "聊天监管", icon: MessageSquareText },
       { href: "/official-seals", label: "印章中心", icon: Stamp },
     ],
   },
 ] as const
+
+const allEntries = navigationSource.flatMap((section) => [...section.entries])
+const navSections = [
+  { label: "总览", paths: ["/"] },
+  {
+    label: "当班执行",
+    paths: [
+      "/supervision/tasks",
+      "/supervision/checkins",
+      "/supervision/makeups",
+      "/applications",
+      "/scores",
+    ],
+  },
+  {
+    label: "在押档案",
+    paths: [
+      "/persons",
+      "/profile-records",
+      "/profile-reviews",
+      "/prisoner-number",
+      "/relations",
+    ],
+  },
+  { label: "监室联络", paths: ["/notices", "/chats", "/official-seals"] },
+  {
+    label: "执行规程",
+    paths: [
+      "/rules",
+      "/rule-groups",
+      "/report-templates",
+      "/checkin-rules",
+      "/electronic-fences",
+      "/isolation-settings",
+      "/auto-review",
+    ],
+  },
+  {
+    label: "监所设置",
+    paths: ["/orgs", "/accounts", "/configs", "/profile-forms", "/ui-config"],
+  },
+  {
+    label: "安全与审计",
+    paths: ["/security-mail", "/audit-logs", "/login-logs"],
+  },
+].map((section) => ({
+  label: section.label,
+  entries: section.paths.map((path) =>
+    allEntries.find((entry) => entry.href === path)!,
+  ),
+}))
 
 function pathIsActive(pathname: string, href: string) {
   return href === "/"
@@ -100,7 +153,7 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
     const activeSection = navSections.find((section) =>
       section.entries.some((entry) => pathIsActive(pathname, entry.href)),
     )
-    return new Set(["概览", "基础资料", activeSection?.label].filter(Boolean))
+    return new Set(["总览", "当班执行", activeSection?.label].filter(Boolean))
   })
 
   function toggleSection(label: string) {
@@ -120,13 +173,15 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
         </span>
         <div className="min-w-0">
           <p className="app-brand__name truncate">CustodySim</p>
-          <p className="app-brand__sub">管理控制台</p>
+          <p className="app-brand__sub">监所管理处</p>
         </div>
       </div>
 
       <nav className="flex min-h-0 flex-1 flex-col gap-3.5 overflow-y-auto pb-3">
         {navSections.map((section) => {
-          const expanded = openSections.has(section.label)
+          const expanded =
+            openSections.has(section.label) ||
+            section.entries.some((entry) => pathIsActive(pathname, entry.href))
           return (
             <div key={section.label} className="app-nav-group">
               <button
@@ -162,6 +217,7 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
                         key={href}
                         className={`app-nav-item ${active ? "is-active" : ""}`}
                         href={href}
+                        aria-current={active ? "page" : undefined}
                         onClick={onNavigate}
                       >
                         {children}
@@ -171,6 +227,7 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
                         key={href}
                         className={`app-nav-item ${active ? "is-active" : ""}`}
                         href={href}
+                        aria-current={active ? "page" : undefined}
                         onClick={onNavigate}
                       >
                         {children}
@@ -190,7 +247,7 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
             <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
             <span className="relative inline-flex size-1.5 rounded-full bg-emerald-400" />
           </span>
-          服务运行正常
+          CustodySim · 模拟监禁
         </div>
       </div>
     </div>
@@ -252,7 +309,7 @@ export function DashboardShell({
             <div className="min-w-0 flex-1">
               <p className="app-topbar__crumbs truncate">
                 <span className="text-muted-foreground font-medium">
-                  系统管理
+                  管理处
                 </span>
                 <span className="app-topbar__crumb-sep">/</span>
                 <span className="text-foreground truncate font-medium">

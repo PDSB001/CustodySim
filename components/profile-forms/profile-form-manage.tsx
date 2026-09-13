@@ -169,7 +169,7 @@ export function ProfileFormManage() {
       <PageHeader
         eyebrow="档案管理"
         title="档案表单"
-        description="设计被监管人填写的档案字段。记录保存时会固化表单快照，之后调整不会覆盖历史档案。"
+        description="规定在押档案各分卷的填写项目。已保存档案保留当时的填写格式，后续修订不改动历史卷宗。"
         action={
           <Button
             variant="brand"
@@ -197,7 +197,7 @@ export function ProfileFormManage() {
                   </StatusPill>
                 </div>
                 <p className="text-muted-foreground mt-2 text-xs">
-                  {form.fields.length} 个字段 · 面向被监管人填写
+                  {form.fields.length} 个字段 · 面向在押人员填写
                 </p>
               </div>
               <div className="flex gap-2">
@@ -269,7 +269,7 @@ export function ProfileFormManage() {
                     启用表单
                   </Label>
                   <p className="text-muted-foreground mt-0.5 text-xs">
-                    启用后被监管人可填写
+                    启用后在押人员可填写
                   </p>
                 </div>
               </div>

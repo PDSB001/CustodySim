@@ -11,13 +11,13 @@ const DEFAULTS: Record<
   { homeTitle: string; homeSubtitle: string; homeBanner: string }
 > = {
   SUPERVISOR: {
-    homeTitle: "你好，{name}",
-    homeSubtitle: "集中处理今日任务、打卡异常、补卡审核与执行汇报。",
+    homeTitle: "{name}，当班执勤",
+    homeSubtitle: "先批阅任务与补卡，再核对点名记录，落实本班监管事项。",
     homeBanner: "",
   },
   SUPERVISED: {
-    homeTitle: "你好，{name}",
-    homeSubtitle: "查看今天需要完成的任务、打卡时段与通知，所有操作从这里开始。",
+    homeTitle: "{name}，监室日程",
+    homeSubtitle: "按时点名，完成指定任务；留意批阅意见与监所通知。",
     homeBanner: "",
   },
 }

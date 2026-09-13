@@ -20,6 +20,7 @@ import {
   CardTitle,
 } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
+import { SecurityEmailSettings } from "@/components/security/security-email-settings"
 
 type TrustedDevice = {
   id: string
@@ -196,6 +197,7 @@ export function MfaSettings({ username }: { username: string }) {
 
   return (
     <div className="space-y-5">
+      <SecurityEmailSettings mfaEnabled={status?.enabled ?? false} />
       {error ? (
         <p
           role="alert"

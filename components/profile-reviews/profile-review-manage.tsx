@@ -79,7 +79,7 @@ export function ProfileReviewManage() {
       <PageHeader
         eyebrow="档案管理"
         title="档案审核"
-        description="已配置监管关系的档案先由监管人会签，再流转至管理处；未配置时直接进入管理处审核。审核通过后，系统锁定记录并生成档案编号。"
+        description="核对在押资料并签署会签意见。档案先由负责监管员会签，再报管理处核准；未指定监管员时直接送管理处。全部核准后编号归档。"
       />
       {pending.map((review) => (
         <Card key={review.id} className="surface-panel--interactive">
@@ -206,7 +206,7 @@ export function ProfileReviewManage() {
           <EmptyState
             icon={FileCheck2}
             title="暂无待处理档案会签"
-            description="被监管人提交档案且轮到你处理时，会显示在这里。"
+            description="在押人员提交档案且轮到你处理时，会显示在这里。"
           />
         </div>
       ) : null}

@@ -85,9 +85,9 @@ const RoommateSummarySchema = z.object({
 
 const homeContent = {
   SUPERVISOR: {
-    eyebrow: "监管执行",
+    eyebrow: "值班室 · 监管执勤",
     tone: "info" as const,
-    toneLabel: "监管范围正常",
+    toneLabel: "值班监管员",
     cards: [
       {
         label: "待审核任务",
@@ -104,37 +104,37 @@ const homeContent = {
         tone: "warning" as const,
       },
       {
-        label: "风险提示",
+        label: "未读通知",
         value: "0",
-        detail: <span>当前正常</span>,
+        detail: <span>待查阅的正式通知</span>,
         icon: BellRing,
         tone: "danger" as const,
       },
     ],
   },
   SUPERVISED: {
-    eyebrow: "今日服务",
+    eyebrow: "监室 · 每日执行",
     tone: "success" as const,
-    toneLabel: "服务状态正常",
+    toneLabel: "模拟服刑",
     cards: [
       {
         label: "待完成任务",
         value: "0",
-        detail: <span>今日任务</span>,
+        detail: <span>尚未提交的任务</span>,
         icon: ClipboardCheck,
         tone: "brand" as const,
       },
       {
         label: "未读通知",
         value: "0",
-        detail: <span>暂无新消息</span>,
+        detail: <span>待查阅的监所通知</span>,
         icon: BellRing,
         tone: "info" as const,
       },
       {
-        label: "档案状态",
+        label: "在押状态",
         value: "正常",
-        detail: <span>信息有效</span>,
+        detail: <span>以在押档案为准</span>,
         icon: UserRound,
         tone: "success" as const,
       },
@@ -146,13 +146,13 @@ const serviceLinks = {
   SUPERVISOR: [
     {
       href: "/supervisor/tasks",
-      label: "任务审核",
+      label: "任务批阅",
       detail: "处理已提交任务",
       icon: ClipboardCheck,
     },
     {
       href: "/supervisor/checkins",
-      label: "打卡总览",
+      label: "点名总览",
       detail: "查看今日执行状态",
       icon: CalendarCheck2,
     },
@@ -172,20 +172,20 @@ const serviceLinks = {
   SUPERVISED: [
     {
       href: "/my/tasks",
-      label: "我的任务",
-      detail: "填写并提交任务表单",
+      label: "服刑任务",
+      detail: "完成指定内容，提交监管员批阅",
       icon: ClipboardCheck,
     },
     {
       href: "/my/checkins",
-      label: "打卡记录",
+      label: "点名打卡",
       detail: "查看时段与补卡状态",
       icon: CalendarCheck2,
     },
     {
       href: "/my/notices",
       label: "通知公告",
-      detail: "查看监管通知",
+      detail: "查阅监所通知与执行要求",
       icon: BellRing,
     },
     {
@@ -205,9 +205,13 @@ function ServiceLinks({ kind }: { kind: WorkspaceKind }) {
           <span className="glyph">
             <ArrowRight className="size-3.5" />
           </span>
-          常用功能
+          {kind === "SUPERVISOR" ? "执勤入口" : "监室事务"}
         </h2>
-        <p className="surface-panel__sub">按需进入其他业务页面</p>
+        <p className="surface-panel__sub">
+          {kind === "SUPERVISOR"
+            ? "审核、点名与执行记录"
+            : "呈报任务、查阅通知与在押档案"}
+        </p>
       </div>
       <div className="divide-border/60 divide-y">
         {serviceLinks[kind].map(({ href, label, detail, icon: Icon }) => (
@@ -248,7 +252,9 @@ function WorkspacePriority({
     kind === "SUPERVISOR"
       ? pendingReviewCount > 0
         ? {
-            href: summary.pendingTasks ? "/supervisor/tasks" : "/supervisor/makeups",
+            href: summary.pendingTasks
+              ? "/supervisor/tasks"
+              : "/supervisor/makeups",
             title: `有 ${pendingReviewCount} 项监管事项待处理`,
             description: "优先处理任务审核与补卡申请，避免待办积压。",
             action: "前往处理",
@@ -256,9 +262,9 @@ function WorkspacePriority({
           }
         : {
             href: "/supervisor/checkins",
-            title: "当前没有待处理事项",
-            description: "可查看今日打卡总览，确认监管执行状态。",
-            action: "查看打卡总览",
+            title: "任务与补卡暂无待审",
+            description: "核对今日点名记录，留意漏点与补卡情况。",
+            action: "查看点名记录",
             icon: CalendarCheck2,
           }
       : isOnLeave
@@ -272,15 +278,15 @@ function WorkspacePriority({
         : summary.myPendingTasks > 0
           ? {
               href: "/my/tasks",
-              title: `今日有 ${summary.myPendingTasks} 项待完成任务`,
-              description: "请优先完成今日任务，提交后可在记录中查看状态。",
-              action: "查看我的任务",
+              title: `还有 ${summary.myPendingTasks} 项任务待呈报`,
+              description: "按截止时间完成指定内容，提交后等待监管员批阅。",
+              action: "查看服刑任务",
               icon: ClipboardCheck,
             }
           : {
               href: "/my/checkins",
-              title: "今日任务已完成",
-              description: "可查看打卡记录与最新通知，确认今日状态。",
+              title: "当前没有待提交任务",
+              description: "仍需按时完成点名打卡，并留意监所通知与批阅结果。",
               action: "查看打卡记录",
               icon: CalendarCheck2,
             }
@@ -289,20 +295,20 @@ function WorkspacePriority({
   return (
     <Link
       href={priority.href}
-      className="surface-panel surface-panel--brand group page-enter flex items-center gap-4 p-4 transition-colors hover:border-brand-500/40 sm:p-5"
+      className="surface-panel surface-panel--brand priority-action group page-enter"
     >
-      <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-brand-500/12 text-brand-700">
+      <span className="bg-brand-500/12 text-brand-700 grid size-10 shrink-0 place-items-center rounded-xl">
         <Icon className="size-5" />
       </span>
       <span className="min-w-0 flex-1">
-        <span className="block text-sm font-semibold text-foreground">
+        <span className="text-foreground block text-sm font-semibold">
           {priority.title}
         </span>
-        <span className="mt-1 block text-sm text-muted-foreground">
+        <span className="text-muted-foreground mt-1 block text-sm">
           {priority.description}
         </span>
       </span>
-      <span className="hidden items-center gap-1 text-sm font-medium text-brand-700 sm:inline-flex">
+      <span className="priority-action__cta">
         {priority.action}
         <ArrowRight className="size-4 transition-transform group-hover:translate-x-0.5" />
       </span>
@@ -328,7 +334,7 @@ function ProfileSummaryCard() {
   const fields = [
     { label: "人员编号", value: data?.number ?? "待分配", icon: Hash },
     {
-      label: "所在组织",
+      label: "所属监室",
       value: data?.organizationPath ?? "待分配监室",
       icon: Building2,
     },
@@ -367,7 +373,7 @@ function ProfileSummaryCard() {
           <span className="glyph">
             <UserRound className="size-3.5" />
           </span>
-          我的监管信息
+          在押档案摘要
         </h2>
         <p className="surface-panel__sub">编号、监室与档案摘要</p>
       </div>
@@ -375,14 +381,14 @@ function ProfileSummaryCard() {
         {fields.map(({ label, value, icon: Icon }) => (
           <div
             key={label}
-            className={`min-w-0 px-5 py-4 sm:px-6 lg:px-5 ${label === "人员编号" || label === "所在组织" || label === "刑期起止" ? "lg:col-span-2" : ""}`}
+            className={`min-w-0 px-5 py-4 sm:px-6 lg:px-5 ${label === "人员编号" || label === "所属监室" || label === "刑期起止" ? "lg:col-span-2" : ""}`}
           >
             <div className="text-muted-foreground flex items-center gap-1.5 text-xs font-medium">
               <Icon className="size-3.5" />
               {label}
             </div>
             <p
-              className="text-foreground mt-2 break-words text-sm leading-5 font-semibold"
+              className="text-foreground mt-2 text-sm leading-5 font-semibold break-words"
               title={value}
             >
               {value}
@@ -392,7 +398,7 @@ function ProfileSummaryCard() {
       </div>
       {archiveLinked ? (
         <p className="border-border/60 text-muted-foreground border-t px-5 py-2.5 text-xs sm:px-6">
-          部分信息已从个人档案同步；管理处维护主档后会优先显示主档数据。
+          部分信息来自个人档案。如与在押情况不符，请向管理处申请核对。
         </p>
       ) : null}
     </section>
@@ -491,21 +497,22 @@ export function RoleWorkspaceHome({
       ? {
           待审核任务: String(summary.data?.pendingTasks ?? 0),
           补卡申请: String(summary.data?.pendingMakeups ?? 0),
+          未读通知: String(summary.data?.unreadNotices ?? 0),
         }
       : {
           待完成任务: String(summary.data?.myPendingTasks ?? 0),
           未读通知: String(summary.data?.unreadNotices ?? 0),
-          档案状态: summary.data?.custodyStatus ?? "正常",
+          在押状态: summary.data?.custodyStatus ?? "待核实",
         }
-  const homeTitle = (uiConfig.data?.homeTitle ?? "你好，{name}").replace(
-    "{name}",
-    user.name,
-  )
+  const homeTitle = (
+    uiConfig.data?.homeTitle ??
+    (kind === "SUPERVISOR" ? "{name}，当班执勤" : "{name}，监室日程")
+  ).replace("{name}", user.name)
   const homeSubtitle =
     uiConfig.data?.homeSubtitle ??
     (kind === "SUPERVISOR"
-      ? "集中处理今日任务、打卡异常、补卡审核与执行汇报。"
-      : "查看今天需要完成的任务、打卡时段与通知，所有操作从这里开始。")
+      ? "先批阅任务与补卡，再核对点名记录，落实本班监管事项。"
+      : "按时点名，完成指定任务；留意批阅意见与监所通知。")
 
   return (
     <div className="workspace-stack mx-auto max-w-5xl">
@@ -524,7 +531,7 @@ export function RoleWorkspaceHome({
 
       {summary.isLoading ? (
         <LoadingBlock className="page-enter h-20" />
-      ) : summary.data ? (
+      ) : summary.data && !summary.error ? (
         <WorkspacePriority kind={kind} summary={summary.data} />
       ) : null}
 
@@ -557,9 +564,6 @@ export function RoleWorkspaceHome({
         </QueryStateView>
       </section>
 
-      {kind === "SUPERVISED" ? <ProfileSummaryCard /> : null}
-      {kind === "SUPERVISED" ? <RoommateSummaryCard /> : null}
-
       {kind === "SUPERVISOR" ? (
         <section className="page-enter grid gap-4 lg:grid-cols-[minmax(0,1.25fr)_minmax(16rem,0.75fr)]">
           <div className="surface-panel">
@@ -568,15 +572,52 @@ export function RoleWorkspaceHome({
                 <span className="glyph">
                   <Inbox className="size-3.5" />
                 </span>
-                待处理队列
+                本班审核
               </h2>
-              <p className="surface-panel__sub">按时效集中处理监管事项</p>
+              <p className="surface-panel__sub">当前监管范围内的待审事项</p>
             </div>
-            <EmptyState
-              icon={Inbox}
-              title="当前没有待处理事项"
-              description="新的任务提交、补卡申请和风险提示会统一出现在这里。"
-            />
+            <QueryStateView
+              isLoading={summary.isLoading}
+              error={summary.error}
+              onRetry={() => summary.refetch()}
+              loading={<LoadingBlock className="h-36" />}
+            >
+              <div className="divide-border/60 divide-y">
+                {[
+                  {
+                    href: "/supervisor/tasks",
+                    label: "任务批阅",
+                    count: summary.data?.pendingTasks,
+                    detail: "核对呈报内容，给出批阅意见",
+                  },
+                  {
+                    href: "/supervisor/makeups",
+                    label: "补卡审核",
+                    count: summary.data?.pendingMakeups,
+                    detail: "核实漏点原因与补卡凭据",
+                  },
+                ].map((item) => (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    className="hover:bg-muted/50 flex items-center gap-3 px-5 py-5"
+                  >
+                    <span className="flex-1">
+                      <span className="block text-sm font-semibold">
+                        {item.label}
+                      </span>
+                      <span className="text-muted-foreground mt-1 block text-xs">
+                        {item.detail}
+                      </span>
+                    </span>
+                    <StatusPill tone={item.count ? "warning" : "neutral"}>
+                      {item.count ?? 0} 项待审
+                    </StatusPill>
+                    <ArrowRight className="text-muted-foreground size-4" />
+                  </Link>
+                ))}
+              </div>
+            </QueryStateView>
           </div>
           <ServiceLinks kind={kind} />
         </section>
@@ -588,9 +629,11 @@ export function RoleWorkspaceHome({
                 <span className="glyph">
                   <CalendarCheck2 className="size-3.5" />
                 </span>
-                今日打卡
+                今日点名 · 打卡
               </h2>
-              <p className="surface-panel__sub">按时打卡，保持记录完整</p>
+              <p className="surface-panel__sub">
+                按规定时段报到，漏点需申请补卡
+              </p>
             </div>
             <div className="surface-panel__body">
               <CheckinHomeCard />
@@ -599,6 +642,8 @@ export function RoleWorkspaceHome({
           <ServiceLinks kind={kind} />
         </section>
       )}
+      {kind === "SUPERVISED" ? <ProfileSummaryCard /> : null}
+      {kind === "SUPERVISED" ? <RoommateSummaryCard /> : null}
     </div>
   )
 }
@@ -613,19 +658,19 @@ export function RoleWorkspacePlaceholder({
   return (
     <div className="workspace-stack mx-auto max-w-5xl">
       <PageHeader
-        eyebrow={kind === "SUPERVISOR" ? "监管执行" : "个人服务"}
+        eyebrow={kind === "SUPERVISOR" ? "监管执行" : "在押事务"}
         title={title}
         description={
           kind === "SUPERVISOR"
-            ? "集中查看和处理本人监管范围内的业务事项。"
-            : "查看与你相关的业务信息与办理状态。"
+            ? "查阅所辖人员记录，处理当班监管事项。"
+            : "查阅本人在押记录与呈报事项的办理进度。"
         }
       />
       <div className="surface-panel">
         <EmptyState
           icon={Inbox}
-          title="暂无相关内容"
-          description="数据接入后会在这里按时间和状态清晰展示。"
+          title="暂无登记记录"
+          description="此项暂无已登记记录，请留意后续监所通知。"
         />
       </div>
     </div>

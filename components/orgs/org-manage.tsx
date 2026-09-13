@@ -299,7 +299,7 @@ export function OrgManage() {
       <PageHeader
         eyebrow="基础资料"
         title="组织架构"
-        description="机构下固定分为监管组织与被监管人员集合；人员集合按监区、监室逐级管理。"
+        description="分别登记监管组织与在押编制，在押人员按监区、监室逐级编入。"
         action={
           <Dialog open={open} onOpenChange={setOpen}>
             <DialogTrigger asChild>
@@ -314,7 +314,7 @@ export function OrgManage() {
               </DialogHeader>
               <div className="space-y-4 py-1">
                 <div className="rounded-md border border-info/30 bg-info/10 px-3 py-2 text-xs leading-5 text-info">
-                  系统会按父级自动限制可创建类型：机构下只能创建两大分支；被监管人员集合下只能创建监区，监区下只能创建监室。
+                  编制层级：机构下设监管组织和在押编制；在押编制下设监区，监区下设监室。
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="org-parent">上级组织</Label>
@@ -409,7 +409,7 @@ export function OrgManage() {
               <EmptyState
                 icon={Building2}
                 title="暂无组织"
-                description="点击右上角「新增下级组织」开始搭建监管组织与被监管人员集合。"
+                description="点击右上角「新增下级组织」开始搭建监管组织与在押编制。"
               />
             ) : (
               <ul className="flex flex-col">
@@ -435,7 +435,7 @@ export function OrgManage() {
             <ol className="mt-3 space-y-2.5 text-xs leading-5 text-muted-foreground">
               <li>
                 <b className="mr-1 font-semibold text-brand-700">1.</b>{" "}
-                顶级机构分为监管组织和被监管人员集合。
+                顶级机构分为监管组织和在押编制。
               </li>
               <li>
                 <b className="mr-1 font-semibold text-brand-700">2.</b>{" "}
@@ -443,11 +443,11 @@ export function OrgManage() {
               </li>
               <li>
                 <b className="mr-1 font-semibold text-brand-700">3.</b>{" "}
-                被监管人员集合必须先划分监区，再划分监室。
+                在押编制必须先划分监区，再划分监室。
               </li>
               <li>
                 <b className="mr-1 font-semibold text-brand-700">4.</b>{" "}
-                被监管人员应归属到具体监室。
+                在押人员应归属到具体监室。
               </li>
             </ol>
           </CardContent>

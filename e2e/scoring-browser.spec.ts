@@ -4,6 +4,97 @@ import { eq, inArray, sql } from "drizzle-orm"
 import * as s from "../lib/db/schema"
 import { hashPassword } from "../lib/auth"
 
+test("管理员页面读取当前环境模板，保存设置并在刷新后保留", async ({
+  page,
+  playwright,
+  baseURL,
+}, testInfo) => {
+  const admin = randomUUID()
+  const templateIds = [randomUUID(), randomUUID()]
+  const templateNames = templateIds.map((id) => `当前环境审核模板 ${id}`)
+  const password = "E2eSettings12345"
+  const anonymous = await playwright.request.newContext({ baseURL })
+  try {
+    expect((await anonymous.get("/api/admin/auto-review")).status()).toBe(403)
+    await db.delete(s.autoReviewSettings)
+    await db.insert(s.users).values({
+      id: admin,
+      username: `e2e_${admin}`,
+      name: "自动审核设置测试管理员",
+      role: "ADMIN",
+      passwordHash: await hashPassword(password),
+      mustChangePassword: false,
+    })
+    await db
+      .insert(s.reportTemplates)
+      .values(
+        templateIds.map((id, index) => ({ id, name: templateNames[index] })),
+      )
+    await page.goto("/login")
+    await page.getByLabel("账号").fill(`e2e_${admin}`)
+    await page.getByLabel("密码").fill(password)
+    await page.getByRole("button", { name: /登\s*录/ }).click()
+    await expect(page).toHaveURL(`${baseURL}/`)
+    await page.goto("/auto-review")
+    await expect(
+      page.getByRole("heading", { name: "自动审核", exact: true }),
+    ).toBeVisible()
+    await expect(
+      page.getByText("API Key：未配置，请在服务端设置 GLM_API_KEY"),
+    ).toBeVisible()
+    await page.getByLabel("审核账号", { exact: true }).selectOption(admin)
+    await page.getByLabel(templateNames[0], { exact: true }).check()
+    await page.getByLabel(templateNames[1], { exact: true }).check()
+    await page.getByRole("switch", { name: "启用自动审核" }).check()
+    await expect(
+      page.getByRole("button", { name: "保存设置", exact: true }),
+    ).toBeDisabled()
+    await page.getByRole("switch", { name: "启用自动审核" }).uncheck()
+    const saved = page.waitForResponse(
+      (response) =>
+        response.url().endsWith("/api/admin/auto-review") &&
+        response.request().method() === "PUT",
+    )
+    await page.getByRole("button", { name: "保存设置", exact: true }).click()
+    expect((await saved).status()).toBe(200)
+    await page.reload()
+    await expect(page.getByLabel("审核账号", { exact: true })).toHaveValue(
+      admin,
+    )
+    await expect(
+      page.getByLabel(templateNames[0], { exact: true }),
+    ).toBeChecked()
+    await expect(
+      page.getByLabel(templateNames[1], { exact: true }),
+    ).toBeChecked()
+    await expect(
+      page.getByRole("switch", { name: "启用自动审核" }),
+    ).not.toBeChecked()
+    const payload = await (
+      await page.request.get("/api/admin/auto-review")
+    ).json()
+    expect(payload.data.settings).toMatchObject({
+      enabled: false,
+      actorId: admin,
+      templateIds,
+    })
+    expect(payload.data).not.toHaveProperty("apiKey")
+    await page.screenshot({
+      path: `.logs/auto-review-${testInfo.project.name}.png`,
+      fullPage: true,
+    })
+  } finally {
+    await anonymous.dispose()
+    await db.delete(s.autoReviewSettings)
+    await db.delete(s.auditLogs).where(eq(s.auditLogs.actorId, admin))
+    await db.delete(s.loginLogs).where(eq(s.loginLogs.userId, admin))
+    await db.delete(s.users).where(eq(s.users.id, admin))
+    await db
+      .delete(s.reportTemplates)
+      .where(inArray(s.reportTemplates.id, templateIds))
+  }
+})
+
 let db: typeof import("../lib/db").db
 let getShanghaiWeekKey: typeof import("../lib/scoring").getShanghaiWeekKey
 let runWeeklyScoreReview: typeof import("../lib/scoring").runWeeklyScoreReview
@@ -37,38 +128,32 @@ test("真实登录、提交审核后更正上周积分，取消的检讨在页�
   const deadline = new Date(now.getTime() + 86_400_000)
   const adminApi = await playwright.request.newContext({ baseURL })
   try {
-    await db
-      .insert(s.users)
-      .values(
-        ids.map((id, i) => ({
-          id,
-          username: `e2e_${id}`,
-          name: `e2e_${id}`,
-          passwordHash,
-          role: i ? "ADMIN" : "SUPERVISED",
-          mustChangePassword: false,
-        })),
-      )
+    await db.insert(s.users).values(
+      ids.map((id, i) => ({
+        id,
+        username: `e2e_${id}`,
+        name: `e2e_${id}`,
+        passwordHash,
+        role: i ? "ADMIN" : "SUPERVISED",
+        mustChangePassword: false,
+      })),
+    )
     await db
       .insert(s.persons)
       .values({ userId: user, name: user, custodyStatus: "ISOLATION" })
-    await db
-      .insert(s.scoreEvents)
-      .values({
-        supervisedId: user,
-        points: -1,
-        reason: "E2E fixture",
-        source: "MANUAL",
-        weekKey,
-      })
-    await db
-      .insert(s.scoreWeekReviews)
-      .values({
-        supervisedId: user,
-        weekKey,
-        totalScore: -1,
-        result: "ISOLATION",
-      })
+    await db.insert(s.scoreEvents).values({
+      supervisedId: user,
+      points: -1,
+      reason: "E2E fixture",
+      source: "MANUAL",
+      weekKey,
+    })
+    await db.insert(s.scoreWeekReviews).values({
+      supervisedId: user,
+      weekKey,
+      totalScore: -1,
+      result: "ISOLATION",
+    })
     const [order] = await db
       .insert(s.isolationOrders)
       .values({
@@ -100,13 +185,11 @@ test("真实登录、提交审核后更正上周积分，取消的检讨在页�
         },
       ])
       .returning()
-    await db
-      .insert(s.isolationReflectionTasks)
-      .values({
-        isolationOrderId: order!.id,
-        taskId: reflection!.id,
-        dayKey: getShanghaiWeekKey(now),
-      })
+    await db.insert(s.isolationReflectionTasks).values({
+      isolationOrderId: order!.id,
+      taskId: reflection!.id,
+      dayKey: getShanghaiWeekKey(now),
+    })
 
     await page.goto("/login")
     await page.getByLabel("账号").fill(`e2e_${user}`)

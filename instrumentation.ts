@@ -8,11 +8,17 @@ export async function register() {
       await import("@/lib/checkin")
     const { startReportTaskScheduler } = await import("@/lib/task-engine")
     const { startIsolationScheduler } = await import("@/lib/scoring")
+    const { startAutoReviewScheduler } =
+      await import("@/lib/auto-review-server")
     startGpsPrivacyRetentionScheduler()
     startScheduledCustodyStatusScheduler()
     startLeaveSystemMakeupScheduler()
     startCheckinStatusScheduler()
     startReportTaskScheduler()
     startIsolationScheduler()
+    startAutoReviewScheduler()
+    const { startSecurityMailScheduler } =
+      await import("@/lib/security-mail-server")
+    startSecurityMailScheduler()
   }
 }

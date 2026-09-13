@@ -38,16 +38,16 @@ const UiConfigSchema = z.object({
 
 const workspaceConfig = {
   SUPERVISOR: {
-    title: "监管工作台",
-    eyebrow: "执行中心",
-    roleLabel: "监管者",
+    title: "值班室",
+    eyebrow: "监管执勤",
+    roleLabel: "监管员",
     entries: [
-      { href: "/supervisor", label: "工作台", icon: ClipboardCheck },
-      { href: "/supervisor/tasks", label: "执行任务", icon: ClipboardCheck },
-      { href: "/supervisor/checkins", label: "日常打卡", icon: CalendarCheck2 },
+      { href: "/supervisor", label: "执勤总览", icon: ClipboardCheck },
+      { href: "/supervisor/tasks", label: "任务批阅", icon: ClipboardCheck },
+      { href: "/supervisor/checkins", label: "点名记录", icon: CalendarCheck2 },
       { href: "/supervisor/makeups", label: "补卡审核", icon: TimerReset },
       { href: "/supervisor/reports", label: "执行汇报", icon: FileText },
-      { href: "/supervisor/scores", label: "积分排行", icon: Trophy },
+      { href: "/supervisor/scores", label: "行为考核", icon: Trophy },
       { href: "/supervisor/notices", label: "通知公告", icon: BellRing },
       { href: "/supervisor/chat", label: "聊天监管", icon: MessageCircle },
       {
@@ -64,18 +64,18 @@ const workspaceConfig = {
     ],
   },
   SUPERVISED: {
-    title: "个人服务台",
-    eyebrow: "个人服务",
-    roleLabel: "被监管者",
+    title: "我的监室",
+    eyebrow: "监室事务",
+    roleLabel: "在押人员",
     entries: [
-      { href: "/my", label: "我的首页", icon: UserRound },
-      { href: "/my/tasks", label: "我的任务", icon: ClipboardCheck },
-      { href: "/my/checkins", label: "打卡记录", icon: CalendarCheck2 },
+      { href: "/my", label: "监室首页", icon: UserRound },
+      { href: "/my/tasks", label: "服刑任务", icon: ClipboardCheck },
+      { href: "/my/checkins", label: "点名打卡", icon: CalendarCheck2 },
       { href: "/my/electronic-fence", label: "电子围栏", icon: MapPinned },
       { href: "/my/notices", label: "通知公告", icon: BellRing },
       { href: "/my/chat", label: "监室聊天", icon: MessageCircle },
       { href: "/my/profile", label: "个人档案", icon: FileText },
-      { href: "/my/scores", label: "积分排行", icon: Trophy },
+      { href: "/my/scores", label: "行为考核", icon: Trophy },
       { href: "/my/applications", label: "我的申请", icon: ClipboardCheck },
     ],
   },
@@ -95,6 +95,44 @@ function WorkspaceSidebar({
 }) {
   const pathname = usePathname()
   const config = workspaceConfig[kind]
+  const groups =
+    kind === "SUPERVISOR"
+      ? [
+          {
+            label: "当班执行",
+            paths: [
+              "/supervisor",
+              "/supervisor/tasks",
+              "/supervisor/checkins",
+              "/supervisor/makeups",
+              "/supervisor/alerts",
+            ],
+          },
+          {
+            label: "呈报与档案",
+            paths: [
+              "/supervisor/reports",
+              "/supervisor/applications",
+              "/supervisor/profile-reviews",
+              "/supervisor/scores",
+            ],
+          },
+          {
+            label: "监室联络",
+            paths: ["/supervisor/notices", "/supervisor/chat"],
+          },
+        ]
+      : [
+          {
+            label: "每日执行",
+            paths: ["/my", "/my/tasks", "/my/checkins", "/my/electronic-fence"],
+          },
+          {
+            label: "在押事务",
+            paths: ["/my/profile", "/my/scores", "/my/applications"],
+          },
+          { label: "监室联络", paths: ["/my/notices", "/my/chat"] },
+        ]
 
   return (
     <div className="app-sidebar">
@@ -109,39 +147,47 @@ function WorkspaceSidebar({
       </div>
 
       <nav className="flex min-h-0 flex-1 flex-col gap-3.5 overflow-y-auto pb-3">
-        <div className="app-nav-group">
-          <p className="app-nav-group__title">{config.eyebrow}</p>
-          {config.entries.map(({ href, label, icon: Icon }) => {
-            const active = pathIsActive(pathname, href)
-            const className = `app-nav-item ${active ? "is-active" : ""}`
-            const children = (
-              <>
-                <Icon className="app-nav-item__icon" />
-                <span>{label}</span>
-              </>
-            )
-            const isMapEntry = href === "/my/electronic-fence"
-            return isMapEntry ? (
-              <a
-                key={href}
-                className={className}
-                href={href}
-                onClick={onNavigate}
-              >
-                {children}
-              </a>
-            ) : (
-              <Link
-                key={href}
-                className={className}
-                href={href}
-                onClick={onNavigate}
-              >
-                {children}
-              </Link>
-            )
-          })}
-        </div>
+        {groups.map((group) => (
+          <div key={group.label} className="app-nav-group">
+            <p className="app-nav-group__title">{group.label}</p>
+            {group.paths
+              .map((path) =>
+                config.entries.find((entry) => entry.href === path)!,
+              )
+              .map(({ href, label, icon: Icon }) => {
+                const active = pathIsActive(pathname, href)
+                const className = `app-nav-item ${active ? "is-active" : ""}`
+                const children = (
+                  <>
+                    <Icon className="app-nav-item__icon" />
+                    <span>{label}</span>
+                  </>
+                )
+                const isMapEntry = href === "/my/electronic-fence"
+                return isMapEntry ? (
+                  <a
+                    key={href}
+                    className={className}
+                    aria-current={active ? "page" : undefined}
+                    href={href}
+                    onClick={onNavigate}
+                  >
+                    {children}
+                  </a>
+                ) : (
+                  <Link
+                    key={href}
+                    className={className}
+                    aria-current={active ? "page" : undefined}
+                    href={href}
+                    onClick={onNavigate}
+                  >
+                    {children}
+                  </Link>
+                )
+              })}
+          </div>
+        ))}
       </nav>
 
       <div className="border-t border-white/10 pt-3 text-[11px] text-white/50">

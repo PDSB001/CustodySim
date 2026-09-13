@@ -543,7 +543,7 @@ export async function runWeeklyScoreReview(now = new Date()) {
     if (order) {
       await db.insert(notices).values({
         title: "禁闭公示",
-        content: `${user.name} 已于每周一 00:00 进入禁闭室，禁闭至 ${order.endAt.toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" })}。`,
+        content: `${user.name} 因周度行为考核积分为 ${totalScore} 分，依积分规则执行禁闭。执行期限：${order.startAt.toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" })} 至 ${order.endAt.toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" })}。禁闭期间按加强点名安排报到，并按时呈报每日反思任务。`,
         targetRole: "ALL",
         priority: "IMPORTANT",
         published: true,

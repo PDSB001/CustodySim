@@ -222,7 +222,7 @@ function NewConversationDialog() {
             <Label>聊天对象</Label>
             <Select value={targetId} onValueChange={setTargetId}>
               <SelectTrigger>
-                <SelectValue placeholder="请选择被监管人" />
+                <SelectValue placeholder="请选择在押人员" />
               </SelectTrigger>
               <SelectContent>
                 {candidates.data?.map((candidate) => (
@@ -502,12 +502,12 @@ export function ChatWorkspace({ user }: { user: SessionUser }) {
   return (
     <div className="workspace-stack mx-auto max-w-7xl">
       <PageHeader
-        eyebrow="沟通中心"
+        eyebrow="监室联络"
         title={user.role === "SUPERVISED" ? "监室聊天" : "聊天监管"}
         description={
           user.role === "SUPERVISED"
-            ? "同监室可直接聊天；跨监室私聊需管理员批准。普通消息保留14天可见。"
-            : "查看监管范围内聊天与跨监室申请；监管侧消息最长保留28天。"
+            ? "同监室可直接交流，跨监室私聊须报管理处批准。本人可查阅最近 14 天的普通消息。"
+            : "查阅所辖人员的监室交流记录与跨监室联络申请。监管侧消息最长保留 28 天。"
         }
         action={
           user.role === "SUPERVISED" ? <NewConversationDialog /> : undefined

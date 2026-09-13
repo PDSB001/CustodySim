@@ -1,4 +1,5 @@
 import { eq } from "drizzle-orm"
+import { randomUUID } from "node:crypto"
 import { NextRequest } from "next/server"
 
 import { success, failure } from "@/lib/api-response"
@@ -11,7 +12,7 @@ import {
 } from "@/lib/auth-cookie"
 import { LoginSchema, SessionUserSchema } from "@/lib/auth-schemas"
 import { db } from "@/lib/db"
-import { mfaFactors, users } from "@/lib/db/schema"
+import { mfaFactors, mfaLoginChallenges, users } from "@/lib/db/schema"
 import { writeLoginLog } from "@/lib/login-log-server"
 import {
   clearLoginFailures,
@@ -88,10 +89,19 @@ export async function POST(request: NextRequest) {
         )
       : null
     if (mfaFactor?.enabled && !trustedDevice) {
+      const challengeId = randomUUID()
+      await db
+        .insert(mfaLoginChallenges)
+        .values({
+          id: challengeId,
+          userId: user.id,
+          tokenVersion: user.tokenVersion,
+          expiresAt: new Date(Date.now() + 5 * 60_000),
+        })
       const response = success({ requiresMfa: true })
       setMfaChallengeCookie(
         response,
-        await signMfaChallenge(user.id, user.tokenVersion),
+        await signMfaChallenge(user.id, user.tokenVersion, challengeId),
       )
       return response
     }

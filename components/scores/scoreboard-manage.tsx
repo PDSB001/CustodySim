@@ -124,7 +124,7 @@ export function ScoreboardManage({
       setSelected(null)
       setPoints("1")
       setReason("")
-      toast.success("积分流水已记录")
+      toast.success("考核计分已登记")
     },
     onError: (error) =>
       toast.error(error instanceof Error ? error.message : "积分调整失败"),
@@ -136,8 +136,8 @@ export function ScoreboardManage({
     <div className="workspace-stack">
       <PageHeader
         eyebrow="监管执行"
-        title="积分排行与禁闭"
-        description="全员可查看周积分排行；被监管人仅显示同监室全名，其余人员以脱敏姓名展示。"
+        title="行为考核与禁闭"
+        description="查阅每周行为考核、加扣分依据与禁闭执行情况。在押人员仅可见同监室人员全名，其他姓名作隐去处理。"
         action={
           <Button variant="outline" onClick={() => setRulesOpen(true)}>
             <BookOpenCheck />
@@ -164,7 +164,7 @@ export function ScoreboardManage({
         />
         <Metric
           icon={ShieldAlert}
-          label="执行中禁闭"
+          label="禁闭执行人数"
           value={
             data?.people.filter((person) => person.activeIsolation).length ?? 0
           }
@@ -203,7 +203,7 @@ export function ScoreboardManage({
                 <th className="px-5 py-3">人员</th>
                 <th className="px-5 py-3">周积分</th>
                 <th className="px-5 py-3">周结状态</th>
-                <th className="px-5 py-3">最近流水</th>
+                <th className="px-5 py-3">最近计分记录</th>
                 <th className="px-5 py-3 text-right">操作</th>
               </tr>
             </thead>
@@ -288,7 +288,7 @@ export function ScoreboardManage({
                     <EmptyState
                       icon={Trophy}
                       title="暂无可计分人员"
-                      description="建立被监管人员账户后，会显示在积分排行榜。"
+                      description="建立在押人员账户后，会显示在积分排行榜。"
                     />
                   </td>
                 </tr>
@@ -372,8 +372,8 @@ export function ScoreboardManage({
             {detailPerson?.events.length === 0 ? (
               <EmptyState
                 icon={ListChecks}
-                title="本周暂无积分明细"
-                description="本周产生的加减分记录会显示在这里。"
+                title="本周暂无计分记录"
+                description="点名、任务与人工考核产生的加扣分将在此登记。"
               />
             ) : null}
           </div>
@@ -406,7 +406,7 @@ export function ScoreboardManage({
                 <Textarea
                   value={reason}
                   onChange={(event) => setReason(event.target.value)}
-                  placeholder="例如：主动协助完成公共事务"
+                  placeholder="写明具体表现、发生时间与计分依据"
                 />
               </div>
               <Button

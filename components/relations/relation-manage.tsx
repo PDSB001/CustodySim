@@ -85,7 +85,7 @@ export function RelationManage() {
       <PageHeader
         eyebrow="监管关系"
         title="监管关系"
-        description="定义监管人与被监管人的有效管理范围。"
+        description="定义监管员与在押人员的有效管理范围。"
       />
       <Card>
         <CardContent className="grid gap-5 p-5 sm:p-6 md:grid-cols-4 md:items-end">
@@ -98,7 +98,7 @@ export function RelationManage() {
             />
           </div>
           <div className="space-y-2">
-            <Label>监管人</Label>
+            <Label>监管员</Label>
             <Select value={supervisorId} onValueChange={setSupervisorId}>
               <SelectTrigger className="w-full">
                 <SelectValue placeholder="请选择" />
@@ -113,7 +113,7 @@ export function RelationManage() {
             </Select>
           </div>
           <div className="space-y-2">
-            <Label>被监管人</Label>
+            <Label>在押人员</Label>
             <Select value={supervisedId} onValueChange={setSupervisedId}>
               <SelectTrigger className="w-full">
                 <SelectValue placeholder="请选择" />
@@ -176,7 +176,7 @@ export function RelationManage() {
                   </td>
                   <td className="px-5 py-4 text-muted-foreground">
                     {relation.supervisorScopes.length} 名监管方 ·{" "}
-                    {relation.supervisedScopes.length} 名被监管方
+                    {relation.supervisedScopes.length} 名在押人员
                   </td>
                   <td className="px-5 py-4 text-right">
                     <Button
@@ -196,7 +196,7 @@ export function RelationManage() {
                     <EmptyState
                       icon={UsersRound}
                       title="暂无监管关系"
-                      description="先选择监管人与被监管人，建立第一条监管关系。"
+                      description="先选择监管员与在押人员，建立第一条监管关系。"
                     />
                   </td>
                 </tr>

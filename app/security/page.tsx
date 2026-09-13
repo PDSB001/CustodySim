@@ -20,7 +20,7 @@ export default async function SecurityPage() {
             <h1 className="mt-2 font-display text-3xl font-bold tracking-[-0.025em] text-foreground">双重验证</h1>
             <p className="mt-2 text-sm leading-6 text-muted-foreground">为账号绑定验证器应用，并管理受信任设备。</p>
           </div>
-          <Button asChild variant="outline"><Link href={getRoleHome(user.role)}>返回工作台</Link></Button>
+          <Button asChild variant="outline"><Link href={getRoleHome(user.role)}>返回首页</Link></Button>
         </div>
         <MfaSettings username={user.username} />
       </div>

@@ -52,7 +52,7 @@ test("被监管者进入个人服务台", async ({ page }) => {
   await expect(page).toHaveURL("/my")
   await openNavigationOnMobile(page)
   await expect(
-    page.getByRole("link", { name: "我的任务", exact: true }),
+    page.getByRole("link", { name: "服刑任务", exact: true }),
   ).toBeVisible()
   await expect(page.getByLabel("今日打卡")).toBeVisible()
 })
@@ -86,7 +86,7 @@ test("被监管者可以进入打卡记录", async ({ page }) => {
   await login(page, "user", "user12345")
   await page.goto("/my/checkins")
   await expect(page).toHaveURL("/my/checkins")
-  await expect(page.getByRole("heading", { name: "打卡记录" })).toBeVisible()
+  await expect(page.getByRole("heading", { name: "点名打卡记录" })).toBeVisible()
 })
 
 test("被监管者可以查看电子围栏说明", async ({ page }) => {
@@ -172,7 +172,7 @@ test("监管者可以查看辖区日常打卡", async ({ page }) => {
   await login(page, "supervisor", "supervisor123")
   await page.goto("/supervisor/checkins")
   await expect(page).toHaveURL("/supervisor/checkins")
-  await expect(page.getByRole("heading", { name: "日常打卡" })).toBeVisible()
+  await expect(page.getByRole("heading", { name: "点名记录" })).toBeVisible()
   await expect(
     page.getByRole("heading", { name: "历史打卡记录" }),
   ).toBeVisible()

@@ -88,7 +88,7 @@ export function NumberingManage() {
       <PageHeader
         eyebrow="基础资料"
         title="编号生成规则"
-        description="设置被监管人员的全局编号策略。自动生成遵循此处规则；单个人员可在“人员编号”中单独修订。"
+        description="设置在押人员的全局编号策略。自动生成遵循此处规则；单个人员可在“人员编号”中单独修订。"
       />
 
       <Card className="overflow-hidden">

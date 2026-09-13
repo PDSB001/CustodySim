@@ -432,7 +432,7 @@ export function RuleManage() {
                     </Select>
                   </div>
                   <div className="space-y-2">
-                    <Label>目标被监管人</Label>
+                    <Label>目标在押人员</Label>
                     <Select
                       value={userId}
                       onValueChange={(value) =>

@@ -173,7 +173,7 @@ export function ReportTemplateManage() {
       <PageHeader
         eyebrow="任务载荷"
         title="任务表单模板"
-        description="设计被监管人实际填写的字段；电子围栏越界说明为系统模板，可编辑。任务生成后会保存模板快照，后续调整不会影响历史任务。"
+        description="设计在押人员实际填写的字段；电子围栏越界说明为系统模板，可编辑。任务生成后会保存模板快照，后续调整不会影响历史任务。"
       />
       <Card className="page-enter shadow-soft border-0">
         <CardContent className="space-y-5 p-5 sm:p-6">
@@ -301,7 +301,7 @@ export function ReportTemplateManage() {
                 {field.type === "COPYWRITE" && (
                   <div className="space-y-1.5 md:col-span-3">
                     <p className="text-muted-foreground text-xs">
-                      抄写原文（被监管人需逐字一致地抄写以下内容）
+                      抄写原文（在押人员需逐字一致地抄写以下内容）
                     </p>
                     <Textarea
                       className="min-h-[80px]"
@@ -309,7 +309,7 @@ export function ReportTemplateManage() {
                       onChange={(event) =>
                         updateField(index, "options", event.target.value)
                       }
-                      placeholder="输入需要被监管人逐字抄写的内容，例如：社会主义核心价值观——富强、民主、文明、和谐…"
+                      placeholder="输入需要在押人员逐字抄写的内容，例如：社会主义核心价值观——富强、民主、文明、和谐…"
                     />
                   </div>
                 )}
@@ -458,7 +458,7 @@ export function ReportTemplateManage() {
                       </p>
                       <p className="text-muted-foreground mt-1.5 line-clamp-3 text-sm leading-6">
                         {template.content ||
-                          "未填写具体说明。被监管人会根据下方字段完成任务内容。"}
+                          "未填写具体说明。在押人员会根据下方字段完成任务内容。"}
                       </p>
                     </div>
 

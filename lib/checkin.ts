@@ -373,6 +373,23 @@ async function markExpiredCheckins(userId: string, now: Date) {
 
 export async function runCheckinStatusSweep(now = new Date()) {
   await runLeaveSystemMakeupSweep(now)
+  // Check-in obligations must exist even when neither the person nor a
+  // supervisor opens the check-in page. Daily scoring enumerates these tasks.
+  const scheduledUsers = await db
+    .select({ userId: users.id })
+    .from(users)
+    .innerJoin(persons, eq(persons.userId, users.id))
+    .where(
+      and(
+        eq(users.role, "SUPERVISED"),
+        eq(users.status, "active"),
+        eq(persons.personType, "SUPERVISED"),
+        eq(persons.status, "active"),
+        inArray(persons.custodyStatus, ["IN_CUSTODY", "ISOLATION"]),
+      ),
+    )
+  for (const { userId } of scheduledUsers)
+    await ensureTodayCheckinTasks(userId, now)
   const absenceProfiles = await db
     .select({ userId: persons.userId })
     .from(persons)

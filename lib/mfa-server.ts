@@ -1,14 +1,44 @@
-import { and, eq, gt, isNull } from "drizzle-orm"
+import { and, eq, gt, isNull, lt } from "drizzle-orm"
 
 import { db } from "@/lib/db"
-import { mfaRecoveryCodes, mfaTrustedDevices } from "@/lib/db/schema"
+import {
+  mfaFactors,
+  mfaRecoveryCodes,
+  mfaTrustedDevices,
+} from "@/lib/db/schema"
 import {
   hashRecoveryCode,
   hashTrustedDeviceToken,
   parseTrustedDeviceCookie,
+  decryptMfaSecret,
+  matchTotpStep,
 } from "@/lib/mfa"
 
 type DbTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0]
+
+export async function consumeMfaCodeInTransaction(
+  tx: DbTransaction,
+  factor: typeof mfaFactors.$inferSelect,
+  code: string,
+) {
+  const step = matchTotpStep(decryptMfaSecret(factor.secretEncrypted), code)
+  if (step !== null) {
+    const [used] = await tx
+      .update(mfaFactors)
+      .set({ lastUsedStep: step })
+      .where(
+        and(
+          eq(mfaFactors.id, factor.id),
+          eq(mfaFactors.enabled, true),
+          eq(mfaFactors.secretEncrypted, factor.secretEncrypted),
+          lt(mfaFactors.lastUsedStep, step),
+        ),
+      )
+      .returning({ id: mfaFactors.id })
+    return Boolean(used)
+  }
+  return consumeRecoveryCodeInTransaction(tx, factor.id, code)
+}
 
 export async function getValidTrustedDevice(
   userId: string,

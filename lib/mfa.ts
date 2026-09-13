@@ -130,12 +130,31 @@ function getTotpCode(secret: string, counter: number) {
 }
 
 export function verifyTotpCode(secret: string, code: string, now = Date.now()) {
+  return matchTotpStep(secret, code, now) !== null
+}
+
+export function matchTotpStep(
+  secret: string,
+  code: string,
+  now = Date.now(),
+): number | null {
   const normalized = code.replaceAll(/\s/g, "")
-  if (!/^\d{6}$/.test(normalized)) return false
+  if (!/^\d{6}$/.test(normalized)) return null
   const counter = Math.floor(now / 1000 / TOTP_STEP_SECONDS)
-  return [-1, 0, 1].some((offset) =>
-    constantTimeEquals(getTotpCode(secret, counter + offset), normalized),
-  )
+  for (const offset of [0, -1, 1]) {
+    if (
+      counter + offset >= 0 &&
+      constantTimeEquals(getTotpCode(secret, counter + offset), normalized)
+    )
+      return counter + offset
+  }
+  return null
+}
+
+export function hashEmailCode(challengeId: string, code: string) {
+  return createHmac("sha256", getHashKey())
+    .update(`custodysim:email-code:v1:${challengeId}:${code}`)
+    .digest("hex")
 }
 
 function formatRecoveryCode(value: string) {

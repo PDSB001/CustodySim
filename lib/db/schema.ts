@@ -279,6 +279,8 @@ export const mfaFactors = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     secretEncrypted: text("secret_encrypted").notNull(),
+    lastUsedStep: integer("last_used_step").notNull().default(-1),
+    setupTokenVersion: integer("setup_token_version").notNull().default(0),
     enabled: boolean("enabled").notNull().default(false),
     verifiedAt: timestamp("verified_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true })
@@ -289,6 +291,89 @@ export const mfaFactors = pgTable(
       .defaultNow(),
   },
   (table) => [uniqueIndex("mfa_factors_user_unique").on(table.userId)],
+)
+
+export const mfaLoginChallenges = pgTable(
+  "mfa_login_challenges",
+  {
+    id: uuid("id").primaryKey(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    tokenVersion: integer("token_version").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    consumedAt: timestamp("consumed_at", { withTimezone: true }),
+    attempts: integer("attempts").notNull().default(0),
+  },
+  (table) => [index("mfa_login_challenges_expiry_idx").on(table.expiresAt)],
+)
+
+export const securityEmails = pgTable("security_emails", {
+  userId: uuid("user_id")
+    .primaryKey()
+    .references(() => users.id, { onDelete: "cascade" }),
+  emailEncrypted: text("email_encrypted").notNull(),
+  verifiedAt: timestamp("verified_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+})
+
+export const emailVerificationChallenges = pgTable(
+  "email_verification_challenges",
+  {
+    id: uuid("id").primaryKey(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    emailEncrypted: text("email_encrypted").notNull(),
+    codeHash: varchar("code_hash", { length: 64 }).notNull(),
+    tokenVersion: integer("token_version").notNull(),
+    attempts: integer("attempts").notNull().default(0),
+    sentAt: timestamp("sent_at", { withTimezone: true }),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    consumedAt: timestamp("consumed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index("email_verification_user_idx").on(table.userId),
+    index("email_verification_expiry_idx").on(table.expiresAt),
+  ],
+)
+
+export const securityMailSettings = pgTable("security_mail_settings", {
+  id: varchar("id", { length: 20 }).primaryKey(),
+  bindingEnabled: boolean("binding_enabled").notNull().default(false),
+})
+
+export const securityMailLimits = pgTable("security_mail_limits", {
+  key: varchar("key", { length: 64 }).primaryKey(),
+  count: integer("count").notNull(),
+  windowStartedAt: timestamp("window_started_at", {
+    withTimezone: true,
+  }).notNull(),
+  lastSentAt: timestamp("last_sent_at", { withTimezone: true }).notNull(),
+})
+
+export const securityMailOutbox = pgTable(
+  "security_mail_outbox",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }),
+    payloadEncrypted: text("payload_encrypted").notNull(),
+    attempts: integer("attempts").notNull().default(0),
+    nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    sentAt: timestamp("sent_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index("security_mail_outbox_pending_idx").on(table.nextAttemptAt),
+  ],
 )
 
 export const mfaRecoveryCodes = pgTable(
@@ -628,6 +713,43 @@ export const reportReviews = pgTable(
       .defaultNow(),
   },
   (table) => [index("report_reviews_submission_idx").on(table.submissionId)],
+)
+
+export const autoReviewSettings = pgTable("auto_review_settings", {
+  id: varchar("id", { length: 20 }).primaryKey(),
+  enabled: boolean("enabled").notNull().default(false),
+  actorId: uuid("actor_id").references(() => users.id, {
+    onDelete: "set null",
+  }),
+  templateIds: jsonb("template_ids").$type<string[]>().notNull().default([]),
+  revision: uuid("revision").defaultRandom().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+})
+
+export const autoReviewRuns = pgTable(
+  "auto_review_runs",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    submissionId: uuid("submission_id")
+      .notNull()
+      .references(() => reportSubmissions.id, { onDelete: "cascade" }),
+    inputVersion: text("input_version").notNull(),
+    status: varchar("status", { length: 20 }).notNull().default("PROCESSING"),
+    result: varchar("result", { length: 20 }),
+    reason: text("reason"),
+    model: varchar("model", { length: 80 }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("auto_review_runs_submission_version_unique").on(
+      table.submissionId,
+      table.inputVersion,
+    ),
+  ],
 )
 
 export const checkinTasks = pgTable(

@@ -47,6 +47,9 @@ const e2eEnv = {
   ...localFileEnv,
   ...inheritedEnv,
   DATABASE_URL: e2eDatabaseUrl,
+  GLM_API_KEY: "",
+  TENCENT_SES_SECRET_ID: "",
+  TENCENT_SES_SECRET_KEY: "",
 }
 
 const baseURL = process.env.E2E_BASE_URL ?? "http://127.0.0.1:3100"
@@ -58,6 +61,7 @@ export default defineConfig({
     "**/scoring/**/*.test.ts",
     "**/business/**/*.test.ts",
     "**/scoring-browser.spec.ts",
+    "**/security-browser.spec.ts",
   ],
   timeout: 30_000,
   use: {

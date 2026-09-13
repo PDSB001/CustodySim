@@ -193,7 +193,7 @@ export function PrisonerNumberManage() {
                     <EmptyState
                       icon={Hash}
                       title="暂无可编号人员"
-                      description="创建被监管人员后，可以在这里自动生成或单独调整系统编号。"
+                      description="创建在押人员后，可以在这里自动生成或单独调整系统编号。"
                     />
                   </td>
                 </tr>

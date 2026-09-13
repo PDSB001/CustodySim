@@ -119,7 +119,7 @@ function identitySvg(
     <rect width="1200" height="756" fill="#f7f9ff"/>
     <rect x="24" y="24" width="1152" height="708" rx="28" fill="#ffffff"/>
     <path d="M52 24h1096a28 28 0 0 1 28 28v88H24V52a28 28 0 0 1 28-28z" fill="#2648b5"/>
-    <text x="76" y="94" fill="#ffffff" font-family="'Microsoft YaHei', sans-serif" font-size="38" font-weight="700" letter-spacing="3">被监管人员身份牌</text>
+    <text x="76" y="94" fill="#ffffff" font-family="'Microsoft YaHei', sans-serif" font-size="38" font-weight="700" letter-spacing="3">在押人员身份牌</text>
     <text x="1124" y="92" fill="#c9d7ff" text-anchor="end" font-family="Arial, sans-serif" font-size="18" letter-spacing="2">CUSTODY SIM</text>
     <rect x="76" y="204" width="278" height="350" rx="18" fill="#edf2ff" stroke="#c8d5ff" stroke-width="2"/>
     ${photo ? `<image href="${photo}" x="88" y="216" width="254" height="326" preserveAspectRatio="xMidYMid slice" clip-path="url(#identity-photo-clip)"/>` : avatarPlaceholder(88, 216, 254, 326)}

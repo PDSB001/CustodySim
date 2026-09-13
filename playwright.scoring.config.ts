@@ -12,7 +12,7 @@ process.env.E2E_SCORING_DATABASE_URL = databaseUrl
 
 export default defineConfig({
   ...base,
-  testMatch: "scoring-browser.spec.ts",
+  testMatch: ["scoring-browser.spec.ts", "security-browser.spec.ts"],
   testIgnore: "**/scoring/**/*.test.ts",
   workers: 1,
   timeout: 90_000,

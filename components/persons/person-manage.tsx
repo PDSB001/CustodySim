@@ -198,7 +198,7 @@ export function PersonManage() {
       <PageHeader
         eyebrow="基础资料"
         title="人员管理"
-        description="维护被监管人员基础档案，并关联其组织与账户。"
+        description="登记在押人员身份、刑期与监管级别，核对所属监室及登录账户。"
         action={
           <Dialog open={open} onOpenChange={setOpen}>
             <DialogTrigger asChild>
@@ -511,7 +511,7 @@ export function PersonManage() {
                     <EmptyState
                       icon={UserRound}
                       title="还没有人员"
-                      description="先创建被监管人员，再分配组织归属与监管级别。"
+                      description="先创建在押人员，再分配组织归属与监管级别。"
                     />
                   </td>
                 </tr>

@@ -73,7 +73,7 @@ export const ORGANIZATION_CATEGORY_LABELS: Record<
   ROOT: "机构",
   SUPERVISION_ROOT: "监管组织",
   SUPERVISION_UNIT: "监管单位",
-  SUPERVISED_ROOT: "被监管人员集合",
+  SUPERVISED_ROOT: "在押编制",
   WARD: "监区",
   ROOM: "监室",
 }

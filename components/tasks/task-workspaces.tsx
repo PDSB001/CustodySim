@@ -60,6 +60,8 @@ const Task = z.object({
   content: z.string().nullable(),
   data: z.record(z.string(), z.unknown()).nullable(),
   officialSealData: z.string().nullable(),
+  reviewComment: z.string().nullable().optional(),
+  autoReviewReason: z.string().nullable().optional(),
 })
 const Tasks = z.array(Task)
 
@@ -73,9 +75,9 @@ function dateText(value: string) {
 function statusLabel(status: string) {
   return (
     {
-      PENDING: "待完成",
+      PENDING: "待执行",
       RETURNED: "已退回",
-      SUBMITTED: "待审核",
+      SUBMITTED: "待批阅",
       APPROVED: "已通过",
       EXPIRED: "已逾期",
       CANCELLED: "已取消",
@@ -283,7 +285,7 @@ function TaskPayloadForm({ task }: { task: z.infer<typeof Task> }) {
       }),
     onSuccess: () => {
       client.invalidateQueries({ queryKey: ["tasks"] })
-      toast.success("任务已提交，等待审核")
+      toast.success("任务已呈报，等待批阅")
     },
     onError: (error) =>
       toast.error(error instanceof Error ? error.message : "提交失败"),
@@ -322,20 +324,31 @@ function TaskPayloadForm({ task }: { task: z.infer<typeof Task> }) {
       <p className="rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-500">
         当前状态：
         {task.status === "SUBMITTED"
-          ? "已提交，等待审核"
+          ? "已呈报，等待批阅"
           : task.status === "APPROVED"
             ? "已通过"
             : statusLabel(task.status)}
+        {task.autoReviewReason && (
+          <span className="mt-2 block">自动审核：{task.autoReviewReason}</span>
+        )}
       </p>
     )
   if (!task.templateSnapshot.fields.length)
     return (
       <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800">
-        此任务尚未绑定表单模板，请联系管理员完善规则。
+        本项任务的填写内容尚未配置，请联系管理处核对。
       </p>
     )
   return (
     <div className="mt-5 space-y-4">
+      {task.status === "RETURNED" && task.reviewComment && (
+        <p
+          role="status"
+          className="rounded-lg bg-amber-50 p-3 text-sm text-amber-900"
+        >
+          批阅意见（退回补正）：{task.reviewComment}
+        </p>
+      )}
       <p aria-live="polite" className="text-muted-foreground text-xs">
         {draftState === "saving"
           ? "正在自动保存草稿…"
@@ -442,34 +455,89 @@ function TaskPayloadForm({ task }: { task: z.infer<typeof Task> }) {
 }
 
 export function SupervisedTasks() {
+  const [filter, setFilter] = useState("pending")
   const tasks = useQuery({
     queryKey: ["tasks"],
     queryFn: () => requestApi("/api/tasks", Tasks),
   })
+  const filters = [
+    {
+      id: "pending",
+      label: "待执行",
+      matches: (status: string) => ["PENDING", "RETURNED"].includes(status),
+    },
+    {
+      id: "review",
+      label: "待批阅",
+      matches: (status: string) => status === "SUBMITTED",
+    },
+    {
+      id: "history",
+      label: "执行记录",
+      matches: (status: string) =>
+        !["PENDING", "RETURNED", "SUBMITTED"].includes(status),
+    },
+  ]
+  const visibleTasks = [...(tasks.data ?? [])]
+    .filter((task) =>
+      filters.find((item) => item.id === filter)!.matches(task.status),
+    )
+    .sort((a, b) =>
+      filter === "pending"
+        ? Date.parse(a.deadline) - Date.parse(b.deadline)
+        : Date.parse(b.deadline) - Date.parse(a.deadline),
+    )
   return (
     <div className="workspace-stack mx-auto max-w-5xl">
       <PageHeader
-        eyebrow="个人服务"
-        title="我的任务"
-        description="按任务表单完成填写，并在截止时间前提交。"
+        eyebrow="监室 · 每日执行"
+        title="服刑任务"
+        description="按时完成指定任务并呈报。退回的内容需按批阅意见修正后重新提交。"
       />
+      <div aria-label="任务状态筛选" className="flex flex-wrap gap-2">
+        {filters.map((item) => (
+          <Button
+            key={item.id}
+            variant={filter === item.id ? "default" : "outline"}
+            aria-pressed={filter === item.id}
+            onClick={() => setFilter(item.id)}
+          >
+            {item.label}
+            {tasks.data
+              ? ` · ${tasks.data.filter((task) => item.matches(task.status)).length}`
+              : ""}
+          </Button>
+        ))}
+      </div>
       <QueryStateView
         isLoading={tasks.isLoading}
         error={tasks.error}
-        isEmpty={(tasks.data?.length ?? 0) === 0}
+        isEmpty={visibleTasks.length === 0}
         onRetry={() => tasks.refetch()}
         loading={<LoadingBlock className="h-48" />}
         empty={
           <div className="surface-panel motion-item">
             <EmptyState
               icon={ClipboardCheck}
-              title="当前没有待完成任务"
-              description="新任务生成后会按截止时间显示在这里。"
+              title={
+                filter === "pending"
+                  ? "当前没有待执行任务"
+                  : filter === "review"
+                    ? "暂无等待批阅的呈报"
+                    : "暂无执行记录"
+              }
+              description={
+                filter === "pending"
+                  ? "新任务按截止时间排列，请继续留意点名和监所通知。"
+                  : filter === "review"
+                    ? "任务提交后会在这里等待监管员批阅。"
+                    : "已办结、逾期或取消的任务会保留在这里。"
+              }
             />
           </div>
         }
       >
-        {tasks.data?.map((task) => (
+        {visibleTasks.map((task) => (
           <Card key={task.id} className="motion-item">
             <CardHeader>
               <div className="flex items-start justify-between gap-4">
@@ -544,8 +612,8 @@ export function SupervisorTasks() {
     <div className="workspace-stack mx-auto max-w-5xl">
       <PageHeader
         eyebrow="监管执行"
-        title="执行任务审核"
-        description="仅展示监管范围内已提交、等待审核的任务。"
+        title="任务批阅"
+        description="核对在押人员呈报的内容与凭据；通过或退回前，请写明必要的批阅意见。"
       />
       <QueryStateView
         isLoading={tasks.isLoading}
@@ -558,7 +626,7 @@ export function SupervisorTasks() {
             <EmptyState
               icon={Star}
               title="暂无待审核任务"
-              description="被监管者提交任务后，会进入这里等待审核。"
+              description="在押人员呈报的任务将送至此处，核对内容后予以批阅。"
             />
           </div>
         }
@@ -567,10 +635,18 @@ export function SupervisorTasks() {
           <Card key={task.id} className="motion-item">
             <CardHeader>
               <CardTitle>
-                {task.title} · {task.supervisedName ?? "被监管人"}
+                {task.title} · {task.supervisedName ?? "在押人员"}
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
+              {task.autoReviewReason && (
+                <p
+                  role="status"
+                  className="rounded-lg bg-amber-50 p-3 text-sm text-amber-900"
+                >
+                  自动审核转人工：{task.autoReviewReason}
+                </p>
+              )}
               <div className="space-y-3 rounded-lg bg-slate-50 p-3">
                 {task.templateSnapshot.fields.map((field) => {
                   const value = task.data?.[field.name]

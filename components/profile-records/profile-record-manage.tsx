@@ -137,9 +137,9 @@ export function MyProfileRecordManage() {
   return (
     <div className="workspace-stack mx-auto max-w-5xl">
       <PageHeader
-        eyebrow="个人服务"
+        eyebrow="在押事务"
         title="个人档案"
-        description="以一册档案集中维护个人资料。各分卷按监管流程会签，全部通过后自动锁定并生成编号。"
+        description="据实填写本人在押资料，各分卷提交后逐级会签。全部核准后编号归档，归档内容不再由本人修改。"
       />
       <section className="metric-grid page-enter" aria-label="档案概览">
         <MetricCell
@@ -152,7 +152,7 @@ export function MyProfileRecordManage() {
         <MetricCell
           label="会签中"
           value={pendingCount}
-          detail="等待监管人处理"
+          detail="等待监管员处理"
           icon={FileText}
           tone="warning"
         />
@@ -169,7 +169,7 @@ export function MyProfileRecordManage() {
           <EmptyState
             icon={Archive}
             title="暂无可填写档案"
-            description="管理员创建并启用档案表单后，会显示在这里。"
+            description="管理处尚未下发需要填写的档案分卷。"
           />
         </div>
       ) : null}
@@ -298,7 +298,7 @@ export function ProfileRecordManage() {
       <PageHeader
         eyebrow="档案管理"
         title="档案记录"
-        description="集中查看档案填写、会签与归档状态。归档后的记录保留填写快照和会签痕迹。"
+        description="集中查看档案填写、会签与归档状态。归档卷宗保留原始填写内容和各级会签意见。"
       />
       <Card>
         <CardContent className="overflow-x-auto p-0">
@@ -358,7 +358,7 @@ export function ProfileRecordManage() {
                     <EmptyState
                       icon={Archive}
                       title="暂无档案记录"
-                      description="被监管人保存档案草稿后，记录会显示在这里。"
+                      description="在押人员保存档案草稿后，记录会显示在这里。"
                     />
                   </td>
                 </tr>

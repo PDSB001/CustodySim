@@ -17,6 +17,7 @@ export type AuthTokenPayload = {
 export type MfaChallengePayload = {
   userId: string
   tokenVersion: number
+  challengeId: string
 }
 
 function getAuthSecret() {
@@ -61,8 +62,13 @@ export async function verifyToken(
   }
 }
 
-export async function signMfaChallenge(userId: string, tokenVersion: number) {
+export async function signMfaChallenge(
+  userId: string,
+  tokenVersion: number,
+  challengeId: string,
+) {
   return new SignJWT({ purpose: "mfa-login", tokenVersion })
+    .setJti(challengeId)
     .setProtectedHeader({ alg: "HS256" })
     .setSubject(userId)
     .setIssuedAt()
@@ -89,11 +95,17 @@ export async function verifyMfaChallenge(
     const { payload } = await jwtVerify(token, getAuthSecret())
     if (
       payload.purpose !== "mfa-login" ||
+      typeof payload.jti !== "string" ||
+      !/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(payload.jti) ||
       typeof payload.sub !== "string" ||
       typeof payload.tokenVersion !== "number"
     )
       return null
-    return { userId: payload.sub, tokenVersion: payload.tokenVersion }
+    return {
+      userId: payload.sub,
+      tokenVersion: payload.tokenVersion,
+      challengeId: payload.jti,
+    }
   } catch {
     return null
   }

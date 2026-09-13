@@ -12,11 +12,13 @@ import { POST as review } from "@/app/api/reviews/route"
 import { POST as adjustScore } from "@/app/api/scores/route"
 import * as audit from "@/lib/audit"
 import { runReportTaskOutcomeSweep } from "@/lib/task-engine"
+import { runCheckinStatusSweep } from "@/lib/checkin"
 import {
   reconcileTaskOutcomeScoreWeeks,
   runWeeklyScoreReview,
   ensureIsolationReflectionTask,
   recordScoreEvent,
+  runCheckinDailyScoreSweep,
 } from "@/lib/scoring"
 
 // Only Next's request cookie adapter and wall clock are supplied by the harness.
@@ -90,6 +92,77 @@ async function reviews() {
     .from(s.scoreWeekReviews)
     .where(eq(s.scoreWeekReviews.supervisedId, user))
 }
+
+test("从未访问页面或打卡：后台建立点名任务，次日日结扣 8 分且不重复", async () => {
+  vi.setSystemTime(sunday)
+  expect(
+    await db
+      .select()
+      .from(s.checkinTasks)
+      .where(eq(s.checkinTasks.supervisedId, user)),
+  ).toHaveLength(0)
+  await runCheckinStatusSweep(sunday)
+  const generated = await db
+    .select()
+    .from(s.checkinTasks)
+    .where(eq(s.checkinTasks.supervisedId, user))
+  expect(generated.length).toBeGreaterThan(0)
+  expect(generated.every((task) => task.status === "MISSED")).toBe(true)
+  expect(
+    await db
+      .select()
+      .from(s.checkinRecords)
+      .where(eq(s.checkinRecords.userId, user)),
+  ).toHaveLength(0)
+  await runCheckinDailyScoreSweep(sunday)
+  expect(await events()).toHaveLength(0)
+  vi.setSystemTime(monday)
+  await runCheckinDailyScoreSweep(monday)
+  await runCheckinStatusSweep(monday)
+  await runCheckinDailyScoreSweep(monday)
+  const scores = await events()
+  expect(scores).toHaveLength(1)
+  expect(scores[0]).toMatchObject({
+    points: -8,
+    source: "CHECKIN_DAILY",
+    weekKey: "2026-08-24",
+  })
+  const daily = await db
+    .select()
+    .from(s.checkinDailyScores)
+    .where(eq(s.checkinDailyScores.supervisedId, user))
+  expect(daily).toHaveLength(1)
+  expect(daily[0]).toMatchObject({
+    dayKey: "2026-08-30",
+    completedCount: 0,
+    missingCount: generated.length,
+    points: -8,
+  })
+})
+
+test("后台点名不为停用、未在押或无在押档案的账号建立任务", async () => {
+  const disabled = await account("SUPERVISED")
+  const withoutProfile = await account("SUPERVISED")
+  await db
+    .update(s.users)
+    .set({ status: "disabled" })
+    .where(eq(s.users.id, disabled))
+  await db.delete(s.persons).where(eq(s.persons.userId, withoutProfile))
+  await db
+    .update(s.persons)
+    .set({ custodyStatus: "OUT_OF_CUSTODY" })
+    .where(eq(s.persons.userId, user))
+  vi.setSystemTime(sunday)
+  await runCheckinStatusSweep(sunday)
+  expect(
+    await db
+      .select()
+      .from(s.checkinTasks)
+      .where(
+        inArray(s.checkinTasks.supervisedId, [user, disabled, withoutProfile]),
+      ),
+  ).toHaveLength(0)
+})
 
 beforeAll(async () => {
   const result = await db.execute(sql`select current_database() as name`)

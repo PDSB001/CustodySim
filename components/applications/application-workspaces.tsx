@@ -136,7 +136,7 @@ export function MyApplications() {
       setTemporaryReleaseStartAt("")
       setTemporaryReleaseEndAt("")
       setArchiveRecordId("")
-      toast.success("申请已提交审核")
+      toast.success("申请已呈报，请留意批复")
     },
     onError: (error) =>
       toast.error(error instanceof Error ? error.message : "提交失败"),
@@ -144,15 +144,15 @@ export function MyApplications() {
   return (
     <div className="workspace-stack mx-auto max-w-5xl">
       <PageHeader
-        eyebrow="个人服务"
+        eyebrow="在押事务"
         title="我的申请"
-        description="申请会按监管关系逐级流转至管理处。请假 / 临时离监按起止时刻生效，跨日/精确到分钟均支持。"
+        description="如需请假、临时离监或提请减刑，请写明事由并逐级呈报。请假与离监以管理处最终批复的起止时间为准。"
       />
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <FilePlus2 className="size-4" />
-            发起申请
+            填写申请
           </CardTitle>
         </CardHeader>
         <CardContent className="grid gap-4 sm:grid-cols-2">
@@ -216,7 +216,7 @@ export function MyApplications() {
                 />
               </div>
               <p className="text-muted-foreground text-xs sm:col-span-2">
-                管理处最终批准后，仅在起止时间窗口内显示为离监，并停止电子围栏判定。
+                管理处最终批准后，仅在核准的起止时间内记为临时离监，期间暂停围栏判定。
               </p>
             </>
           ) : null}
@@ -239,7 +239,7 @@ export function MyApplications() {
                 </SelectContent>
               </Select>
               <p className="text-muted-foreground text-xs">
-                提交时会保存该归档档案的快照，后续档案调整不会改变申请依据。
+                本次申请将留存所选档案副本，作为审查依据；后续档案修改不影响已呈报材料。
               </p>
             </div>
           ) : null}
@@ -249,7 +249,7 @@ export function MyApplications() {
               id="application-reason"
               value={reason}
               onChange={(event) => setReason(event.target.value)}
-              placeholder="请说明申请事由和必要情况"
+              placeholder="请写明申请事项、具体原因及需要说明的情况"
             />
           </div>
           <div className="sm:col-span-2">
@@ -343,7 +343,7 @@ export function MyApplications() {
         <EmptyState
           icon={FileStack}
           title="暂无申请记录"
-          description="在上方选择类型并提交第一份申请。"
+          description="尚无呈报记录。如有事项需要批准，可在上方填写申请。"
         />
       ) : null}
     </div>
@@ -410,7 +410,7 @@ export function ApplicationReviews() {
       <PageHeader
         eyebrow="监管执行"
         title="申请审核"
-        description="请假获批后切换为请假状态；临时离监仅在获批有效期内切换为离监，并暂停围栏判定。"
+        description="核对申请事由、起止时间与随附档案，逐级签署意见。请假与临时离监须经管理处最终批准，按核准时段执行。"
       />
       {pending.map((review) => {
         const range = renderRange(review)
@@ -421,7 +421,7 @@ export function ApplicationReviews() {
                 <CardTitle>
                   {review.title} · {review.userName}
                 </CardTitle>
-                <StatusPill tone="pending">待你审核</StatusPill>
+                <StatusPill tone="pending">待本级审核</StatusPill>
               </div>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -445,7 +445,7 @@ export function ApplicationReviews() {
                     [review.id]: event.target.value,
                   }))
                 }
-                placeholder="审核意见（可选）"
+                placeholder="请填写本级审核意见（可选）"
               />
               <div className="flex flex-wrap gap-2">
                 <Button
@@ -486,7 +486,7 @@ export function ApplicationReviews() {
         <EmptyState
           icon={FileStack}
           title="暂无待处理申请"
-          description="轮到你审核的申请会显示在这里。"
+          description="尚无流转至本级的待审申请。"
         />
       ) : null}
     </div>

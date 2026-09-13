@@ -25,12 +25,19 @@ export async function POST(request: NextRequest) {
     const ip = getSensitiveActionIp(request.headers)
     const retryAfter = await getSensitiveActionRetryAfterSeconds(user.id, ip)
     if (retryAfter > 0)
-      return failure("RATE_LIMITED", `尝试过于频繁，请在 ${retryAfter} 秒后重试`, 429)
+      return failure(
+        "RATE_LIMITED",
+        `尝试过于频繁，请在 ${retryAfter} 秒后重试`,
+        429,
+      )
     const parsed = MfaSetupSchema.safeParse(await request.json())
     if (!parsed.success)
       return failure("VALIDATION_ERROR", "请输入当前密码", 400)
     const [account] = await db
-      .select({ passwordHash: users.passwordHash })
+      .select({
+        passwordHash: users.passwordHash,
+        tokenVersion: users.tokenVersion,
+      })
       .from(users)
       .where(eq(users.id, user.id))
       .limit(1)
@@ -52,10 +59,28 @@ export async function POST(request: NextRequest) {
     const now = new Date()
     const secretEncrypted = encryptMfaSecret(secret)
     const [factor] = await db.transaction(async (tx) => {
+      const [current] = await tx
+        .select()
+        .from(users)
+        .where(eq(users.id, user.id))
+        .for("update")
+      if (
+        !current ||
+        current.status !== "active" ||
+        current.passwordHash !== account.passwordHash ||
+        current.tokenVersion !== account.tokenVersion
+      )
+        return []
       const created = existing
         ? await tx
             .update(mfaFactors)
-            .set({ secretEncrypted, verifiedAt: null, updatedAt: now })
+            .set({
+              secretEncrypted,
+              verifiedAt: null,
+              updatedAt: now,
+              lastUsedStep: -1,
+              setupTokenVersion: current.tokenVersion,
+            })
             .where(
               and(
                 eq(mfaFactors.id, existing.id),
@@ -65,7 +90,11 @@ export async function POST(request: NextRequest) {
             .returning({ id: mfaFactors.id })
         : await tx
             .insert(mfaFactors)
-            .values({ userId: user.id, secretEncrypted })
+            .values({
+              userId: user.id,
+              secretEncrypted,
+              setupTokenVersion: current.tokenVersion,
+            })
             .returning({ id: mfaFactors.id })
       const pendingFactor = created[0]
       if (!pendingFactor) return []

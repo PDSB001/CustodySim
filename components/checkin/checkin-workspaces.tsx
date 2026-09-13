@@ -345,7 +345,7 @@ function CheckinCard({
                 <Input
                   value={remark}
                   onChange={(event) => setRemark(event.target.value)}
-                  placeholder="填写本次打卡说明"
+                  placeholder="填写本次点名报到需要说明的情况"
                 />
               </div>
             )}
@@ -493,7 +493,7 @@ function CheckinCard({
             <Textarea
               value={makeupReason}
               onChange={(event) => setMakeupReason(event.target.value)}
-              placeholder="简要说明原因"
+              placeholder="请说明未按时点名的原因及补卡依据"
             />
             <div className="flex gap-2">
               <Button
@@ -535,8 +535,8 @@ export function CheckinPanel() {
     <div className="workspace-stack mx-auto max-w-5xl">
       <PageHeader
         eyebrow="每日执行档案"
-        title="打卡记录"
-        description="按时间查看全天打卡状态；请假有效期内的已到时段由系统独立补卡。"
+        title="点名打卡记录"
+        description="逐项核对今日点名记录。获批请假时段由系统补记；其他漏点可按规定申请补卡。"
         action={
           <Button variant="outline" asChild>
             <Link href="/my">
@@ -590,8 +590,8 @@ export function CheckinPanel() {
             <div className="surface-panel surface-panel--interactive">
               <EmptyState
                 icon={MapPin}
-                title="今日暂无需要打卡的时段"
-                description="新时段生成后会按时间顺序显示在这里。"
+                title="今日尚无点名安排"
+                description="点名安排下达后会按时间列出，请留意规定的报到时段。"
               />
             </div>
           )
@@ -777,7 +777,7 @@ function MakeupReviewCard({ makeup }: { makeup: z.infer<typeof Makeup> }) {
           <div>
             <CardTitle>{makeup.ruleName}</CardTitle>
             <p className="text-muted-foreground mt-2 text-xs">
-              {makeup.userName ?? "被监管人"} · 申请于{" "}
+              {makeup.userName ?? "在押人员"} · 申请于{" "}
               {dateText(makeup.createdAt)}
             </p>
           </div>
@@ -829,7 +829,7 @@ export function MakeupReview() {
       <PageHeader
         eyebrow="监管执行"
         title="补卡审核"
-        description="仅展示你监管范围内等待处理的补卡申请。"
+        description="核实所辖人员的漏点原因与补卡凭据，作出审核决定并留存意见。"
       />
       <QueryStateView
         isLoading={makeups.isLoading}
@@ -860,8 +860,8 @@ export function DailyCheckins() {
     <div className="workspace-stack mx-auto max-w-5xl">
       <PageHeader
         eyebrow="监管执行"
-        title="日常打卡"
-        description="按日期查看监管范围内人员的打卡概览。"
+        title="点名记录"
+        description="按日期核对监管范围内人员的报到、漏点与补卡情况。"
       />
       <CheckinHistory />
     </div>
@@ -939,7 +939,7 @@ function CheckinHistory() {
           <table className="w-full min-w-[580px] text-sm">
             <thead className="bg-muted/60 text-muted-foreground text-left text-xs">
               <tr>
-                <th className="px-5 py-3">被监管人</th>
+                <th className="px-5 py-3">在押人员</th>
                 <th className="px-5 py-3">打卡完成</th>
                 <th className="px-5 py-3">状态</th>
                 <th className="px-5 py-3">最近打卡</th>

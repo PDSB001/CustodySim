@@ -161,7 +161,7 @@ export function ElectronicFenceManage() {
       <PageHeader
         eyebrow="监管执行"
         title="电子围栏"
-        description="可维护默认围栏，并为每名被监管人设置专属覆盖范围；仅处于在押状态的人员参与移动端定时定位、进出判定。"
+        description="可维护默认围栏，并为每名在押人员设置专属覆盖范围；仅处于在押状态的人员参与移动端定时定位、进出判定。"
       />
       <div className="grid gap-5 lg:grid-cols-[minmax(0,1.05fr)_minmax(18rem,.95fr)]">
         <Card className="overflow-hidden">
@@ -313,7 +313,7 @@ export function MyElectronicFence() {
   return (
     <div className="workspace-stack mx-auto max-w-5xl">
       <PageHeader
-        eyebrow="个人服务"
+        eyebrow="在押事务"
         title="电子围栏"
         description="此页面展示当前适用范围与最近一次移动端上报结果；网页端不采集定位。"
       />
@@ -382,7 +382,7 @@ export function MyElectronicFence() {
             <CardContent className="flex gap-3 p-5 text-sm leading-6">
               <CircleAlert className="mt-0.5 size-5 shrink-0 text-amber-600" />
               <p className="text-muted-foreground">
-                仅在押状态参与围栏判断。请假状态、临时离监或未在押期间仍可记录移动端位置，但不作进出判定；在押期间首次围栏外或离开围栏时，系统会向“我的任务”下发一份原因说明。
+                仅在押状态参与围栏判断。请假状态、临时离监或未在押期间仍可记录移动端位置，但不作进出判定；在押期间首次围栏外或离开围栏时，系统会向“服刑任务”下发一份原因说明。
               </p>
             </CardContent>
           </Card>
