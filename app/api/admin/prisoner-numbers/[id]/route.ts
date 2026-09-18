@@ -18,6 +18,8 @@ export async function PATCH(request: NextRequest, { params }: RouteContext) {
   const actor = await getAdminUser()
   if (!actor) return failure("FORBIDDEN", "仅管理员可管理人员编号", 403)
   const { id } = await params
+  if (!z.string().uuid().safeParse(id).success)
+    return failure("VALIDATION_ERROR", "人员 ID 不合法", 400)
   const parsed = UpdateSchema.safeParse(await request.json())
   if (!parsed.success)
     return failure(
@@ -26,35 +28,42 @@ export async function PATCH(request: NextRequest, { params }: RouteContext) {
       400,
     )
   try {
-    const [person] = await db
-      .select()
-      .from(persons)
-      .where(eq(persons.id, id))
-      .limit(1)
-    if (!person) return failure("NOT_FOUND", "人员不存在", 404)
-    const [updated] = await db
-      .update(persons)
-      .set({ prisonerNumber: parsed.data.number, updatedAt: new Date() })
-      .where(eq(persons.id, id))
-      .returning()
-    if (!updated) return failure("INTERNAL_ERROR", "编号更新失败", 500)
-    await db.insert(prisonerNumberChanges).values({
-      personId: id,
-      oldNumber: person.prisonerNumber,
-      newNumber: parsed.data.number,
-      reason: parsed.data.reason ?? null,
-      requestedBy: actor.id,
-      reviewedBy: actor.id,
-      reviewedAt: new Date(),
+    const updated = await db.transaction(async (tx) => {
+      const [person] = await tx
+        .select()
+        .from(persons)
+        .where(eq(persons.id, id))
+        .limit(1)
+      if (!person) return null
+      const [row] = await tx
+        .update(persons)
+        .set({ prisonerNumber: parsed.data.number, updatedAt: new Date() })
+        .where(eq(persons.id, id))
+        .returning()
+      if (!row) throw new Error("编号更新失败")
+      await tx.insert(prisonerNumberChanges).values({
+        personId: id,
+        oldNumber: person.prisonerNumber,
+        newNumber: parsed.data.number,
+        reason: parsed.data.reason ?? null,
+        requestedBy: actor.id,
+        reviewedBy: actor.id,
+        reviewedAt: new Date(),
+      })
+      await writeAuditLog(
+        {
+          actor,
+          action: "UPDATE_NUMBER",
+          actionLabel: "修改人员编号",
+          entityType: "person",
+          entityId: id,
+          detail: { number: parsed.data.number },
+        },
+        tx,
+      )
+      return row
     })
-    await writeAuditLog({
-      actor,
-      action: "UPDATE_NUMBER",
-      actionLabel: "修改人员编号",
-      entityType: "person",
-      entityId: id,
-      detail: { number: parsed.data.number },
-    })
+    if (!updated) return failure("NOT_FOUND", "人员不存在", 404)
     return success(updated)
   } catch (error) {
     const code =

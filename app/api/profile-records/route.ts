@@ -190,6 +190,10 @@ export async function POST(request: NextRequest) {
     if (!saved) return failure("CONFLICT", "档案状态已变化，请刷新后重试", 409)
     return success(saved, { status: existing ? 200 : 201 })
   } catch (error) {
+    const code =
+      typeof error === "object" && error && "code" in error ? error.code : null
+    if (code === "23505")
+      return failure("CONFLICT", "档案已存在，请刷新后重试", 409)
     console.error("[API profile-records POST]", error)
     return failure("INTERNAL_ERROR", "服务器错误", 500)
   }

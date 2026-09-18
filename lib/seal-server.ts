@@ -8,8 +8,11 @@ import {
 } from "@/lib/official-seal"
 import { generateOfficialSealData } from "@/lib/official-seal-image"
 
-export async function getOfficialSealData(kind: OfficialSealKind) {
-  const [seal] = await db
+export async function getOfficialSealData(
+  kind: OfficialSealKind,
+  executor: Pick<typeof db, "select"> = db,
+) {
+  const [seal] = await executor
     .select()
     .from(officialSeals)
     .where(and(eq(officialSeals.kind, kind), eq(officialSeals.active, true)))

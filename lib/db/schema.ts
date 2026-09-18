@@ -197,7 +197,7 @@ export const prisonerNumberChanges = pgTable(
     id: uuid("id").defaultRandom().primaryKey(),
     personId: uuid("person_id")
       .notNull()
-      .references(() => persons.id),
+      .references(() => persons.id, { onDelete: "cascade" }),
     oldNumber: varchar("old_number", { length: 50 }),
     newNumber: varchar("new_number", { length: 50 }).notNull(),
     reason: text("reason"),

@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray } from "drizzle-orm"
+import { and, desc, eq, inArray, sql } from "drizzle-orm"
 
 import type {
   CustodyCheckinPlanLevel,
@@ -215,30 +215,36 @@ export function startScheduledCustodyStatusScheduler() {
 }
 
 export async function ensureCustodyCheckinPresets() {
-  const existing = await db
-    .select({ custodyLevel: rules.custodyLevel })
-    .from(rules)
-    .where(and(eq(rules.type, "CHECKIN"), eq(rules.enabled, true)))
-  const existingLevels = new Set(existing.map((rule) => rule.custodyLevel))
-  const missing = (
-    Object.entries(CUSTODY_CHECKIN_PRESETS) as [
-      CustodyCheckinPlanLevel,
-      (typeof CUSTODY_CHECKIN_PRESETS)[CustodyCheckinPlanLevel],
-    ][]
-  ).filter(([level]) => !existingLevels.has(level))
-  if (!missing.length) return
-  await db.insert(rules).values(
-    missing.map(([custodyLevel, preset]) => ({
-      name: preset.name,
-      type: "CHECKIN",
-      taskType: "CHECKIN",
-      freq: "DAILY",
-      timeSlots: preset.slots.map((slot) => slot.time),
-      slotSettings: preset.slots,
-      timeoutMinutes: preset.slots[0]?.timeoutMinutes ?? 30,
-      custodyLevel,
-      enabled: true,
-      allowNoLocation: true,
-    })),
-  )
+  await db.transaction(async (tx) => {
+    // 多实例/并发首访时串行化初始化，避免“先查后插”产生重复的打卡预设。
+    await tx.execute(
+      sql`select pg_advisory_xact_lock(hashtext('custody_checkin_presets'))`,
+    )
+    const existing = await tx
+      .select({ custodyLevel: rules.custodyLevel })
+      .from(rules)
+      .where(and(eq(rules.type, "CHECKIN"), eq(rules.enabled, true)))
+    const existingLevels = new Set(existing.map((rule) => rule.custodyLevel))
+    const missing = (
+      Object.entries(CUSTODY_CHECKIN_PRESETS) as [
+        CustodyCheckinPlanLevel,
+        (typeof CUSTODY_CHECKIN_PRESETS)[CustodyCheckinPlanLevel],
+      ][]
+    ).filter(([level]) => !existingLevels.has(level))
+    if (!missing.length) return
+    await tx.insert(rules).values(
+      missing.map(([custodyLevel, preset]) => ({
+        name: preset.name,
+        type: "CHECKIN",
+        taskType: "CHECKIN",
+        freq: "DAILY",
+        timeSlots: preset.slots.map((slot) => slot.time),
+        slotSettings: preset.slots,
+        timeoutMinutes: preset.slots[0]?.timeoutMinutes ?? 30,
+        custodyLevel,
+        enabled: true,
+        allowNoLocation: true,
+      })),
+    )
+  })
 }

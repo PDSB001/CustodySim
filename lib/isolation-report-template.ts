@@ -1,4 +1,4 @@
-import { and, asc, eq } from "drizzle-orm"
+import { and, asc, eq, sql } from "drizzle-orm"
 import { db } from "@/lib/db"
 import { reportTemplateFields, reportTemplates } from "@/lib/db/schema"
 
@@ -6,6 +6,10 @@ export const ISOLATION_REPORT_TEMPLATE_NAME = "禁闭期间每日检讨"
 
 export async function ensureIsolationReportTemplate() {
   return db.transaction(async (tx) => {
+    // 与电子围栏模板一致：并发首访时只允许产生一份系统模板。
+    await tx.execute(
+      sql`select pg_advisory_xact_lock(hashtext(${ISOLATION_REPORT_TEMPLATE_NAME}))`,
+    )
     const [existing] = await tx.select().from(reportTemplates).where(and(eq(reportTemplates.name, ISOLATION_REPORT_TEMPLATE_NAME), eq(reportTemplates.kind, "REPORT"))).limit(1)
     const template = existing ?? (await tx.insert(reportTemplates).values({ name: ISOLATION_REPORT_TEMPLATE_NAME, kind: "REPORT", content: "请如实复盘当日行为，说明问题、影响与次日具体改进计划。" }).returning())[0]
     if (!template) throw new Error("创建禁闭任务模板失败")

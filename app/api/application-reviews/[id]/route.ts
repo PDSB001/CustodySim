@@ -115,7 +115,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       if (!transition.activateNextReview) {
         const officialSealData =
           transition.applicationStatus === "APPROVED"
-            ? await getOfficialSealData("APPLICATION")
+            ? await getOfficialSealData("APPLICATION", tx)
             : null
         await tx
           .update(applications)

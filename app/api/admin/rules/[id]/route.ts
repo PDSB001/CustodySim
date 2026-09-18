@@ -54,33 +54,38 @@ export async function PATCH(
       if (!link)
         return failure("VALIDATION_ERROR", "随机任务池中没有可用模板", 400)
     }
-    const [updated] = await db
-      .update(rules)
-      .set({
-        ...ruleData,
-        ruleGroupId: ruleData.ruleGroupId ?? null,
-        startDate: startDate ? new Date(startDate) : null,
-        endDate: endDate ? new Date(endDate) : null,
-        updatedAt: new Date(),
-      })
-      .where(eq(rules.id, params.data.id))
-      .returning()
-    if (!updated) return failure("NOT_FOUND", "规则不存在", 404)
-    await db.transaction(async (tx) => {
-      await tx.delete(ruleScopes).where(eq(ruleScopes.ruleId, updated.id))
+    const updated = await db.transaction(async (tx) => {
+      const [row] = await tx
+        .update(rules)
+        .set({
+          ...ruleData,
+          ruleGroupId: ruleData.ruleGroupId ?? null,
+          startDate: startDate ? new Date(startDate) : null,
+          endDate: endDate ? new Date(endDate) : null,
+          updatedAt: new Date(),
+        })
+        .where(eq(rules.id, params.data.id))
+        .returning()
+      if (!row) return null
+      await tx.delete(ruleScopes).where(eq(ruleScopes.ruleId, row.id))
       if (scopes.length)
         await tx
           .insert(ruleScopes)
-          .values(scopes.map((scope) => ({ ...scope, ruleId: updated.id })))
+          .values(scopes.map((scope) => ({ ...scope, ruleId: row.id })))
+      await writeAuditLog(
+        {
+          actor,
+          action: "UPDATE",
+          actionLabel: "编辑任务规则",
+          entityType: "rule",
+          entityId: row.id,
+          detail: { name: ruleData.name },
+        },
+        tx,
+      )
+      return row
     })
-    await writeAuditLog({
-      actor,
-      action: "UPDATE",
-      actionLabel: "编辑任务规则",
-      entityType: "rule",
-      entityId: updated.id,
-      detail: { name: ruleData.name },
-    })
+    if (!updated) return failure("NOT_FOUND", "规则不存在", 404)
     return success(updated)
   } catch (error) {
     console.error("[API rules PATCH]", error)

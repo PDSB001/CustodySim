@@ -1,5 +1,6 @@
 import { eq } from "drizzle-orm"
 import { NextRequest } from "next/server"
+import { z } from "zod"
 
 import { failure, success } from "@/lib/api-response"
 import { getAdminUser } from "@/lib/admin-api"
@@ -94,20 +95,29 @@ export async function DELETE(_request: NextRequest, { params }: RouteContext) {
   const actor = await getAdminUser()
   if (!actor) return failure("FORBIDDEN", "仅管理员可管理人员", 403)
   const { id } = await params
+  if (!z.string().uuid().safeParse(id).success)
+    return failure("VALIDATION_ERROR", "人员 ID 不合法", 400)
   try {
-    const [deleted] = await db
-      .delete(persons)
-      .where(eq(persons.id, id))
-      .returning()
-    if (!deleted) return failure("NOT_FOUND", "人员不存在", 404)
-    await writeAuditLog({
-      actor,
-      action: "DELETE",
-      actionLabel: "删除人员",
-      entityType: "person",
-      entityId: id,
-      detail: { name: deleted.name },
+    const deleted = await db.transaction(async (tx) => {
+      const [row] = await tx
+        .delete(persons)
+        .where(eq(persons.id, id))
+        .returning({ id: persons.id, name: persons.name })
+      if (!row) return null
+      await writeAuditLog(
+        {
+          actor,
+          action: "DELETE",
+          actionLabel: "删除人员",
+          entityType: "person",
+          entityId: id,
+          detail: { name: row.name },
+        },
+        tx,
+      )
+      return row
     })
+    if (!deleted) return failure("NOT_FOUND", "人员不存在", 404)
     return success({ id })
   } catch (error) {
     console.error("[API admin/persons DELETE]", error)

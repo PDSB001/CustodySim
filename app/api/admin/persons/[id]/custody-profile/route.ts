@@ -1,5 +1,6 @@
 import { eq } from "drizzle-orm"
 import { NextRequest } from "next/server"
+import { z } from "zod"
 
 import { getAdminUser } from "@/lib/admin-api"
 import { CustodyProfileSchema } from "@/lib/admin-schemas"
@@ -17,6 +18,8 @@ export async function PATCH(request: NextRequest, { params }: RouteContext) {
   if (!parsed.success)
     return failure("VALIDATION_ERROR", "监管级别或囚犯状态不合法", 400)
   const { id } = await params
+  if (!z.string().uuid().safeParse(id).success)
+    return failure("VALIDATION_ERROR", "人员 ID 不合法", 400)
   const [current] = await db
     .select({ custodyStatus: persons.custodyStatus })
     .from(persons)

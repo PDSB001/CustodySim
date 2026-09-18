@@ -104,7 +104,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
             .where(eq(profileRecordReviews.id, nextReview.id))
         } else if (transition.recordStatus === "LOCKED") {
           const code = await generateProfileRecordCode(tx)
-          const officialSealData = await getOfficialSealData("PROFILE")
+          const officialSealData = await getOfficialSealData("PROFILE", tx)
           await tx
             .update(profileRecords)
             .set({

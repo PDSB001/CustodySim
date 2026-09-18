@@ -22,38 +22,43 @@ export async function PATCH(
   if (!params.success || !parsed.success)
     return failure("VALIDATION_ERROR", "参数不合法", 400)
   try {
-    const [updated] = await db
-      .update(ruleGroups)
-      .set({
-        name: parsed.data.name,
-        remark: parsed.data.remark ?? null,
-        updatedAt: new Date(),
-      })
-      .where(eq(ruleGroups.id, params.data.id))
-      .returning()
-    if (!updated) return failure("NOT_FOUND", "规则组不存在", 404)
-    await db.transaction(async (tx) => {
+    const updated = await db.transaction(async (tx) => {
+      const [row] = await tx
+        .update(ruleGroups)
+        .set({
+          name: parsed.data.name,
+          remark: parsed.data.remark ?? null,
+          updatedAt: new Date(),
+        })
+        .where(eq(ruleGroups.id, params.data.id))
+        .returning()
+      if (!row) return null
       await tx
         .delete(ruleGroupScopes)
-        .where(eq(ruleGroupScopes.groupId, updated.id))
+        .where(eq(ruleGroupScopes.groupId, row.id))
       if (parsed.data.scopes.length)
         await tx
           .insert(ruleGroupScopes)
           .values(
             parsed.data.scopes.map((scope) => ({
               ...scope,
-              groupId: updated.id,
+              groupId: row.id,
             })),
           )
+      await writeAuditLog(
+        {
+          actor,
+          action: "UPDATE",
+          actionLabel: "编辑规则组",
+          entityType: "rule_group",
+          entityId: row.id,
+          detail: { name: row.name },
+        },
+        tx,
+      )
+      return row
     })
-    await writeAuditLog({
-      actor,
-      action: "UPDATE",
-      actionLabel: "编辑规则组",
-      entityType: "rule_group",
-      entityId: updated.id,
-      detail: { name: updated.name },
-    })
+    if (!updated) return failure("NOT_FOUND", "规则组不存在", 404)
     return success(updated)
   } catch (error) {
     console.error("[API rule-groups PATCH]", error)

@@ -27,6 +27,7 @@ export async function POST(request: NextRequest) {
         forbidden ? 403 : 409,
       )
     }
-    throw error
+    console.error("[API reviews POST]", error)
+    return failure("INTERNAL_ERROR", "服务器错误", 500)
   }
 }

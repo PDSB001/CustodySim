@@ -1,4 +1,5 @@
 import { and, eq, isNull } from "drizzle-orm"
+import { z } from "zod"
 
 import { failure, success } from "@/lib/api-response"
 import { writeAuditLog } from "@/lib/audit"
@@ -15,6 +16,8 @@ export async function DELETE(_: Request, { params }: RouteContext) {
     const user = await getSessionUser()
     if (!user) return failure("UNAUTHORIZED", "未登录", 401)
     const { id } = await params
+    if (!z.string().uuid().safeParse(id).success)
+      return failure("VALIDATION_ERROR", "设备编号不合法", 400)
     const [device] = await db.transaction(async (tx) => {
       const revoked = await tx
         .update(mfaTrustedDevices)

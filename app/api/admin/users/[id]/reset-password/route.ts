@@ -1,5 +1,6 @@
 import { eq } from "drizzle-orm"
 import { NextRequest } from "next/server"
+import { z } from "zod"
 
 import { failure, success } from "@/lib/api-response"
 import { getAdminUser } from "@/lib/admin-api"
@@ -17,6 +18,8 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
   if (!actor) return failure("FORBIDDEN", "仅管理员可重置密码", 403)
   const { id } = await params
   void request
+  if (!z.string().uuid().safeParse(id).success)
+    return failure("VALIDATION_ERROR", "用户 ID 不合法", 400)
   const temporaryPassword = `Tmp-${crypto.randomUUID().replaceAll("-", "").slice(0, 16)}9`
   try {
     const [existing] = await db

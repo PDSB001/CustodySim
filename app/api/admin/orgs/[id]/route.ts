@@ -1,5 +1,6 @@
 import { eq } from "drizzle-orm"
 import { NextRequest } from "next/server"
+import { z } from "zod"
 
 import { failure, success } from "@/lib/api-response"
 import { getAdminUser } from "@/lib/admin-api"
@@ -7,7 +8,12 @@ import { OrganizationSchema } from "@/lib/admin-schemas"
 import { validateOrganizationPlacement } from "@/lib/org-hierarchy"
 import { writeAuditLog } from "@/lib/audit"
 import { db } from "@/lib/db"
-import { organizations, persons, users } from "@/lib/db/schema"
+import {
+  chatConversations,
+  organizations,
+  persons,
+  users,
+} from "@/lib/db/schema"
 
 type RouteContext = { params: Promise<{ id: string }> }
 
@@ -15,6 +21,8 @@ export async function PATCH(request: NextRequest, { params }: RouteContext) {
   const actor = await getAdminUser()
   if (!actor) return failure("FORBIDDEN", "仅管理员可管理组织", 403)
   const { id } = await params
+  if (!z.string().uuid().safeParse(id).success)
+    return failure("VALIDATION_ERROR", "组织 ID 不合法", 400)
   const parsed = OrganizationSchema.safeParse(await request.json())
   if (!parsed.success)
     return failure(
@@ -75,7 +83,7 @@ export async function DELETE(_request: NextRequest, { params }: RouteContext) {
   if (!actor) return failure("FORBIDDEN", "仅管理员可管理组织", 403)
   const { id } = await params
   try {
-    const [child, member, person] = await Promise.all([
+    const [child, member, person, room] = await Promise.all([
       db
         .select({ id: organizations.id })
         .from(organizations)
@@ -91,11 +99,16 @@ export async function DELETE(_request: NextRequest, { params }: RouteContext) {
         .from(persons)
         .where(eq(persons.organizationId, id))
         .limit(1),
+      db
+        .select({ id: chatConversations.id })
+        .from(chatConversations)
+        .where(eq(chatConversations.roomOrganizationId, id))
+        .limit(1),
     ])
-    if (child[0] || member[0] || person[0])
+    if (child[0] || member[0] || person[0] || room[0])
       return failure(
         "CONFLICT",
-        "该组织仍有关联的下级、用户或人员，不能删除",
+        "该组织仍有关联的下级、用户、人员或聊天会话，不能删除",
         409,
       )
     const [deleted] = await db

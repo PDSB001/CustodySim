@@ -44,38 +44,45 @@ export async function POST(request: NextRequest) {
     )
   try {
     const { scopes, startDate, endDate, slotSettings, ...ruleData } = parsed.data
-    const [rule] = await db
-      .insert(rules)
-      .values({
-        ...ruleData,
-        type: "CHECKIN",
-        taskType: "CHECKIN",
-        timeSlots: slotSettings.length
-          ? slotSettings.map((slot) => slot.time)
-          : ruleData.timeSlots,
-        slotSettings,
-        custodyLevel: ruleData.custodyLevel ?? null,
-        ruleGroupId: ruleData.ruleGroupId ?? null,
-        startDate: startDate ? new Date(startDate) : null,
-        endDate: endDate ? new Date(endDate) : null,
-      })
-      .returning()
-    if (!rule) return failure("INTERNAL_ERROR", "创建打卡规则失败", 500)
-    const insertedScopes = scopes.length
-      ? await db
-          .insert(ruleScopes)
-          .values(scopes.map((scope) => ({ ...scope, ruleId: rule.id })))
-          .returning()
-      : []
-    await writeAuditLog({
-      actor,
-      action: "CREATE",
-      actionLabel: "创建打卡规则",
-      entityType: "checkin_rule",
-      entityId: rule.id,
-      detail: { name: ruleData.name, custodyLevel: ruleData.custodyLevel },
+    const created = await db.transaction(async (tx) => {
+      const [rule] = await tx
+        .insert(rules)
+        .values({
+          ...ruleData,
+          type: "CHECKIN",
+          taskType: "CHECKIN",
+          timeSlots: slotSettings.length
+            ? slotSettings.map((slot) => slot.time)
+            : ruleData.timeSlots,
+          slotSettings,
+          custodyLevel: ruleData.custodyLevel ?? null,
+          ruleGroupId: ruleData.ruleGroupId ?? null,
+          startDate: startDate ? new Date(startDate) : null,
+          endDate: endDate ? new Date(endDate) : null,
+        })
+        .returning()
+      if (!rule) return null
+      const insertedScopes = scopes.length
+        ? await tx
+            .insert(ruleScopes)
+            .values(scopes.map((scope) => ({ ...scope, ruleId: rule.id })))
+            .returning()
+        : []
+      await writeAuditLog(
+        {
+          actor,
+          action: "CREATE",
+          actionLabel: "创建打卡规则",
+          entityType: "checkin_rule",
+          entityId: rule.id,
+          detail: { name: ruleData.name, custodyLevel: ruleData.custodyLevel },
+        },
+        tx,
+      )
+      return { ...rule, scopes: insertedScopes }
     })
-    return success({ ...rule, scopes: insertedScopes }, { status: 201 })
+    if (!created) return failure("INTERNAL_ERROR", "创建打卡规则失败", 500)
+    return success(created, { status: 201 })
   } catch (error) {
     console.error("[API checkin-rules POST]", error)
     return failure("INTERNAL_ERROR", "服务器错误", 500)

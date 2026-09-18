@@ -748,12 +748,6 @@ export async function createCheckinMakeup({
     throw new CheckinError("无权申请该补卡", 403)
   if (!["MISSED", "LATE", "MAKEUP_REJECTED"].includes(task.status))
     throw new CheckinError("该打卡状态不能申请补卡")
-  const [existing] = await db
-    .select({ id: checkinMakeups.id, status: checkinMakeups.status })
-    .from(checkinMakeups)
-    .where(eq(checkinMakeups.taskId, taskId))
-    .limit(1)
-  if (existing?.status === "PENDING") throw new CheckinError("补卡申请正在审核")
   const now = new Date()
   if (
     locationSource === "GPS" &&
@@ -776,6 +770,18 @@ export async function createCheckinMakeup({
         }
       : ipLocation
   return db.transaction(async (tx) => {
+    // 锁定任务行并在事务内复查，串行化同一任务的并发补卡申请。
+    await tx
+      .select({ id: checkinTasks.id })
+      .from(checkinTasks)
+      .where(eq(checkinTasks.id, taskId))
+      .for("update")
+    const [existing] = await tx
+      .select({ id: checkinMakeups.id, status: checkinMakeups.status })
+      .from(checkinMakeups)
+      .where(eq(checkinMakeups.taskId, taskId))
+      .limit(1)
+    if (existing?.status === "PENDING") throw new CheckinError("补卡申请正在审核")
     const [makeup] = existing
       ? await tx
           .update(checkinMakeups)

@@ -516,7 +516,7 @@ export async function runWeeklyScoreReview(now = new Date()) {
       .where(eq(persons.userId, user.id))
       .limit(1)
     const previousCustodyStatus = profile?.custodyStatus ?? "IN_CUSTODY"
-    const order = await db.transaction(async (tx) => {
+    const createdOrder = await db.transaction(async (tx) => {
       const [created] = await tx
         .insert(isolationOrders)
         .values({
@@ -537,19 +537,21 @@ export async function runWeeklyScoreReview(now = new Date()) {
         .update(persons)
         .set({ custodyStatus: "ISOLATION", updatedAt: now })
         .where(eq(persons.userId, user.id))
-      return created
-    })
-    if (order) await ensureIsolationReflectionTask(order, now)
-    if (order) {
-      await db.insert(notices).values({
+      // 公示与禁闭令同事务写入，避免中断后禁闭已生效却永久缺少公示。
+      await tx.insert(notices).values({
         title: "禁闭公示",
-        content: `${user.name} 因周度行为考核积分为 ${totalScore} 分，依积分规则执行禁闭。执行期限：${order.startAt.toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" })} 至 ${order.endAt.toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" })}。禁闭期间按加强点名安排报到，并按时呈报每日反思任务。`,
+        content: `${user.name} 因周度行为考核积分为 ${totalScore} 分，依积分规则执行禁闭。执行期限：${created.startAt.toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" })} 至 ${created.endAt.toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" })}。禁闭期间按加强点名安排报到，并按时呈报每日反思任务。`,
         targetRole: "ALL",
         priority: "IMPORTANT",
         published: true,
         publishedAt: now,
       })
-    }
+      return created
+    })
+    // 重跑时禁闭令已存在，仍要补建每日反思任务，避免中断后永久缺失。
+    const activeOrder =
+      createdOrder ?? (await getActiveIsolationOrder(user.id, now))
+    if (activeOrder) await ensureIsolationReflectionTask(activeOrder, now)
   }
   return evaluated
 }
