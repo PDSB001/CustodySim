@@ -98,6 +98,7 @@ export async function DELETE(_request: NextRequest, { params }: RouteContext) {
   if (!z.string().uuid().safeParse(id).success)
     return failure("VALIDATION_ERROR", "人员 ID 不合法", 400)
   try {
+    // 仅删除人员档案，保留其登录账号（删档案不销号）。
     const deleted = await db.transaction(async (tx) => {
       const [row] = await tx
         .delete(persons)

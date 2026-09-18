@@ -76,7 +76,9 @@ export const persons = pgTable(
       .default("OUT_OF_CUSTODY"),
     remark: text("remark"),
     organizationId: uuid("organization_id").references(() => organizations.id),
-    userId: uuid("user_id").references(() => users.id),
+    // 删号连带删档：删除账号时同时移除其在押人员档案。
+    // 反向不成立——删除档案不会删除账号。
+    userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -201,9 +203,13 @@ export const prisonerNumberChanges = pgTable(
     oldNumber: varchar("old_number", { length: 50 }),
     newNumber: varchar("new_number", { length: 50 }).notNull(),
     reason: text("reason"),
-    requestedBy: uuid("requested_by").references(() => users.id),
+    requestedBy: uuid("requested_by").references(() => users.id, {
+      onDelete: "set null",
+    }),
     status: varchar("status", { length: 20 }).notNull().default("approved"),
-    reviewedBy: uuid("reviewed_by").references(() => users.id),
+    reviewedBy: uuid("reviewed_by").references(() => users.id, {
+      onDelete: "set null",
+    }),
     reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
@@ -216,7 +222,10 @@ export const auditLogs = pgTable(
   "audit_logs",
   {
     id: uuid("id").defaultRandom().primaryKey(),
-    actorId: uuid("actor_id").references(() => users.id),
+    // 审计需在删号后继续可查，因此只断开引用，保留冗余的 actor_name/role/type。
+    actorId: uuid("actor_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
     actorName: varchar("actor_name", { length: 100 }).notNull(),
     actorRole: varchar("actor_role", { length: 20 }).notNull(),
     actorType: varchar("actor_type", { length: 20 }).notNull().default("USER"),
@@ -239,7 +248,8 @@ export const loginLogs = pgTable(
   "login_logs",
   {
     id: uuid("id").defaultRandom().primaryKey(),
-    userId: uuid("user_id").references(() => users.id),
+    // 登录日志已冗余 username，删号时断引用即可保留安全日志。
+    userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
     username: varchar("username", { length: 50 }).notNull(),
     ip: varchar("ip", { length: 64 }),
     location: varchar("location", { length: 100 }),
@@ -635,7 +645,9 @@ export const reportTasks = pgTable(
   {
     id: uuid("id").defaultRandom().primaryKey(),
     title: varchar("title", { length: 160 }).notNull(),
-    supervisorId: uuid("supervisor_id").references(() => users.id),
+    supervisorId: uuid("supervisor_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
     supervisedId: uuid("supervised_id")
       .notNull()
       .references(() => users.id),
@@ -761,7 +773,9 @@ export const checkinTasks = pgTable(
     supervisedId: uuid("supervised_id")
       .notNull()
       .references(() => users.id),
-    supervisorId: uuid("supervisor_id").references(() => users.id),
+    supervisorId: uuid("supervisor_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
     slotIndex: integer("slot_index").notNull(),
     scheduleAt: timestamp("schedule_at", { withTimezone: true }).notNull(),
     deadline: timestamp("deadline", { withTimezone: true }).notNull(),
@@ -834,7 +848,9 @@ export const checkinMakeups = pgTable(
     userId: uuid("user_id")
       .notNull()
       .references(() => users.id),
-    supervisorId: uuid("supervisor_id").references(() => users.id),
+    supervisorId: uuid("supervisor_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
     ruleId: uuid("rule_id")
       .notNull()
       .references(() => rules.id),
@@ -873,7 +889,10 @@ export const scoreEvents = pgTable(
     reason: varchar("reason", { length: 300 }).notNull(),
     source: varchar("source", { length: 40 }).notNull().default("MANUAL"),
     sourceId: uuid("source_id"),
-    operatorId: uuid("operator_id").references(() => users.id),
+    // 操作人引用（被考核人由 supervised_id 承担），删号时断引用保留流水。
+    operatorId: uuid("operator_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
     weekKey: varchar("week_key", { length: 16 }).notNull(),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()

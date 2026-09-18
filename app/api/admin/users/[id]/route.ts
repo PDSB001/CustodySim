@@ -32,7 +32,10 @@ export async function PATCH(request: NextRequest, { params }: RouteContext) {
   try {
     const [organization] = parsed.data.organizationId
       ? await db
-          .select({ category: organizations.category })
+          .select({
+            category: organizations.category,
+            name: organizations.name,
+          })
           .from(organizations)
           .where(eq(organizations.id, parsed.data.organizationId))
           .limit(1)
@@ -91,9 +94,63 @@ export async function PATCH(request: NextRequest, { params }: RouteContext) {
       return row
     })
     if (!updated) return failure("NOT_FOUND", "用户不存在", 404)
-    return success(updated)
+    return success({
+      ...updated,
+      organizationName: organization?.name ?? null,
+    })
   } catch (error) {
     console.error("[API admin/users PATCH]", error)
+    return failure("INTERNAL_ERROR", "服务器错误", 500)
+  }
+}
+
+export async function DELETE(_request: NextRequest, { params }: RouteContext) {
+  const actor = await getAdminUser()
+  if (!actor) return failure("FORBIDDEN", "仅管理员可管理用户", 403)
+  const { id } = await params
+  if (!z.string().uuid().safeParse(id).success)
+    return failure("VALIDATION_ERROR", "用户 ID 不合法", 400)
+  if (id === actor.id)
+    return failure("VALIDATION_ERROR", "不能删除当前登录账号", 400)
+  try {
+    const deleted = await db.transaction(async (tx) => {
+      // persons.user_id 为级联删除，删号会一并移除其在押人员档案及其附属记录。
+      const [row] = await tx
+        .delete(users)
+        .where(eq(users.id, id))
+        .returning({
+          id: users.id,
+          username: users.username,
+          name: users.name,
+          role: users.role,
+        })
+      if (!row) return null
+      await writeAuditLog(
+        {
+          actor,
+          action: "DELETE",
+          actionLabel: "删除用户",
+          entityType: "user",
+          entityId: id,
+          detail: { username: row.username, name: row.name, role: row.role },
+        },
+        tx,
+      )
+      return row
+    })
+    if (!deleted) return failure("NOT_FOUND", "用户不存在", 404)
+    return success({ id })
+  } catch (error) {
+    const code =
+      typeof error === "object" && error && "code" in error ? error.code : null
+    // 业务历史（任务、打卡、积分、档案记录、会签等）为保留留痕会阻止删除。
+    if (code === "23503")
+      return failure(
+        "CONFLICT",
+        "该账户已有任务、打卡、积分或档案记录，为保留留痕不能删除；请改为停用该账户。",
+        409,
+      )
+    console.error("[API admin/users DELETE]", error)
     return failure("INTERNAL_ERROR", "服务器错误", 500)
   }
 }

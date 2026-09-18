@@ -1,7 +1,7 @@
 "use client"
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { KeyRound, Plus, UsersRound } from "lucide-react"
+import { KeyRound, Plus, Power, Trash2, UsersRound } from "lucide-react"
 import { useState } from "react"
 import { z } from "zod"
 
@@ -121,6 +121,39 @@ export function UserManage() {
       }),
     onError: (error) =>
       toast.error(error instanceof Error ? error.message : "重置失败"),
+  })
+  const toggleStatus = useMutation({
+    mutationFn: (user: z.infer<typeof UserSchema>) =>
+      requestApi(`/api/admin/users/${user.id}`, UserSchema, {
+        method: "PATCH",
+        body: JSON.stringify({
+          name: user.name,
+          role: user.role,
+          phone: user.phone,
+          organizationId: user.organizationId,
+          status: user.status === "active" ? "disabled" : "active",
+        }),
+      }),
+    onSuccess: (_data, user) => {
+      queryClient.invalidateQueries({ queryKey: ["admin-users"] })
+      toast.success(user.status === "active" ? "账户已停用" : "账户已启用")
+    },
+    onError: (error) =>
+      toast.error(error instanceof Error ? error.message : "操作失败"),
+  })
+  const remove = useMutation({
+    mutationFn: (id: string) =>
+      requestApi(`/api/admin/users/${id}`, z.object({ id: z.string() }), {
+        method: "DELETE",
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["admin-users"] })
+      // 删号会连带删除人员档案，同步刷新人员列表。
+      queryClient.invalidateQueries({ queryKey: ["persons"] })
+      toast.success("账户及其人员档案已删除")
+    },
+    onError: (error) =>
+      toast.error(error instanceof Error ? error.message : "删除失败"),
   })
   const updateForm = (key: keyof typeof form, value: string) =>
     setForm((current) => ({ ...current, [key]: value }))
@@ -304,23 +337,65 @@ export function UserManage() {
                     </StatusPill>
                   </td>
                   <td className="px-5 py-4 text-right">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="text-muted-foreground hover:text-foreground"
-                      disabled={reset.isPending}
-                      onClick={() => {
-                        if (
-                          window.confirm(
-                            `为 ${user.name} 生成一次性随机临时密码？`,
+                    <div className="flex items-center justify-end gap-1">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="text-muted-foreground hover:text-foreground"
+                        disabled={reset.isPending}
+                        onClick={() => {
+                          if (
+                            window.confirm(
+                              `为 ${user.name} 生成一次性随机临时密码？`,
+                            )
                           )
-                        )
-                          reset.mutate(user.id)
-                      }}
-                    >
-                      <KeyRound />
-                      重置密码
-                    </Button>
+                            reset.mutate(user.id)
+                        }}
+                      >
+                        <KeyRound />
+                        重置密码
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        className="text-muted-foreground hover:text-foreground"
+                        disabled={toggleStatus.isPending}
+                        title={user.status === "active" ? "停用账户" : "启用账户"}
+                        aria-label={
+                          user.status === "active" ? "停用账户" : "启用账户"
+                        }
+                        onClick={() => {
+                          if (
+                            user.status === "active" &&
+                            !window.confirm(
+                              `停用 ${user.name} 后该账号将无法登录，确定停用？`,
+                            )
+                          )
+                            return
+                          toggleStatus.mutate(user)
+                        }}
+                      >
+                        <Power />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        className="text-muted-foreground hover:text-destructive"
+                        disabled={remove.isPending}
+                        title="删除账户（连带删除人员档案）"
+                        aria-label="删除账户"
+                        onClick={() => {
+                          if (
+                            window.confirm(
+                              `删除 ${user.name} 会同时删除其在押人员档案及其附属记录，且不可恢复。确定删除？`,
+                            )
+                          )
+                            remove.mutate(user.id)
+                        }}
+                      >
+                        <Trash2 />
+                      </Button>
+                    </div>
                   </td>
                 </tr>
               ))}
