@@ -461,7 +461,7 @@ function CheckinCard({
             </div>
             <ImageUploadField
               label="打卡照片"
-              hint="可选。如现场、门牌等可核验的现场照片；"
+              hint="可选，例如现场或门牌照片"
               max={1}
               value={photo}
               onChange={setPhoto}
@@ -521,7 +521,7 @@ function CheckinCard({
             />
             <ImageUploadField
               label="补卡凭证照片"
-              hint="可选。如漏点截图、请假凭证等；"
+              hint="可选，例如漏点截图或请假凭证"
               max={1}
               value={makeupPhoto}
               onChange={setMakeupPhoto}

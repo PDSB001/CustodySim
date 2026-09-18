@@ -264,7 +264,7 @@ export function MyApplications() {
           <div className="sm:col-span-2">
             <ImageUploadField
               label="申请附件"
-              hint="可选。如证明材料、凭证照片等；"
+              hint="可选，例如证明材料或凭证照片"
               value={attachments}
               onChange={setAttachments}
             />

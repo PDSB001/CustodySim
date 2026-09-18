@@ -1,13 +1,14 @@
 "use client"
 
+import { ImagePlus, X } from "lucide-react"
 import Image from "next/image"
 import { useState } from "react"
 
 import { TASK_IMAGE_MAX_COUNT, normalizeTaskImages } from "@/lib/task-image"
 import { compressTaskImage } from "@/lib/task-image-client"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { cn } from "@/lib/utils"
 
 /**
  * 只读图片展示，值约定与上传控件一致（数组，兼容历史单图字符串）。
@@ -84,49 +85,77 @@ export function ImageUploadField({
           {label}
         </Label>
       ) : null}
-      <Input
-        type="file"
-        aria-label={`${label}上传图片`}
-        accept="image/jpeg,image/png,image/webp"
-        disabled={disabled || compressing || reachedLimit}
-        onChange={async (event) => {
-          const file = event.target.files?.[0]
-          event.target.value = ""
-          if (!file) return
-          setError(null)
-          setCompressing(true)
-          try {
-            const compressed = await compressTaskImage(file)
-            onChange([...images, compressed])
-          } catch (uploadError) {
-            setError(
-              uploadError instanceof Error ? uploadError.message : "图片处理失败",
-            )
-          } finally {
-            setCompressing(false)
-          }
-        }}
-      />
+      <label
+        className={cn(
+          "border-border/70 bg-muted/20 focus-within:border-brand-700/60 flex cursor-pointer items-center gap-3 rounded-xl border border-dashed px-4 py-3 transition-colors",
+          !(disabled || compressing || reachedLimit) &&
+            "hover:border-brand-700/50 hover:bg-muted/40",
+          (disabled || compressing || reachedLimit) &&
+            "cursor-not-allowed opacity-70",
+        )}
+      >
+        <span className="border-border/70 bg-background flex size-9 shrink-0 items-center justify-center rounded-full border">
+          <ImagePlus className="text-brand-700 size-4" />
+        </span>
+        <span className="min-w-0 text-sm font-medium">
+          {compressing
+            ? "正在压缩图片…"
+            : reachedLimit
+              ? `已达 ${limit} 张上限`
+              : `点击选择${label}`}
+        </span>
+        <input
+          type="file"
+          multiple={limit > 1}
+          aria-label={`${label}上传图片`}
+          accept="image/jpeg,image/png,image/webp"
+          className="sr-only"
+          disabled={disabled || compressing || reachedLimit}
+          onChange={async (event) => {
+            const files = Array.from(event.target.files ?? [])
+            event.target.value = ""
+            if (!files.length) return
+            const room = limit - images.length
+            if (room <= 0) return
+            setError(null)
+            setCompressing(true)
+            try {
+              const compressed: string[] = []
+              for (const file of files.slice(0, room))
+                compressed.push(await compressTaskImage(file))
+              if (files.length > room)
+                setError(
+                  `最多 ${limit} 张，已忽略多余的 ${files.length - room} 张`,
+                )
+              onChange([...images, ...compressed])
+            } catch (uploadError) {
+              setError(
+                uploadError instanceof Error ? uploadError.message : "图片处理失败",
+              )
+            } finally {
+              setCompressing(false)
+            }
+          }}
+        />
+      </label>
       <p className="text-muted-foreground text-xs">
         {hint ??
-          "支持 JPG、PNG、WebP；原图最大 5 MB，浏览器会压缩到 1 MB 以内再写入记录。"}
-        最多 {limit} 张，已上传 {images.length} 张。
+          "支持 JPG、PNG、WebP，原图最大 5 MB，浏览器会压缩到 1 MB 以内再写入记录。"}
+        {" "}
+        （最多 {limit} 张，已上传 {images.length} 张）
       </p>
-      {compressing ? (
-        <p className="text-brand-700 text-xs">正在压缩图片…</p>
-      ) : null}
       {reachedLimit ? (
         <p className="text-muted-foreground text-xs">
-          已达张数上限，如需更换请先移除已上传的图片。
+          如需更换，请先移除已上传的图片。
         </p>
       ) : null}
       {error ? <p className="text-destructive text-xs">{error}</p> : null}
       {images.length ? (
-        <div className="grid gap-3 sm:grid-cols-2">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
           {images.map((image, index) => (
             <div
               key={`${index}-${image.slice(-12)}`}
-              className="border-border/70 bg-muted/30 relative overflow-hidden rounded-lg border p-2"
+              className="border-border/70 bg-muted/30 relative overflow-hidden rounded-lg border"
             >
               <Image
                 src={image}
@@ -134,19 +163,20 @@ export function ImageUploadField({
                 width={640}
                 height={480}
                 unoptimized
-                className="max-h-64 w-full rounded object-contain"
+                className="h-32 w-full object-cover"
               />
               <Button
                 type="button"
                 variant="outline"
                 size="sm"
-                className="mt-2"
+                aria-label={`移除第 ${index + 1} 张${label}`}
+                className="bg-background/90 absolute top-1.5 right-1.5 size-7 rounded-full p-0 shadow-sm"
                 disabled={disabled}
                 onClick={() =>
                   onChange(images.filter((_, itemIndex) => itemIndex !== index))
                 }
               >
-                移除这张
+                <X className="size-3.5" />
               </Button>
             </div>
           ))}
