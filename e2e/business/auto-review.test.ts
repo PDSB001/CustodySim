@@ -8,17 +8,24 @@ import {
   test,
   vi,
 } from "vitest"
-import { eq, inArray, sql } from "drizzle-orm"
+import { and, eq, inArray, sql } from "drizzle-orm"
+import { signToken } from "@/lib/auth"
+import { AUTH_COOKIE_NAME } from "@/lib/constants"
 import { db } from "@/lib/db"
 import * as s from "@/lib/db/schema"
 import { runAutoReviewSweep } from "@/lib/auto-review-server"
 import { GET, PUT } from "@/app/api/admin/auto-review/route"
-import { getAdminUser } from "@/lib/admin-api"
 import { getAutoReviewSettings } from "@/lib/auto-review-settings"
-import type { SessionUser } from "@/lib/session"
 import { ISOLATION_REPORT_TEMPLATE_NAME } from "@/lib/isolation-report-template"
 
-vi.mock("@/lib/admin-api", () => ({ getAdminUser: vi.fn() }))
+// 只替身 Next 的 cookie 读取；JWT 校验、角色判断与路由逻辑保持真实。
+const cookie = vi.hoisted(() => ({ token: "" }))
+vi.mock("next/headers", () => ({
+  cookies: async () => ({
+    get: (name: string) =>
+      name === AUTH_COOKIE_NAME ? { value: cookie.token } : undefined,
+  }),
+}))
 
 const ids: string[] = []
 const templates: string[] = []
@@ -101,8 +108,11 @@ beforeEach(async () => {
       actorId: admin,
       templateIds: [templateId],
     })
-  const [actor] = await db.select().from(s.users).where(eq(s.users.id, admin))
-  vi.mocked(getAdminUser).mockResolvedValue(actor as SessionUser)
+  cookie.token = await signToken({
+    userId: admin,
+    role: "ADMIN",
+    tokenVersion: 0,
+  })
 })
 afterEach(() => {
   vi.unstubAllGlobals()
@@ -111,6 +121,15 @@ afterEach(() => {
 afterAll(async () => {
   await db.delete(s.autoReviewSettings)
   await db.delete(s.auditLogs).where(inArray(s.auditLogs.actorId, ids))
+  // 自动审核写入的审计记录 actorId 为 null（系统级身份），需单独清理。
+  await db
+    .delete(s.auditLogs)
+    .where(
+      and(
+        eq(s.auditLogs.actorType, "SYSTEM_AI"),
+        eq(s.auditLogs.entityType, "report_submission"),
+      ),
+    )
   await db.delete(s.reportTasks).where(inArray(s.reportTasks.supervisedId, ids))
   await db.delete(s.scoreEvents).where(inArray(s.scoreEvents.supervisedId, ids))
   await db.delete(s.users).where(inArray(s.users.id, ids))
@@ -302,7 +321,11 @@ test("管理员读取当前数据库账号和模板，密钥仅返回是否配�
 })
 
 test("非管理员不能读取或修改配置", async () => {
-  vi.mocked(getAdminUser).mockResolvedValue(null)
+  cookie.token = await signToken({
+    userId: user,
+    role: "SUPERVISED",
+    tokenVersion: 0,
+  })
   expect((await GET()).status).toBe(403)
   expect((await putSettings({ enabled: false })).status).toBe(403)
   expect((await getAutoReviewSettings()).settings.enabled).toBe(true)

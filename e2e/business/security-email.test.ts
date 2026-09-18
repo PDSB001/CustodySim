@@ -11,7 +11,13 @@ import {
 import { eq, inArray, sql } from "drizzle-orm"
 import { db } from "@/lib/db"
 import * as s from "@/lib/db/schema"
-import { hashPassword, signMfaChallenge, verifyMfaChallenge } from "@/lib/auth"
+import { AUTH_COOKIE_NAME } from "@/lib/constants"
+import {
+  hashPassword,
+  signMfaChallenge,
+  signToken,
+  verifyMfaChallenge,
+} from "@/lib/auth"
 import {
   decryptMfaSecret,
   encryptMfaSecret,
@@ -25,7 +31,6 @@ import {
   runSecurityMailSweep,
 } from "@/lib/security-mail-server"
 import { sendSecurityMail } from "@/lib/security-mail"
-import { getAdminUser } from "@/lib/admin-api"
 import {
   GET as mailStatus,
   PUT as mailPolicy,
@@ -36,7 +41,14 @@ vi.mock("@/lib/security-mail", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/security-mail")>()),
   sendSecurityMail: vi.fn(),
 }))
-vi.mock("@/lib/admin-api", () => ({ getAdminUser: vi.fn() }))
+// 只替身 Next 的 cookie 读取；JWT 校验、角色判断与路由逻辑保持真实。
+const cookie = vi.hoisted(() => ({ token: "" }))
+vi.mock("next/headers", () => ({
+  cookies: async () => ({
+    get: (name: string) =>
+      name === AUTH_COOKIE_NAME ? { value: cookie.token } : undefined,
+  }),
+}))
 const ids: string[] = []
 let actor: SessionUser
 let passwordHash: string
@@ -115,7 +127,7 @@ beforeEach(async () => {
   vi.stubEnv("TENCENT_SES_CODE_TEMPLATE_ID", "1")
   vi.stubEnv("TENCENT_SES_NOTICE_TEMPLATE_ID", "2")
   vi.mocked(sendSecurityMail).mockReset().mockResolvedValue(undefined)
-  vi.mocked(getAdminUser).mockResolvedValue(actor)
+  cookie.token = await signToken({ userId: id, role: "ADMIN", tokenVersion: 0 })
   await db.delete(s.securityMailLimits)
 })
 afterEach(() => {
@@ -373,7 +385,7 @@ test("管理接口不暴露凭据，仅管理员可修改；关闭策略阻止�
   const text = await response.text()
   expect(text).not.toContain("test-secret")
   expect(text).not.toContain("test-id")
-  vi.mocked(getAdminUser).mockResolvedValue(null)
+  cookie.token = ""
   expect((await mailStatus()).status).toBe(403)
   expect(
     (
@@ -385,7 +397,11 @@ test("管理接口不暴露凭据，仅管理员可修改；关闭策略阻止�
       )
     ).status,
   ).toBe(403)
-  vi.mocked(getAdminUser).mockResolvedValue(actor)
+  cookie.token = await signToken({
+    userId: actor.id,
+    role: "ADMIN",
+    tokenVersion: 0,
+  })
   expect(
     (
       await mailPolicy(

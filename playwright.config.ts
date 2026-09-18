@@ -76,14 +76,15 @@ export default defineConfig({
     {
       command: `node ./node_modules/next/dist/bin/next dev --hostname 0.0.0.0 --port ${port}`,
       url: baseURL,
-      reuseExistingServer: true,
+      // 必须由 Playwright 自己拉起连 e2e 库的服务，避免复用连业务库的 dev server。
+      reuseExistingServer: false,
       timeout: 120_000,
       env: e2eEnv,
     },
     {
       command: "node realtime-server.mjs",
       url: "http://127.0.0.1:3001/health",
-      reuseExistingServer: true,
+      reuseExistingServer: false,
       timeout: 30_000,
       env: e2eEnv,
     },
