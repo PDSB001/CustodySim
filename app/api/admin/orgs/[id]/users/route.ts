@@ -34,12 +34,14 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
         .from(users)
         .where(eq(users.id, parsed.data.userId))
         .limit(1)
-      if (!target) return { error: "用户不存在" as const, status: 404 }
+      if (!target)
+        return { ok: false as const, error: "用户不存在", status: 404 }
       const assignmentError = validateUserOrganizationAssignment(
         target.role as Role,
         (organization.category ?? null) as OrganizationCategory | null,
       )
-      if (assignmentError) return { error: assignmentError, status: 400 }
+      if (assignmentError)
+        return { ok: false as const, error: assignmentError, status: 400 }
       const [row] = await tx
         .update(users)
         .set({ organizationId: id, updatedAt: new Date() })
@@ -52,7 +54,7 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
           status: users.status,
           organizationId: users.organizationId,
         })
-      if (!row) return { error: "用户不存在" as const, status: 404 }
+      if (!row) return { ok: false as const, error: "用户不存在", status: 404 }
       await writeAuditLog(
         {
           actor,
@@ -64,9 +66,9 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
         },
         tx,
       )
-      return { member: row }
+      return { ok: true as const, member: row }
     })
-    if ("error" in result)
+    if (!result.ok)
       return failure(
         result.status === 404 ? "NOT_FOUND" : "VALIDATION_ERROR",
         result.error,

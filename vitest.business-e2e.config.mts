@@ -1,5 +1,5 @@
 import { defineConfig } from "vitest/config"
-import base from "./vitest.scoring-e2e.config.mts"
+import base from "./vitest.scoring-e2e.config.mjs"
 
 export default defineConfig({
   ...base,
