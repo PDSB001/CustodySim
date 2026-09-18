@@ -93,6 +93,8 @@ export async function POST(request: NextRequest) {
             .values({
               userId: user.id,
               secretEncrypted,
+              // 与 UPDATE 分支保持一致：新因子从“尚未使用过”开始。
+              lastUsedStep: -1,
               setupTokenVersion: current.tokenVersion,
             })
             .returning({ id: mfaFactors.id })

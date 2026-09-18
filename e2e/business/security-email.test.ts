@@ -79,6 +79,8 @@ async function factor() {
       userId: actor.id,
       enabled: true,
       secretEncrypted: encryptMfaSecret(secret),
+      // 该列不再有数据库默认值，未使用过时显式写入 -1。
+      lastUsedStep: -1,
     })
     .returning()
   return value

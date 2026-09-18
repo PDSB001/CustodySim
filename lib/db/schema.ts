@@ -1,6 +1,7 @@
 import {
   boolean,
   date,
+  foreignKey,
   index,
   integer,
   jsonb,
@@ -290,7 +291,9 @@ export const mfaFactors = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     secretEncrypted: text("secret_encrypted").notNull(),
-    lastUsedStep: integer("last_used_step").notNull().default(-1),
+    // 不设数据库默认值：-1 表示“尚未使用过”，由写入方显式赋值。
+    // 该列的负数默认值会让 drizzle-kit push 反复生成同一条 SET DEFAULT 语句且无法收敛。
+    lastUsedStep: integer("last_used_step").notNull(),
     setupTokenVersion: integer("setup_token_version").notNull().default(0),
     enabled: boolean("enabled").notNull().default(false),
     verifiedAt: timestamp("verified_at", { withTimezone: true }),
@@ -455,14 +458,18 @@ export const supervisionRelationScopes = pgTable(
   "supervision_relation_scopes",
   {
     id: uuid("id").defaultRandom().primaryKey(),
-    relationId: uuid("relation_id")
-      .notNull()
-      .references(() => supervisionRelations.id, { onDelete: "cascade" }),
+    relationId: uuid("relation_id").notNull(),
     side: varchar("side", { length: 20 }).notNull(),
     targetType: varchar("target_type", { length: 20 }).notNull(),
     targetId: uuid("target_id").notNull(),
   },
   (table) => [
+    // 自动生成的外键名超过 Postgres 63 字符上限会被截断，drizzle-kit push 将无法收敛，故显式指定短名。
+    foreignKey({
+      name: "supervision_relation_scopes_relation_id_fk",
+      columns: [table.relationId],
+      foreignColumns: [supervisionRelations.id],
+    }).onDelete("cascade"),
     index("supervision_relation_scopes_relation_idx").on(table.relationId),
     index("supervision_relation_scopes_target_idx").on(
       table.side,
@@ -1010,9 +1017,7 @@ export const isolationReflectionTasks = pgTable(
   "isolation_reflection_tasks",
   {
     id: uuid("id").defaultRandom().primaryKey(),
-    isolationOrderId: uuid("isolation_order_id")
-      .notNull()
-      .references(() => isolationOrders.id, { onDelete: "cascade" }),
+    isolationOrderId: uuid("isolation_order_id").notNull(),
     taskId: uuid("task_id")
       .notNull()
       .references(() => reportTasks.id, { onDelete: "cascade" }),
@@ -1025,6 +1030,12 @@ export const isolationReflectionTasks = pgTable(
       .defaultNow(),
   },
   (table) => [
+    // 同 supervision_relation_scopes：显式短名避免 63 字符截断。
+    foreignKey({
+      name: "isolation_reflection_tasks_isolation_order_id_fk",
+      columns: [table.isolationOrderId],
+      foreignColumns: [isolationOrders.id],
+    }).onDelete("cascade"),
     uniqueIndex("isolation_reflection_order_day_template_unique").on(
       table.isolationOrderId,
       table.dayKey,
@@ -1329,9 +1340,7 @@ export const chatConversationMembers = pgTable(
   "chat_conversation_members",
   {
     id: uuid("id").defaultRandom().primaryKey(),
-    conversationId: uuid("conversation_id")
-      .notNull()
-      .references(() => chatConversations.id, { onDelete: "cascade" }),
+    conversationId: uuid("conversation_id").notNull(),
     userId: uuid("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
@@ -1341,6 +1350,12 @@ export const chatConversationMembers = pgTable(
     leftAt: timestamp("left_at", { withTimezone: true }),
   },
   (table) => [
+    // 同 supervision_relation_scopes：显式短名避免 63 字符截断。
+    foreignKey({
+      name: "chat_conversation_members_conversation_id_fk",
+      columns: [table.conversationId],
+      foreignColumns: [chatConversations.id],
+    }).onDelete("cascade"),
     uniqueIndex("chat_conversation_members_unique").on(
       table.conversationId,
       table.userId,
