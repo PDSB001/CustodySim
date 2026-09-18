@@ -16,20 +16,26 @@ import {
   recordLoginFailure,
 } from "@/lib/login-rate-limit"
 import { consumeMfaLogin } from "@/lib/mfa-login-server"
-import { MFA_CHALLENGE_COOKIE_NAME } from "@/lib/constants"
+import { AUTH_TOKEN_TTL_SECONDS, MFA_CHALLENGE_COOKIE_NAME } from "@/lib/constants"
+import { isNativeClient } from "@/lib/native-client"
+import { issueRefreshToken } from "@/lib/refresh-token-server"
 
 export const runtime = "nodejs"
 
 export async function POST(request: NextRequest) {
   try {
-    const challenge = await verifyMfaChallenge(
-      request.cookies.get(MFA_CHALLENGE_COOKIE_NAME)?.value ?? "",
-    )
-    if (!challenge)
-      return failure("UNAUTHORIZED", "验证已过期，请重新登录", 401)
+    // 先解析请求体：原生客户端把挑战令牌放在 body 里，需要先拿到才能校验。
     const parsed = MfaVerificationSchema.safeParse(await request.json())
     if (!parsed.success)
       return failure("VALIDATION_ERROR", "请输入验证器代码或恢复码", 400)
+    // 浏览器走 httpOnly cookie；原生客户端读不到 cookie，改用请求体里的令牌。
+    const challenge = await verifyMfaChallenge(
+      parsed.data.mfaToken ??
+        request.cookies.get(MFA_CHALLENGE_COOKIE_NAME)?.value ??
+        "",
+    )
+    if (!challenge)
+      return failure("UNAUTHORIZED", "验证已过期，请重新登录", 401)
 
     const ip = getRequestIp(request.headers)
     const retryAfterSeconds = await getLoginRetryAfterSeconds(
@@ -64,14 +70,35 @@ export async function POST(request: NextRequest) {
       tokenVersion: user.tokenVersion,
       role: sessionUser.role,
     })
-    const response = success(sessionUser)
+    const trustedDeviceValue =
+      trustedDeviceToken && verification.deviceId
+        ? `${verification.deviceId}.${trustedDeviceToken}`
+        : null
+    // 仅对原生客户端回传令牌与受信任设备（浏览器依赖 httpOnly cookie）。
+    const native = isNativeClient(request.headers)
+    const refreshToken = native
+      ? await issueRefreshToken({
+          userId: user.id,
+          tokenVersion: user.tokenVersion,
+          ip,
+          userAgent: request.headers.get("user-agent"),
+        })
+      : null
+    const response = success(
+      native
+        ? {
+            ...sessionUser,
+            token: signedToken,
+            expiresInSeconds: AUTH_TOKEN_TTL_SECONDS,
+            refreshToken,
+            ...(trustedDeviceValue ? { trustedDevice: trustedDeviceValue } : {}),
+          }
+        : sessionUser,
+    )
     setAuthCookie(response, signedToken)
     clearMfaChallengeCookie(response)
-    if (trustedDeviceToken && verification.deviceId)
-      setMfaTrustedDeviceCookie(
-        response,
-        `${verification.deviceId}.${trustedDeviceToken}`,
-      )
+    if (trustedDeviceValue)
+      setMfaTrustedDeviceCookie(response, trustedDeviceValue)
     await Promise.all([
       clearLoginFailures(`mfa:${challenge.userId}`, ip),
       clearLoginFailures(user.username, ip),

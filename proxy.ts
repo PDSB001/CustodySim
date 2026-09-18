@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 
-const MUTATING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"])
+import { isSameOriginMutation } from "@/lib/request-origin"
 
 function createNonce() {
   return crypto.randomUUID().replaceAll("-", "")
@@ -44,35 +44,6 @@ function getContentSecurityPolicy(
     "form-action 'self'",
     "frame-ancestors 'none'",
   ].join("; ")
-}
-
-function getTrustedOrigins(request: NextRequest) {
-  const configured = process.env.APP_ORIGIN
-  if (configured) {
-    const origins = configured.split(",").flatMap((value) => {
-      try {
-        return [new URL(value.trim()).origin]
-      } catch {
-        return []
-      }
-    })
-    // Keep local development usable even when .env.local still contains a
-    // production APP_ORIGIN copied from a deployment environment.
-    if (process.env.NODE_ENV !== "production")
-      origins.push(request.nextUrl.origin)
-    return [...new Set(origins)]
-  }
-  return process.env.NODE_ENV === "production" ? [] : [request.nextUrl.origin]
-}
-
-function isSameOriginMutation(request: NextRequest) {
-  if (!request.nextUrl.pathname.startsWith("/api/")) return true
-  if (!MUTATING_METHODS.has(request.method)) return true
-  // Local development may legitimately mix localhost, 127.0.0.1, and a LAN
-  // address while testing. Keep origin enforcement strict in production only.
-  if (process.env.NODE_ENV !== "production") return true
-  const origin = request.headers.get("origin")
-  return Boolean(origin && getTrustedOrigins(request).includes(origin))
 }
 
 function applySecurityHeaders(

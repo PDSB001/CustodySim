@@ -52,6 +52,8 @@ export const AUTH_COOKIE_NAME = "custodysim_session"
 export const AUTH_TOKEN_TTL_SECONDS = 60 * 60 * 8
 export const MFA_CHALLENGE_COOKIE_NAME = "custodysim_mfa_challenge"
 export const MFA_TRUSTED_DEVICE_COOKIE_NAME = "custodysim_mfa_trusted_device"
+/** 原生客户端用它替代受信任设备 cookie，值形如 `${deviceId}.${token}`。 */
+export const MFA_TRUSTED_DEVICE_HEADER = "x-custodysim-trusted-device"
 export const MFA_CHALLENGE_TTL_SECONDS = 5 * 60
 export const MFA_TRUSTED_DEVICE_TTL_SECONDS = 60 * 60 * 24 * 30
 

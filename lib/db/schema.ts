@@ -436,6 +436,38 @@ export const mfaTrustedDevices = pgTable(
   ],
 )
 
+/**
+ * 原生客户端的长期刷新令牌。
+ *
+ * - 只存 HMAC 哈希：即使库被读走也无法直接冒用
+ * - 与 users.tokenVersion 绑定：改密、启用/关闭 MFA、登出、停用账号都会让它
+ *   立即失效，不依赖过期时间
+ * - 每次使用即轮换，旧的标记 revoked 并记录替换关系，便于识别旧令牌重放
+ */
+export const refreshTokens = pgTable(
+  "refresh_tokens",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    tokenHash: varchar("token_hash", { length: 64 }).notNull().unique(),
+    tokenVersion: integer("token_version").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    replacedById: uuid("replaced_by_id"),
+    ip: varchar("ip", { length: 64 }),
+    userAgent: varchar("user_agent", { length: 100 }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index("refresh_tokens_user_idx").on(table.userId),
+    index("refresh_tokens_expiry_idx").on(table.expiresAt),
+  ],
+)
+
 export const supervisionRelations = pgTable(
   "supervision_relations",
   {

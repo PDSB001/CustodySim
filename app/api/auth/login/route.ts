@@ -25,7 +25,13 @@ import {
   recordLoginFailure,
 } from "@/lib/login-rate-limit"
 import { getValidTrustedDevice } from "@/lib/mfa-server"
-import { MFA_TRUSTED_DEVICE_COOKIE_NAME } from "@/lib/constants"
+import {
+  AUTH_TOKEN_TTL_SECONDS,
+  MFA_TRUSTED_DEVICE_COOKIE_NAME,
+  MFA_TRUSTED_DEVICE_HEADER,
+} from "@/lib/constants"
+import { isNativeClient } from "@/lib/native-client"
+import { issueRefreshToken } from "@/lib/refresh-token-server"
 
 export const runtime = "nodejs"
 
@@ -88,11 +94,12 @@ export async function POST(request: NextRequest) {
       .from(mfaFactors)
       .where(eq(mfaFactors.userId, user.id))
       .limit(1)
+    // 浏览器把受信任设备放在 httpOnly cookie 里；原生客户端读不到 cookie，改用请求头。
+    const trustedDeviceValue =
+      request.cookies.get(MFA_TRUSTED_DEVICE_COOKIE_NAME)?.value ??
+      request.headers.get(MFA_TRUSTED_DEVICE_HEADER)?.trim()
     const trustedDevice = mfaFactor?.enabled
-      ? await getValidTrustedDevice(
-          user.id,
-          request.cookies.get(MFA_TRUSTED_DEVICE_COOKIE_NAME)?.value,
-        )
+      ? await getValidTrustedDevice(user.id, trustedDeviceValue)
       : null
     if (mfaFactor?.enabled && !trustedDevice) {
       const challengeId = randomUUID()
@@ -104,11 +111,18 @@ export async function POST(request: NextRequest) {
           tokenVersion: user.tokenVersion,
           expiresAt: new Date(Date.now() + 5 * 60_000),
         })
-      const response = success({ requiresMfa: true })
-      setMfaChallengeCookie(
-        response,
-        await signMfaChallenge(user.id, user.tokenVersion, challengeId),
+      const challengeToken = await signMfaChallenge(
+        user.id,
+        user.tokenVersion,
+        challengeId,
       )
+      // 原生客户端读不到 httpOnly cookie，挑战令牌改为在响应体里回传。
+      const response = success(
+        isNativeClient(request.headers)
+          ? { requiresMfa: true, mfaToken: challengeToken }
+          : { requiresMfa: true },
+      )
+      setMfaChallengeCookie(response, challengeToken)
       return response
     }
 
@@ -118,7 +132,26 @@ export async function POST(request: NextRequest) {
       role: sessionUser.role,
     })
     await clearLoginFailures(parsed.data.username, ip)
-    const response = success(sessionUser)
+    // 仅对原生客户端回传令牌：浏览器必须依赖 httpOnly cookie，避免令牌被脚本读取。
+    const native = isNativeClient(request.headers)
+    const refreshToken = native
+      ? await issueRefreshToken({
+          userId: user.id,
+          tokenVersion: user.tokenVersion,
+          ip,
+          userAgent: request.headers.get("user-agent"),
+        })
+      : null
+    const response = success(
+      native
+        ? {
+            ...sessionUser,
+            token,
+            expiresInSeconds: AUTH_TOKEN_TTL_SECONDS,
+            refreshToken,
+          }
+        : sessionUser,
+    )
     setAuthCookie(response, token)
     clearMfaChallengeCookie(response)
     await writeLoginLog({

@@ -23,6 +23,9 @@ vi.mock("next/headers", () => ({
     get: (name: string) =>
       name === AUTH_COOKIE_NAME ? { value: cookie.token } : undefined,
   }),
+  // lib/session.ts 现在也读 Authorization 头（原生客户端路径）。这个 mock 是
+  // 整体替换 next/headers，缺了 headers 会让所有鉴权路径直接抛错。
+  headers: async () => new Headers(),
 }))
 
 /** 1×1 PNG，解码后 67 字节，远小于单张 1MB 上限。 */

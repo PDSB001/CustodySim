@@ -1,5 +1,5 @@
 import { eq } from "drizzle-orm"
-import { cookies } from "next/headers"
+import { cookies, headers } from "next/headers"
 
 import { verifyToken } from "@/lib/auth"
 import { AUTH_COOKIE_NAME, type Role } from "@/lib/constants"
@@ -15,11 +15,28 @@ export type SessionUser = {
   mustChangePassword: boolean
 }
 
+/**
+ * 读取请求携带的会话令牌。
+ *
+ * 浏览器用 httpOnly cookie（XSS 拿不到令牌）；原生客户端用
+ * `Authorization: Bearer <JWT>`。一旦带了 Authorization 头就只认它、不回退
+ * cookie，避免两个来源不一致时出现"到底以哪个身份执行"的歧义。
+ */
+async function readSessionToken() {
+  const headerStore = await headers()
+  const authorization = headerStore.get("authorization")
+  if (authorization?.startsWith("Bearer ")) {
+    const value = authorization.slice("Bearer ".length).trim()
+    if (value) return value
+  }
+  const cookieStore = await cookies()
+  return cookieStore.get(AUTH_COOKIE_NAME)?.value ?? null
+}
+
 export async function getSessionUser(
   options: { allowPasswordChange?: boolean } = {},
 ): Promise<SessionUser | null> {
-  const cookieStore = await cookies()
-  const token = cookieStore.get(AUTH_COOKIE_NAME)?.value
+  const token = await readSessionToken()
   if (!token) return null
   const payload = await verifyToken(token)
   if (!payload) return null
