@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 
+import { isTencentMapPath } from "@/lib/map-paths"
 import { isSameOriginMutation } from "@/lib/request-origin"
 
 function createNonce() {
@@ -51,9 +52,7 @@ function applySecurityHeaders(
   nonce: string,
   request: NextRequest,
 ) {
-  const usesTencentMap =
-    request.nextUrl.pathname.startsWith("/electronic-fences") ||
-    request.nextUrl.pathname.startsWith("/my/electronic-fence")
+  const usesTencentMap = isTencentMapPath(request.nextUrl.pathname)
   response.headers.set(
     "Content-Security-Policy",
     getContentSecurityPolicy(nonce, usesTencentMap, request),
@@ -94,8 +93,7 @@ export function proxy(request: NextRequest) {
   const requestHeaders = new Headers(request.headers)
   const contentSecurityPolicy = getContentSecurityPolicy(
     nonce,
-    request.nextUrl.pathname.startsWith("/electronic-fences") ||
-      request.nextUrl.pathname.startsWith("/my/electronic-fence"),
+    isTencentMapPath(request.nextUrl.pathname),
     request,
   )
   requestHeaders.set("x-nonce", nonce)

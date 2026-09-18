@@ -6,6 +6,7 @@ import {
   ORGANIZATION_CATEGORIES,
   PRISONER_CUSTODY_STATUSES,
 } from "@/lib/constants"
+import { LOCATION_MAX_POINTS_PER_BATCH } from "@/lib/location-reporting"
 import { APPLICATION_TYPES } from "@/lib/application"
 import { OFFICIAL_SEAL_KINDS } from "@/lib/official-seal"
 import { parseIso } from "@/lib/shanghai-datetime"
@@ -315,11 +316,24 @@ export const ElectronicFenceSchema = z.object({
   enabled: z.boolean().default(true),
 })
 
-export const GeofenceEvaluationSchema = z.object({
+/** 单个定位点：单次上报与批量轨迹上报共用同一套字段约束。 */
+export const GeofencePointSchema = z.object({
   latitude: z.coerce.number().min(-90).max(90),
   longitude: z.coerce.number().min(-180).max(180),
   accuracyMeters: z.coerce.number().min(0).max(10_000),
   capturedAt: z.string().datetime({ offset: true }),
+})
+
+export const GeofenceEvaluationSchema = GeofencePointSchema.extend({
+  coordinateSystem: z.literal("GCJ02"),
+})
+
+/** 批量轨迹上报：上限取自服务端策略，客户端超出应自行分片。 */
+export const GeofenceBatchSchema = z.object({
+  points: z
+    .array(GeofencePointSchema)
+    .min(1)
+    .max(LOCATION_MAX_POINTS_PER_BATCH),
   coordinateSystem: z.literal("GCJ02"),
 })
 

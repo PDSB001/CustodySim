@@ -30,6 +30,9 @@ type TencentMapApi = {
   LatLng: new (latitude: number, longitude: number) => unknown
   MultiPolygon: new (options: Record<string, unknown>) => unknown
   PolygonStyle: new (options: Record<string, unknown>) => unknown
+  // 轨迹折线用（地图能力是纯增量扩展，不影响围栏页）
+  MultiPolyline: new (options: Record<string, unknown>) => unknown
+  PolylineStyle: new (options: Record<string, unknown>) => unknown
   CircleStyle: new (options: Record<string, unknown>) => unknown
   MultiMarker: new (options: Record<string, unknown>) => unknown
   MarkerStyle: new (options: Record<string, unknown>) => unknown
@@ -43,7 +46,8 @@ declare global {
 
 let sdkPromise: Promise<TencentMapApi> | null = null
 
-function loadTencentMapSdk(key: string) {
+/** 供轨迹图复用同一套加载逻辑，避免两处各写一份 SDK 注入。 */
+export function loadTencentMapSdk(key: string) {
   if (window.TMap) return Promise.resolve(window.TMap)
   if (sdkPromise) return sdkPromise
   sdkPromise = new Promise<TencentMapApi>((resolve, reject) => {
