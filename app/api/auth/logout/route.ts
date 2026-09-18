@@ -2,11 +2,7 @@ import { eq, sql } from "drizzle-orm"
 import { z } from "zod"
 
 import { success } from "@/lib/api-response"
-import {
-  clearAuthCookie,
-  clearMfaChallengeCookie,
-  clearMfaTrustedDeviceCookie,
-} from "@/lib/auth-cookie"
+import { clearAuthCookie, clearMfaChallengeCookie } from "@/lib/auth-cookie"
 import { writeAuditLog } from "@/lib/audit"
 import { db } from "@/lib/db"
 import { users } from "@/lib/db/schema"
@@ -41,6 +37,7 @@ export async function POST() {
   }
   clearAuthCookie(response)
   clearMfaChallengeCookie(response)
-  clearMfaTrustedDeviceCookie(response)
+  // 信任设备 cookie 有意保留：它代表用户此前对"本设备 30 天内免核验"的授权，
+  // 退出登录只应结束本次会话，不应撤销该授权（撤销入口在安全设置页的设备列表）。
   return response
 }
