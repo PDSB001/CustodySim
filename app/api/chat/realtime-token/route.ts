@@ -1,7 +1,11 @@
+import { eq } from "drizzle-orm"
+
 import { failure, success } from "@/lib/api-response"
 import { signChatRealtimeToken } from "@/lib/auth"
 import { ChatRealtimeTokenSchema } from "@/lib/chat"
 import { getChatConversationAccess } from "@/lib/chat-server"
+import { db } from "@/lib/db"
+import { users } from "@/lib/db/schema"
 import { getSessionUser } from "@/lib/session"
 
 export async function POST(request: Request) {
@@ -15,8 +19,19 @@ export async function POST(request: Request) {
       parsed.data.conversationId,
     )
     if (!conversation) return failure("NOT_FOUND", "会话不存在", 404)
+    // 绑定当前 tokenVersion，使改密/登出后已签发的实时凭证立即失效。
+    const [account] = await db
+      .select({ tokenVersion: users.tokenVersion })
+      .from(users)
+      .where(eq(users.id, actor.id))
+      .limit(1)
+    if (!account) return failure("UNAUTHORIZED", "账号不可用", 401)
     return success({
-      token: await signChatRealtimeToken(actor.id, [conversation.id]),
+      token: await signChatRealtimeToken(
+        actor.id,
+        [conversation.id],
+        account.tokenVersion,
+      ),
       expiresInSeconds: 300,
     })
   } catch (error) {

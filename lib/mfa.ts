@@ -7,6 +7,8 @@ import {
   timingSafeEqual,
 } from "node:crypto"
 
+import { assertUsableSecret } from "@/lib/secret-guard"
+
 const BASE32_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"
 const TOTP_STEP_SECONDS = 30
 const TOTP_DIGITS = 6
@@ -17,12 +19,9 @@ function getMfaKeyMaterial() {
     throw new Error(
       "MFA_ENCRYPTION_KEY must contain at least 32 characters in production",
     )
-  const secret = dedicatedSecret || process.env.AUTH_SECRET
-  if (!secret || secret.length < 32)
-    throw new Error(
-      "AUTH_SECRET or MFA_ENCRYPTION_KEY must contain at least 32 characters",
-    )
-  return secret
+  return dedicatedSecret
+    ? assertUsableSecret("MFA_ENCRYPTION_KEY", dedicatedSecret)
+    : assertUsableSecret("AUTH_SECRET", process.env.AUTH_SECRET)
 }
 
 function getEncryptionKey() {

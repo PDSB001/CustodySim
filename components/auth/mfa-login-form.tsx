@@ -11,7 +11,7 @@ import { SessionUserSchema } from "@/lib/auth-schemas"
 
 export function MfaLoginForm() {
   const [code, setCode] = useState("")
-  const [trustDevice, setTrustDevice] = useState(true)
+  const [trustDevice, setTrustDevice] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 

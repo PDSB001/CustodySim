@@ -1,5 +1,6 @@
 import { eq } from "drizzle-orm"
 import { NextRequest } from "next/server"
+import { z } from "zod"
 
 import { failure, success } from "@/lib/api-response"
 import { getAdminUser } from "@/lib/admin-api"
@@ -17,6 +18,8 @@ export async function PATCH(request: NextRequest, { params }: RouteContext) {
   const actor = await getAdminUser()
   if (!actor) return failure("FORBIDDEN", "仅管理员可管理用户", 403)
   const { id } = await params
+  if (!z.string().uuid().safeParse(id).success)
+    return failure("VALIDATION_ERROR", "用户 ID 不合法", 400)
   const parsed = UserUpdateSchema.safeParse(await request.json())
   if (!parsed.success)
     return failure(
@@ -52,25 +55,42 @@ export async function PATCH(request: NextRequest, { params }: RouteContext) {
         "账号角色创建后不可直接修改，请新建正确角色账号以避免人员档案失配",
         400,
       )
-    const [updated] = await db
-      .update(users)
-      .set({
-        ...parsed.data,
-        organizationId: parsed.data.organizationId ?? null,
-        phone: parsed.data.phone ?? null,
-        updatedAt: new Date(),
-      })
-      .where(eq(users.id, id))
-      .returning()
-    if (!updated) return failure("NOT_FOUND", "用户不存在", 404)
-    await writeAuditLog({
-      actor,
-      action: "UPDATE",
-      actionLabel: "编辑用户",
-      entityType: "user",
-      entityId: id,
-      detail: { username: updated.username },
+    const updated = await db.transaction(async (tx) => {
+      const [row] = await tx
+        .update(users)
+        .set({
+          ...parsed.data,
+          organizationId: parsed.data.organizationId ?? null,
+          phone: parsed.data.phone ?? null,
+          updatedAt: new Date(),
+        })
+        .where(eq(users.id, id))
+        .returning({
+          id: users.id,
+          username: users.username,
+          name: users.name,
+          role: users.role,
+          status: users.status,
+          mustChangePassword: users.mustChangePassword,
+          phone: users.phone,
+          organizationId: users.organizationId,
+          createdAt: users.createdAt,
+        })
+      if (!row) return null
+      await writeAuditLog(
+        {
+          actor,
+          action: "UPDATE",
+          actionLabel: "编辑用户",
+          entityType: "user",
+          entityId: id,
+          detail: { username: row.username },
+        },
+        tx,
+      )
+      return row
     })
+    if (!updated) return failure("NOT_FOUND", "用户不存在", 404)
     return success(updated)
   } catch (error) {
     console.error("[API admin/users PATCH]", error)

@@ -116,8 +116,16 @@ export async function POST(request: NextRequest) {
     })
     return success(
       {
-        ...created,
+        id: created.id,
+        username: created.username,
+        name: created.name,
+        role: created.role,
+        status: created.status,
+        mustChangePassword: created.mustChangePassword,
+        phone: created.phone,
+        organizationId: created.organizationId,
         organizationName: organization?.name ?? null,
+        createdAt: created.createdAt,
       },
       { status: 201 },
     )

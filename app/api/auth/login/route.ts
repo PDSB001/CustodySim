@@ -4,7 +4,12 @@ import { NextRequest } from "next/server"
 
 import { success, failure } from "@/lib/api-response"
 import { getRequestIp } from "@/lib/admin-api"
-import { signMfaChallenge, signToken, verifyPassword } from "@/lib/auth"
+import {
+  getDummyPasswordHash,
+  signMfaChallenge,
+  signToken,
+  verifyPassword,
+} from "@/lib/auth"
 import {
   clearMfaChallengeCookie,
   setAuthCookie,
@@ -51,11 +56,12 @@ export async function POST(request: NextRequest) {
       .from(users)
       .where(eq(users.username, parsed.data.username))
       .limit(1)
-    if (
-      !user ||
-      user.status !== "active" ||
-      !(await verifyPassword(parsed.data.password, user.passwordHash))
-    ) {
+    // 账号不存在或不可用时也执行一次等成本 bcrypt，消除登录时序侧信道。
+    const passwordMatches = await verifyPassword(
+      parsed.data.password,
+      user?.passwordHash ?? (await getDummyPasswordHash()),
+    )
+    if (!user || user.status !== "active" || !passwordMatches) {
       await recordLoginFailure(parsed.data.username, ip)
       await writeLoginLog({
         username: parsed.data.username,

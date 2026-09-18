@@ -5,13 +5,17 @@ import {
   randomBytes,
 } from "node:crypto"
 
+import { assertUsableSecret } from "@/lib/secret-guard"
+
 export { generateOfficialSealData } from "@/lib/official-seal-image"
 
 function getEncryptionKey() {
-  const secret =
-    process.env.ARCHIVE_SIGNATURE_ENCRYPTION_KEY ?? process.env.AUTH_SECRET
-  if (!secret || secret.length < 32)
-    throw new Error("签名加密密钥必须至少包含 32 个字符")
+  const secret = process.env.ARCHIVE_SIGNATURE_ENCRYPTION_KEY
+    ? assertUsableSecret(
+        "ARCHIVE_SIGNATURE_ENCRYPTION_KEY",
+        process.env.ARCHIVE_SIGNATURE_ENCRYPTION_KEY,
+      )
+    : assertUsableSecret("AUTH_SECRET", process.env.AUTH_SECRET)
   return createHash("sha256").update(secret).digest()
 }
 

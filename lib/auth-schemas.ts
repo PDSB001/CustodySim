@@ -22,7 +22,7 @@ export const MfaVerificationSchema = z.object({
     .trim()
     .min(6, "请输入验证器代码或恢复码")
     .max(32, "验证代码格式不正确"),
-  trustDevice: z.boolean().optional().default(true),
+  trustDevice: z.boolean().optional().default(false),
 })
 
 export const MfaCodeSchema = z.object({

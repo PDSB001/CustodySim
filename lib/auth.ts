@@ -6,6 +6,7 @@ import {
   MFA_CHALLENGE_TTL_SECONDS,
   type Role,
 } from "@/lib/constants"
+import { assertUsableSecret } from "@/lib/secret-guard"
 
 const encoder = new TextEncoder()
 export type AuthTokenPayload = {
@@ -21,10 +22,9 @@ export type MfaChallengePayload = {
 }
 
 function getAuthSecret() {
-  const secret = process.env.AUTH_SECRET
-  if (!secret || secret.length < 32)
-    throw new Error("AUTH_SECRET must contain at least 32 characters")
-  return encoder.encode(secret)
+  return encoder.encode(
+    assertUsableSecret("AUTH_SECRET", process.env.AUTH_SECRET),
+  )
 }
 
 export async function hashPassword(password: string) {
@@ -32,6 +32,17 @@ export async function hashPassword(password: string) {
 }
 export async function verifyPassword(password: string, passwordHash: string) {
   return bcrypt.compare(password, passwordHash)
+}
+
+let dummyPasswordHash: Promise<string> | undefined
+
+/**
+ * 用户名不存在或不可用时使用的等价 bcrypt 哈希（惰性生成并缓存）。
+ * 登录失败路径同样执行一次 bcrypt 比较，消除账号枚举的时序侧信道。
+ */
+export function getDummyPasswordHash() {
+  dummyPasswordHash ??= hashPassword("custodysim-login-timing-equalizer")
+  return dummyPasswordHash
 }
 
 export async function signToken(payload: AuthTokenPayload) {
@@ -47,7 +58,9 @@ export async function verifyToken(
   token: string,
 ): Promise<AuthTokenPayload | null> {
   try {
-    const { payload } = await jwtVerify(token, getAuthSecret())
+    const { payload } = await jwtVerify(token, getAuthSecret(), {
+      algorithms: ["HS256"],
+    })
     const { tokenVersion, role } = payload
     if (
       typeof payload.sub !== "string" ||
@@ -79,8 +92,13 @@ export async function signMfaChallenge(
 export async function signChatRealtimeToken(
   userId: string,
   conversationIds: string[],
+  tokenVersion: number,
 ) {
-  return new SignJWT({ purpose: "chat-realtime", conversationIds })
+  return new SignJWT({
+    purpose: "chat-realtime",
+    conversationIds,
+    tokenVersion,
+  })
     .setProtectedHeader({ alg: "HS256" })
     .setSubject(userId)
     .setIssuedAt()
@@ -92,7 +110,9 @@ export async function verifyMfaChallenge(
   token: string,
 ): Promise<MfaChallengePayload | null> {
   try {
-    const { payload } = await jwtVerify(token, getAuthSecret())
+    const { payload } = await jwtVerify(token, getAuthSecret(), {
+      algorithms: ["HS256"],
+    })
     if (
       payload.purpose !== "mfa-login" ||
       typeof payload.jti !== "string" ||

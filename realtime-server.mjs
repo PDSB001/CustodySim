@@ -15,6 +15,14 @@ const databaseUrl = process.env.DATABASE_URL
 
 if (!authSecret || authSecret.length < 32)
   throw new Error("AUTH_SECRET must contain at least 32 characters")
+if (
+  ["replace-this", "changeme", "change-me", "your-secret", "placeholder", "example"].some(
+    (marker) => authSecret.toLowerCase().includes(marker),
+  )
+)
+  throw new Error(
+    "AUTH_SECRET is still the example placeholder; generate a unique random secret",
+  )
 if (!databaseUrl) throw new Error("DATABASE_URL is required")
 if (!Number.isInteger(retentionDays) || retentionDays < 1)
   throw new Error("CHAT_RETENTION_DAYS must be a positive integer")
@@ -51,15 +59,29 @@ io.use(async (socket, next) => {
     const { payload } = await jwtVerify(
       token,
       new TextEncoder().encode(authSecret),
+      { algorithms: ["HS256"] },
     )
     if (
       payload.purpose !== "chat-realtime" ||
       typeof payload.sub !== "string" ||
       typeof payload.exp !== "number" ||
+      typeof payload.tokenVersion !== "number" ||
       !Array.isArray(payload.conversationIds) ||
       !payload.conversationIds.every((id) => typeof id === "string")
     )
       throw new Error("invalid token")
+    // 复核账号状态与 tokenVersion，登出/改密/停用后旧凭证立即失效。
+    const account = await maintenancePool.query(
+      "select token_version, status from users where id = $1",
+      [payload.sub],
+    )
+    const current = account.rows[0]
+    if (
+      !current ||
+      current.status !== "active" ||
+      current.token_version !== payload.tokenVersion
+    )
+      throw new Error("stale token")
     socket.data.userId = payload.sub
     socket.data.conversationIds = new Set(payload.conversationIds)
     socket.data.expiresAt = payload.exp * 1000
