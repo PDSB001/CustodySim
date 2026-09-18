@@ -1,5 +1,5 @@
-import { ProfileRecordManage } from "@/components/profile-records/profile-record-manage"
+import { ArchiveWorkspace } from "@/components/persons/archive-workspace"
 
 export default function ProfileRecordsPage() {
-  return <ProfileRecordManage />
+  return <ArchiveWorkspace initialTab="records" />
 }

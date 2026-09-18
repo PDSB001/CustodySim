@@ -1,4 +1,5 @@
-import { ReportTemplateManage } from "@/components/report-templates/report-template-manage"
+import { TaskOrchestrationWorkspace } from "@/components/rules/task-orchestration-workspace"
+
 export default function ReportTemplatesPage() {
-  return <ReportTemplateManage />
+  return <TaskOrchestrationWorkspace initialTab="templates" />
 }

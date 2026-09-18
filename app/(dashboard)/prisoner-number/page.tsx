@@ -1,5 +1,5 @@
-import { PrisonerNumberManage } from "@/components/persons/prisoner-number-manage"
+import { NumberingWorkspace } from "@/components/persons/numbering-workspace"
 
 export default function PrisonerNumberPage() {
-  return <PrisonerNumberManage />
+  return <NumberingWorkspace initialTab="numbers" />
 }

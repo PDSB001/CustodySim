@@ -1,5 +1,5 @@
-import { ProfileFormManage } from "@/components/profile-forms/profile-form-manage"
+import { ArchiveWorkspace } from "@/components/persons/archive-workspace"
 
 export default function ProfileFormsPage() {
-  return <ProfileFormManage />
+  return <ArchiveWorkspace initialTab="forms" />
 }

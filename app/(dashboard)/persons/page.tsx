@@ -1,5 +1,5 @@
-import { PersonManage } from "@/components/persons/person-manage"
+import { ArchiveWorkspace } from "@/components/persons/archive-workspace"
 
 export default function PersonsPage() {
-  return <PersonManage />
+  return <ArchiveWorkspace initialTab="persons" />
 }

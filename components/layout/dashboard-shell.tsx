@@ -31,39 +31,21 @@ import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
 import { ThemeToggle } from "@/components/layout/theme-toggle"
 import type { SessionUser } from "@/lib/session"
 
-const navigationSource = [
+type NavIcon = typeof LayoutDashboard
+type NavEntry = { href: string; label: string; icon: NavIcon }
+type NavSection = { label: string; entries: NavEntry[] }
+
+/**
+ * 管理端导航的唯一数据源（此前 href/label/icon 与分组各维护一遍，容易失配）。
+ * 合并后的功能在导航里只保留一个入口；历史 URL 仍可访问，见 MERGED_PATH_TITLES。
+ */
+const navSections: NavSection[] = [
   {
-    label: "概览",
+    label: "总览",
     entries: [{ href: "/", label: "当班总览", icon: LayoutDashboard }],
   },
   {
-    label: "基础资料",
-    entries: [
-      { href: "/orgs", label: "组织架构", icon: Building2 },
-      { href: "/accounts", label: "账户管理", icon: UsersRound },
-      { href: "/persons", label: "人员档案", icon: UserRound },
-      { href: "/prisoner-number", label: "人员编号", icon: Hash },
-      { href: "/configs", label: "编号生成规则", icon: Settings2 },
-      { href: "/profile-forms", label: "档案表单", icon: FileClock },
-      { href: "/profile-records", label: "档案查看", icon: ClipboardList },
-    ],
-  },
-  {
-    label: "规则与审计",
-    entries: [
-      { href: "/relations", label: "监管关系", icon: UsersRound },
-      { href: "/rule-groups", label: "规则组", icon: ClipboardList },
-      { href: "/rules", label: "任务规则", icon: Settings2 },
-      { href: "/report-templates", label: "任务表单", icon: FileClock },
-      { href: "/checkin-rules", label: "打卡规则", icon: CalendarCheck2 },
-      { href: "/electronic-fences", label: "电子围栏", icon: MapPinned },
-      { href: "/audit-logs", label: "操作审计", icon: FileClock },
-      { href: "/login-logs", label: "登录日志", icon: LogIn },
-      { href: "/security-mail", label: "安全邮件", icon: ShieldCheck },
-    ],
-  },
-  {
-    label: "监管执行",
+    label: "当班执行",
     entries: [
       { href: "/supervision/tasks", label: "任务批阅", icon: ClipboardList },
       {
@@ -72,74 +54,63 @@ const navigationSource = [
         icon: CalendarCheck2,
       },
       { href: "/supervision/makeups", label: "补卡审核", icon: TimerReset },
-      { href: "/scores", label: "积分与禁闭", icon: Trophy },
-      { href: "/isolation-settings", label: "禁闭设置", icon: ShieldCheck },
-      { href: "/auto-review", label: "自动审核", icon: Settings2 },
-      { href: "/profile-reviews", label: "档案审核", icon: FileCheck2 },
       { href: "/applications", label: "申请审核", icon: ClipboardList },
+      { href: "/profile-reviews", label: "档案审核", icon: FileCheck2 },
+      { href: "/scores", label: "积分与禁闭", icon: Trophy },
     ],
   },
   {
-    label: "界面",
+    label: "在押档案",
     entries: [
+      { href: "/persons", label: "在押档案", icon: UserRound },
+      { href: "/prisoner-number", label: "人员编号", icon: Hash },
+      { href: "/relations", label: "监管关系", icon: UsersRound },
+    ],
+  },
+  {
+    label: "执行规程",
+    entries: [
+      { href: "/rules", label: "任务编排", icon: Settings2 },
+      { href: "/checkin-rules", label: "打卡规则", icon: CalendarCheck2 },
+      { href: "/electronic-fences", label: "电子围栏", icon: MapPinned },
+    ],
+  },
+  {
+    label: "监所设置",
+    entries: [
+      { href: "/orgs", label: "组织架构", icon: Building2 },
+      { href: "/accounts", label: "账户管理", icon: UsersRound },
       { href: "/ui-config", label: "标语与文案", icon: MessageSquareText },
+    ],
+  },
+  {
+    label: "联络与印章",
+    entries: [
       { href: "/notices", label: "监所通知", icon: MessageSquareText },
       { href: "/chats", label: "聊天监管", icon: MessageSquareText },
       { href: "/official-seals", label: "印章中心", icon: Stamp },
     ],
   },
-] as const
-
-const allEntries = navigationSource.flatMap((section) => [...section.entries])
-const navSections = [
-  { label: "总览", paths: ["/"] },
-  {
-    label: "当班执行",
-    paths: [
-      "/supervision/tasks",
-      "/supervision/checkins",
-      "/supervision/makeups",
-      "/applications",
-      "/scores",
-    ],
-  },
-  {
-    label: "在押档案",
-    paths: [
-      "/persons",
-      "/profile-records",
-      "/profile-reviews",
-      "/prisoner-number",
-      "/relations",
-    ],
-  },
-  { label: "监室联络", paths: ["/notices", "/chats", "/official-seals"] },
-  {
-    label: "执行规程",
-    paths: [
-      "/rules",
-      "/rule-groups",
-      "/report-templates",
-      "/checkin-rules",
-      "/electronic-fences",
-      "/isolation-settings",
-      "/auto-review",
-    ],
-  },
-  {
-    label: "监所设置",
-    paths: ["/orgs", "/accounts", "/configs", "/profile-forms", "/ui-config"],
-  },
   {
     label: "安全与审计",
-    paths: ["/security-mail", "/audit-logs", "/login-logs"],
+    entries: [
+      { href: "/audit-logs", label: "操作审计", icon: FileClock },
+      { href: "/login-logs", label: "登录日志", icon: LogIn },
+      { href: "/security-mail", label: "安全邮件", icon: ShieldCheck },
+    ],
   },
-].map((section) => ({
-  label: section.label,
-  entries: section.paths.map((path) =>
-    allEntries.find((entry) => entry.href === path)!,
-  ),
-}))
+]
+
+/** 已并入工作台的历史路径 → 所属工作台标题，保证顶栏面包屑不丢失。 */
+const MERGED_PATH_TITLES: Record<string, string> = {
+  "/configs": "人员编号",
+  "/profile-forms": "在押档案",
+  "/profile-records": "在押档案",
+  "/rule-groups": "任务编排",
+  "/report-templates": "任务编排",
+  "/auto-review": "任务编排",
+  "/isolation-settings": "积分与禁闭",
+}
 
 function pathIsActive(pathname: string, href: string) {
   return href === "/"
@@ -259,6 +230,9 @@ function currentPageTitle(pathname: string) {
     for (const entry of section.entries) {
       if (pathIsActive(pathname, entry.href)) return entry.label
     }
+  }
+  for (const [path, title] of Object.entries(MERGED_PATH_TITLES)) {
+    if (pathIsActive(pathname, path)) return title
   }
   return "管理控制台"
 }

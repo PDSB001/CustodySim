@@ -1,4 +1,5 @@
-import { RuleGroupManage } from "@/components/rules/rule-group-manage"
+import { TaskOrchestrationWorkspace } from "@/components/rules/task-orchestration-workspace"
+
 export default function RuleGroupsPage() {
-  return <RuleGroupManage />
+  return <TaskOrchestrationWorkspace initialTab="groups" />
 }

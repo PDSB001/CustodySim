@@ -1,5 +1,5 @@
-import { IsolationSettingsManage } from "@/components/scores/isolation-settings-manage"
+import { DisciplineWorkspace } from "@/components/scores/discipline-workspace"
 
 export default function IsolationSettingsPage() {
-  return <IsolationSettingsManage />
+  return <DisciplineWorkspace initialTab="isolation" />
 }

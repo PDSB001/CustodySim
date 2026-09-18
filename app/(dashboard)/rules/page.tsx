@@ -1,4 +1,5 @@
-import { RuleManage } from "@/components/rules/rule-manage"
+import { TaskOrchestrationWorkspace } from "@/components/rules/task-orchestration-workspace"
+
 export default function RulesPage() {
-  return <RuleManage />
+  return <TaskOrchestrationWorkspace initialTab="rules" />
 }

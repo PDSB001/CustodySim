@@ -1,5 +1,5 @@
-import { NumberingManage } from "@/components/configs/numbering-manage"
+import { NumberingWorkspace } from "@/components/persons/numbering-workspace"
 
 export default function ConfigsPage() {
-  return <NumberingManage />
+  return <NumberingWorkspace initialTab="rules" />
 }

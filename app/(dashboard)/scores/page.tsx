@@ -1,5 +1,5 @@
-import { ScoreboardManage } from "@/components/scores/scoreboard-manage"
+import { DisciplineWorkspace } from "@/components/scores/discipline-workspace"
 
 export default function ScoresPage() {
-  return <ScoreboardManage canAdjust />
+  return <DisciplineWorkspace initialTab="scores" />
 }

@@ -1,8 +1,7 @@
 "use client"
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Hash, PencilLine, Settings2, WandSparkles } from "lucide-react"
-import Link from "next/link"
+import { Hash, PencilLine, WandSparkles } from "lucide-react"
 import { useState } from "react"
 import { z } from "zod"
 
@@ -105,17 +104,9 @@ export function PrisonerNumberManage() {
   return (
     <div className="workspace-stack">
       <PageHeader
-        eyebrow="基础资料"
+        eyebrow="在押档案"
         title="人员编号"
-        description="自动生成使用全局编号规则；遇到特殊个案时可单独改号，并留下变更原因与审计记录。"
-        action={
-          <Button asChild variant="outline">
-            <Link href="/configs">
-              <Settings2 />
-              配置生成规则
-            </Link>
-          </Button>
-        }
+        description="自动生成使用全局编号规则；遇到特殊个案时可单独改号，并留下变更原因与审计记录。规则在同页「编号生成规则」分区中维护。"
       />
 
       <Card className="surface-panel--brand">
@@ -133,9 +124,6 @@ export function PrisonerNumberManage() {
               </p>
             </div>
           </div>
-          <Button asChild size="sm" variant="ghost">
-            <Link href="/configs">查看规则 →</Link>
-          </Button>
         </CardContent>
       </Card>
 
