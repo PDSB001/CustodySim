@@ -12,10 +12,13 @@ import {
 import { db } from "@/lib/db"
 import { checkinMakeups, rules } from "@/lib/db/schema"
 import { getSessionUser } from "@/lib/session"
+import { validateTaskImageDataUrl } from "@/lib/task-image"
 
 const MakeupSchema = z.object({
   taskId: z.string().uuid(),
   reason: z.string().trim().min(2, "请说明补卡原因").max(1000),
+  /** 补卡凭证照片：浏览器端已压缩，服务端按统一规则复核（jpeg/png/webp，≤1MB） */
+  photo: z.string().optional(),
   location: z
     .object({
       label: z.string().trim().max(200).optional(),
@@ -39,6 +42,7 @@ export async function GET() {
         taskId: checkinMakeups.taskId,
         ruleName: rules.name,
         reason: checkinMakeups.reason,
+        photoUrl: checkinMakeups.photoUrl,
         status: checkinMakeups.status,
         reviewComment: checkinMakeups.reviewComment,
         createdAt: checkinMakeups.createdAt,
@@ -60,6 +64,11 @@ export async function POST(request: NextRequest) {
   const parsed = MakeupSchema.safeParse(await request.json())
   if (!parsed.success)
     return failure("VALIDATION_ERROR", "补卡申请参数不合法", 400)
+  const photo = parsed.data.photo?.trim()
+  if (photo) {
+    const photoError = validateTaskImageDataUrl(photo)
+    if (photoError) return failure("VALIDATION_ERROR", photoError, 400)
+  }
   try {
     const makeup = await createCheckinMakeup({
       user: actor,

@@ -13,6 +13,8 @@ export const ELECTRONIC_FENCE_REPORT_TEMPLATE_NAME = "电子围栏越界说明"
 const defaultFields = [
   { name: "越界原因", type: "TEXTAREA", required: true, options: [] },
   { name: "预计返回时间", type: "DATE", required: false, options: [] },
+  // 让图片字段在演示环境中可见可用；含图片字段的任务会转人工审核（见 lib/auto-review-policy.ts）
+  { name: "现场照片", type: "IMAGE", required: false, options: [] },
 ]
 
 /** 确保围栏任务有一份可在“任务表单”中查看和编辑的默认模板。 */

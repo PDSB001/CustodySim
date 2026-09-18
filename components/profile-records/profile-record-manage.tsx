@@ -138,7 +138,7 @@ export function MyProfileRecordManage() {
     <div className="workspace-stack mx-auto max-w-5xl">
       <PageHeader
         eyebrow="在押事务"
-        title="个人档案"
+        title="在押档案"
         description="据实填写本人在押资料，各分卷提交后逐级会签。全部核准后编号归档，归档内容不再由本人修改。"
       />
       <section className="metric-grid page-enter" aria-label="档案概览">

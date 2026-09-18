@@ -9,6 +9,7 @@ import { formatDate, requestApi } from "@/components/shared/api-client"
 import { EmptyState } from "@/components/shared/empty-state"
 import { StatusPill, type StatusTone } from "@/components/shared/status-pill"
 import { Card, CardContent } from "@/components/ui/card"
+import { ImageGallery } from "@/components/shared/image-upload-field"
 import { ProfileImageActions } from "@/components/profile-records/profile-image-actions"
 import { CUSTODY_LEVEL_LABELS, type CustodyLevel } from "@/lib/constants"
 import {
@@ -158,7 +159,8 @@ export function PersonArchiveDialog({
                         key={field.name}
                         className={
                           field.type === "TEXTAREA" ||
-                          field.type === "COPYWRITE"
+                          field.type === "COPYWRITE" ||
+                          field.type === "IMAGE"
                             ? "sm:col-span-2"
                             : ""
                         }
@@ -166,9 +168,17 @@ export function PersonArchiveDialog({
                         <p className="text-muted-foreground text-xs font-medium">
                           {field.name}
                         </p>
-                        <p className="mt-1 text-sm leading-6 whitespace-pre-wrap">
-                          {String(record.data[field.name] ?? "（未填写）")}
-                        </p>
+                        {field.type === "IMAGE" ? (
+                          <ImageGallery
+                            value={record.data[field.name]}
+                            label={field.name}
+                            emptyText="（未上传）"
+                          />
+                        ) : (
+                          <p className="mt-1 text-sm leading-6 whitespace-pre-wrap">
+                            {String(record.data[field.name] ?? "（未填写）")}
+                          </p>
+                        )}
                       </div>
                     ))}
                   </div>

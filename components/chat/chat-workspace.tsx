@@ -503,7 +503,7 @@ export function ChatWorkspace({ user }: { user: SessionUser }) {
     <div className="workspace-stack mx-auto max-w-7xl">
       <PageHeader
         eyebrow="监室联络"
-        title={user.role === "SUPERVISED" ? "监室聊天" : "聊天监管"}
+        title={user.role === "SUPERVISED" ? "监室通信" : "通信监管"}
         description={
           user.role === "SUPERVISED"
             ? "同监室可直接交流，跨监室私聊须报管理处批准。本人可查阅最近 14 天的普通消息。"

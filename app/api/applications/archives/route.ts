@@ -9,7 +9,7 @@ export async function GET() {
   const actor = await getSessionUser()
   if (!actor) return failure("UNAUTHORIZED", "请先登录", 401)
   if (actor.role !== "SUPERVISED")
-    return failure("FORBIDDEN", "仅被监管人可查看个人档案", 403)
+    return failure("FORBIDDEN", "仅被监管人可查看在押档案", 403)
   try {
     const rows = await db
       .select({

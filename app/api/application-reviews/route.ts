@@ -21,6 +21,7 @@ export async function GET() {
         type: applications.type,
         title: applications.title,
         reason: applications.reason,
+        attachments: applications.attachments,
         payload: applications.payload,
         archiveSnapshot: applications.archiveSnapshot,
         officialSealData: applications.officialSealData,

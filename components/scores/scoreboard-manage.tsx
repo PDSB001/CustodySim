@@ -136,8 +136,8 @@ export function ScoreboardManage({
     <div className="workspace-stack">
       <PageHeader
         eyebrow="监管执行"
-        title="行为考核与禁闭"
-        description="查阅每周行为考核、加扣分依据与禁闭执行情况。在押人员仅可见同监室人员全名，其他姓名作隐去处理。"
+        title="考核记分与禁闭"
+        description="查阅每周考核记分、加扣分依据与禁闭执行情况。在押人员仅可见同监室人员全名，其他姓名作隐去处理。"
         action={
           <Button variant="outline" onClick={() => setRulesOpen(true)}>
             <BookOpenCheck />

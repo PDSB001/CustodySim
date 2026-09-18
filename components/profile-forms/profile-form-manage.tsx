@@ -34,7 +34,15 @@ import { toast } from "@/components/ui/toast"
 const FieldSchema = z.object({
   id: z.string(),
   name: z.string(),
-  type: z.enum(["TEXT", "TEXTAREA", "NUMBER", "SELECT", "DATE", "COPYWRITE"]),
+  type: z.enum([
+    "TEXT",
+    "TEXTAREA",
+    "NUMBER",
+    "SELECT",
+    "DATE",
+    "COPYWRITE",
+    "IMAGE",
+  ]),
   required: z.boolean(),
   options: z.array(z.string()),
 })
@@ -75,6 +83,7 @@ const fieldLabels: Record<DraftField["type"], string> = {
   SELECT: "下拉选项",
   DATE: "日期",
   COPYWRITE: "逐字抄写",
+  IMAGE: "图片上传",
 }
 
 export function ProfileFormManage() {

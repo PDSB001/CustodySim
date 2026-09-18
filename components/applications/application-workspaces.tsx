@@ -15,6 +15,10 @@ import { z } from "zod"
 
 import { formatDate, requestApi } from "@/components/shared/api-client"
 import { EmptyState } from "@/components/shared/empty-state"
+import {
+  ImageGallery,
+  ImageUploadField,
+} from "@/components/shared/image-upload-field"
 import { PageHeader } from "@/components/shared/page-header"
 import { StatusPill } from "@/components/shared/status-pill"
 import { Button } from "@/components/ui/button"
@@ -43,6 +47,7 @@ const ApplicationSchema = z.object({
   type: ApplicationType,
   title: z.string(),
   reason: z.string(),
+  attachments: z.array(z.string()).optional(),
   payload: z.record(z.string(), z.unknown()),
   archiveRecordId: z.string().nullable(),
   archiveSnapshot: z.record(z.string(), z.unknown()).nullable(),
@@ -72,6 +77,7 @@ const ReviewSchema = z.object({
   type: ApplicationType,
   title: z.string(),
   reason: z.string(),
+  attachments: z.array(z.string()).optional(),
   payload: z.record(z.string(), z.unknown()),
   archiveSnapshot: z.record(z.string(), z.unknown()).nullable(),
   officialSealData: z.string().nullable(),
@@ -106,6 +112,7 @@ export function MyApplications() {
   const [temporaryReleaseStartAt, setTemporaryReleaseStartAt] = useState("")
   const [temporaryReleaseEndAt, setTemporaryReleaseEndAt] = useState("")
   const [archiveRecordId, setArchiveRecordId] = useState("")
+  const [attachments, setAttachments] = useState<string[]>([])
   const applications = useQuery({
     queryKey: ["applications"],
     queryFn: () => requestApi("/api/applications", ApplicationsSchema),
@@ -126,6 +133,7 @@ export function MyApplications() {
           temporaryReleaseStartAt: temporaryReleaseStartAt || null,
           temporaryReleaseEndAt: temporaryReleaseEndAt || null,
           archiveRecordId: archiveRecordId || null,
+          attachments,
         }),
       }),
     onSuccess: () => {
@@ -136,6 +144,7 @@ export function MyApplications() {
       setTemporaryReleaseStartAt("")
       setTemporaryReleaseEndAt("")
       setArchiveRecordId("")
+      setAttachments([])
       toast.success("申请已呈报，请留意批复")
     },
     onError: (error) =>
@@ -145,7 +154,7 @@ export function MyApplications() {
     <div className="workspace-stack mx-auto max-w-5xl">
       <PageHeader
         eyebrow="在押事务"
-        title="我的申请"
+        title="申诉与呈报"
         description="如需请假、临时离监或提请减刑，请写明事由并逐级呈报。请假与离监以管理处最终批复的起止时间为准。"
       />
       <Card>
@@ -253,6 +262,14 @@ export function MyApplications() {
             />
           </div>
           <div className="sm:col-span-2">
+            <ImageUploadField
+              label="申请附件"
+              hint="可选。如证明材料、凭证照片等；"
+              value={attachments}
+              onChange={setAttachments}
+            />
+          </div>
+          <div className="sm:col-span-2">
             <Button
               disabled={create.isPending || !reason.trim()}
               onClick={() => create.mutate()}
@@ -328,6 +345,17 @@ export function MyApplications() {
                       unoptimized
                       className="mt-3 size-20 object-contain"
                     />
+                  ) : null}
+                  {application.attachments?.length ? (
+                    <div className="mt-3">
+                      <p className="text-muted-foreground text-xs font-medium">
+                        随附附件
+                      </p>
+                      <ImageGallery
+                        value={application.attachments}
+                        label="申请附件"
+                      />
+                    </div>
                   ) : null}
                 </div>
                 <p className="text-muted-foreground text-xs">
@@ -436,6 +464,17 @@ export function ApplicationReviews() {
                   关联档案：{String(review.archiveSnapshot.formName ?? "档案")}{" "}
                   · {String(review.archiveSnapshot.code ?? "未编号")}
                 </p>
+              ) : null}
+              {review.attachments?.length ? (
+                <div>
+                  <p className="text-muted-foreground text-xs font-medium">
+                    随附附件
+                  </p>
+                  <ImageGallery
+                    value={review.attachments}
+                    label="申请附件"
+                  />
+                </div>
               ) : null}
               <Textarea
                 value={comments[review.id] ?? ""}

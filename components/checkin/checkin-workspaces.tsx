@@ -22,6 +22,10 @@ import { z } from "zod"
 
 import { requestApi } from "@/components/shared/api-client"
 import { EmptyState } from "@/components/shared/empty-state"
+import {
+  ImageGallery,
+  ImageUploadField,
+} from "@/components/shared/image-upload-field"
 import { MetricCell } from "@/components/shared/metric-cell"
 import {
   ErrorState,
@@ -55,6 +59,7 @@ const Checkin = z.object({
   recordStatus: z.string().nullable(),
   checkinAt: z.string().nullable(),
   remark: z.string().nullable(),
+  recordPhotoUrl: z.string().nullable().optional(),
   recordLocation: z.record(z.string(), z.unknown()).nullable(),
   recordLocationSource: z.string().nullable(),
   recordLat: z.string().nullable(),
@@ -62,6 +67,7 @@ const Checkin = z.object({
   recordGpsExpiresAt: z.string().nullable(),
   makeupId: z.string().nullable(),
   makeupStatus: z.string().nullable(),
+  makeupPhotoUrl: z.string().nullable().optional(),
 })
 const Checkins = z.array(Checkin)
 
@@ -72,6 +78,7 @@ const Makeup = z.object({
   userName: z.string().optional(),
   ruleName: z.string(),
   reason: z.string(),
+  photoUrl: z.string().nullable().optional(),
   status: z.string(),
   reviewComment: z.string().nullable().optional(),
   date: z.string().optional(),
@@ -144,7 +151,7 @@ function statusText(status: string) {
       COMPLETED: "已打卡",
       LATE: "迟到",
       MISSED: "缺卡",
-      MAKEUP_PENDING: "补卡审核中",
+      MAKEUP_PENDING: "补点核准中",
       MAKEUP_APPROVED: "补卡已通过",
       MAKEUP_REJECTED: "补卡未通过",
       SYSTEM_MAKEUP: "系统补卡",
@@ -251,6 +258,9 @@ function CheckinCard({
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [makeupReason, setMakeupReason] = useState("")
   const [showMakeup, setShowMakeup] = useState(false)
+  // 打卡照片与补卡凭证都是单张（沿用 photo_url 列），用数组承接共享控件的值约定
+  const [photo, setPhoto] = useState<string[]>([])
+  const [makeupPhoto, setMakeupPhoto] = useState<string[]>([])
   const checkin = useMutation({
     mutationFn: async () => {
       const location = gpsEnabled ? await getGpsLocation() : undefined
@@ -259,6 +269,7 @@ function CheckinCard({
         body: JSON.stringify({
           taskId: task.id,
           remark,
+          photo: photo[0] ?? undefined,
           location,
           locationSource: gpsEnabled ? "GPS" : "IP",
         }),
@@ -283,6 +294,7 @@ function CheckinCard({
         body: JSON.stringify({
           taskId: task.id,
           reason: makeupReason,
+          photo: makeupPhoto[0] ?? undefined,
           location,
           locationSource: gpsEnabled ? "GPS" : "IP",
         }),
@@ -447,6 +459,13 @@ function CheckinCard({
                 </p>
               )}
             </div>
+            <ImageUploadField
+              label="打卡照片"
+              hint="可选。如现场、门牌等可核验的现场照片；"
+              max={1}
+              value={photo}
+              onChange={setPhoto}
+            />
             <Button
               disabled={checkin.isPending || !isAvailable}
               onClick={() => {
@@ -476,6 +495,9 @@ function CheckinCard({
                 {locationLine(task)}
               </p>
             )}
+            {task.recordPhotoUrl ? (
+              <ImageGallery value={task.recordPhotoUrl} label="打卡照片" />
+            ) : null}
           </div>
         )}
         {task.makeupStatus && (
@@ -496,6 +518,13 @@ function CheckinCard({
               value={makeupReason}
               onChange={(event) => setMakeupReason(event.target.value)}
               placeholder="请说明未按时点名的原因及补卡依据"
+            />
+            <ImageUploadField
+              label="补卡凭证照片"
+              hint="可选。如漏点截图、请假凭证等；"
+              max={1}
+              value={makeupPhoto}
+              onChange={setMakeupPhoto}
             />
             <div className="flex gap-2">
               <Button
@@ -537,7 +566,7 @@ export function CheckinPanel() {
     <div className="workspace-stack mx-auto max-w-5xl">
       <PageHeader
         eyebrow="每日执行档案"
-        title="点名打卡记录"
+        title="点名记录"
         description="逐项核对今日点名记录。获批请假时段由系统补记；其他漏点可按规定申请补卡。"
         action={
           <Button variant="outline" asChild>
@@ -560,7 +589,7 @@ export function CheckinPanel() {
           custodyProfile.refetch()
           checkins.refetch()
         }}
-        loading={<LoadingBlock className="h-48" />}
+        loading={<LoadingBlock rows={4} />}
         empty={
           custodyProfile.data?.custodyStatus === "ON_LEAVE" ? (
             <div className="surface-panel surface-panel--brand page-enter p-5 sm:p-6">
@@ -767,7 +796,7 @@ function MakeupReviewCard({ makeup }: { makeup: z.infer<typeof Makeup> }) {
       }),
     onSuccess: () => {
       client.invalidateQueries({ queryKey: ["makeup-review"] })
-      toast.success("补卡审核已完成")
+      toast.success("补点核准已完成")
     },
     onError: (error) =>
       toast.error(error instanceof Error ? error.message : "审核失败"),
@@ -792,6 +821,14 @@ function MakeupReviewCard({ makeup }: { makeup: z.infer<typeof Makeup> }) {
         <p className="bg-muted/60 text-foreground rounded-lg p-3 text-sm leading-6">
           {makeup.reason}
         </p>
+        {makeup.photoUrl ? (
+          <div>
+            <p className="text-muted-foreground text-xs font-medium">
+              补卡凭证
+            </p>
+            <ImageGallery value={makeup.photoUrl} label="补卡凭证" />
+          </div>
+        ) : null}
         <div className="space-y-2">
           <Label>审核说明</Label>
           <Input
@@ -830,7 +867,7 @@ export function MakeupReview() {
     <div className="workspace-stack mx-auto max-w-5xl">
       <PageHeader
         eyebrow="监管执行"
-        title="补卡审核"
+        title="补点核准"
         description="核实所辖人员的漏点原因与补卡凭据，作出审核决定并留存意见。"
       />
       <QueryStateView
@@ -838,7 +875,7 @@ export function MakeupReview() {
         error={makeups.error}
         isEmpty={(makeups.data?.length ?? 0) === 0}
         onRetry={() => makeups.refetch()}
-        loading={<LoadingBlock className="h-48" />}
+        loading={<LoadingBlock rows={4} />}
         empty={
           <div className="surface-panel motion-item">
             <EmptyState

@@ -86,7 +86,7 @@ test("被监管者可以进入打卡记录", async ({ page }) => {
   await login(page, "user", "user12345")
   await page.goto("/my/checkins")
   await expect(page).toHaveURL("/my/checkins")
-  await expect(page.getByRole("heading", { name: "点名打卡记录" })).toBeVisible()
+  await expect(page.getByRole("heading", { name: "点名记录" })).toBeVisible()
 })
 
 test("被监管者可以查看电子围栏说明", async ({ page }) => {
@@ -100,7 +100,7 @@ test("被监管者可以进入申请页并看到私有请假时间控件", async
   await login(page, "user", "user12345")
   await page.goto("/my/applications")
   await expect(page).toHaveURL("/my/applications")
-  await expect(page.getByRole("heading", { name: "我的申请" })).toBeVisible()
+  await expect(page.getByRole("heading", { name: "申诉与呈报" })).toBeVisible()
   await expect(page.getByLabel("请假开始时间", { exact: true })).toBeVisible()
   await expect(page.getByLabel("请假结束时间", { exact: true })).toBeVisible()
   await expect(page.locator('input[type="datetime-local"]')).toHaveCount(0)
@@ -126,10 +126,10 @@ test("私有日期时间控件通过日历弹层选择时间", async ({ page }) 
   await expect(picker).not.toHaveValue("")
 })
 
-test("个人档案的刑期日期使用私有日历控件", async ({ page }) => {
+test("在押档案的刑期日期使用私有日历控件", async ({ page }) => {
   await login(page, "user", "user12345")
   await page.goto("/my/profile")
-  await expect(page.getByRole("heading", { name: "个人档案" })).toBeVisible()
+  await expect(page.getByRole("heading", { name: "在押档案" })).toBeVisible()
 
   const sentenceStartDate = page.getByLabel("刑期起始日期", { exact: true })
   await expect(sentenceStartDate).toBeVisible()
@@ -310,5 +310,5 @@ test("被监管者可以进入正式通知页", async ({ page }) => {
   await login(page, "user", "user12345")
   await page.goto("/my/notices")
   await expect(page).toHaveURL("/my/notices")
-  await expect(page.getByRole("heading", { name: "通知公告" })).toBeVisible()
+  await expect(page.getByRole("heading", { name: "监所公示" })).toBeVisible()
 })

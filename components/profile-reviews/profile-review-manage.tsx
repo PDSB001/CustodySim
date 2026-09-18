@@ -13,6 +13,7 @@ import { StatusPill } from "@/components/shared/status-pill"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
+import { ImageGallery } from "@/components/shared/image-upload-field"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { toast } from "@/components/ui/toast"
@@ -103,7 +104,9 @@ export function ProfileReviewManage() {
                 <div
                   key={field.name}
                   className={
-                    field.type === "TEXTAREA" || field.type === "COPYWRITE"
+                    field.type === "TEXTAREA" ||
+                    field.type === "COPYWRITE" ||
+                    field.type === "IMAGE"
                       ? "sm:col-span-2"
                       : ""
                   }
@@ -111,9 +114,17 @@ export function ProfileReviewManage() {
                   <p className="text-muted-foreground text-xs font-semibold">
                     {field.name}
                   </p>
-                  <p className="text-foreground mt-1 text-sm leading-6 whitespace-pre-wrap">
-                    {String(review.data[field.name] ?? "（未填写）")}
-                  </p>
+                  {field.type === "IMAGE" ? (
+                    <ImageGallery
+                      value={review.data[field.name]}
+                      label={field.name}
+                      emptyText="（未上传）"
+                    />
+                  ) : (
+                    <p className="text-foreground mt-1 text-sm leading-6 whitespace-pre-wrap">
+                      {String(review.data[field.name] ?? "（未填写）")}
+                    </p>
+                  )}
                 </div>
               ))}
             </div>

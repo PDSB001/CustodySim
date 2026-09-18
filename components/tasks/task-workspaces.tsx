@@ -2,21 +2,31 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import Image from "next/image"
-import { CheckCircle2, ClipboardCheck, Send, Star } from "lucide-react"
+import { CheckCircle2, ClipboardCheck, FileText, Send, Star } from "lucide-react"
 import { useEffect, useRef, useState } from "react"
 import { z } from "zod"
 
-import { compressTaskImage } from "@/lib/task-image-client"
 import { requestApi } from "@/components/shared/api-client"
 import { EmptyState } from "@/components/shared/empty-state"
+import { ImageUploadField } from "@/components/shared/image-upload-field"
 import { PageHeader } from "@/components/shared/page-header"
 import {
   LoadingBlock,
   QueryStateView,
 } from "@/components/shared/query-state-view"
+import { TaskSubmissionContent } from "@/components/tasks/task-submission-content"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { DatePicker } from "@/components/ui/date-picker"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import {
@@ -61,6 +71,8 @@ const Task = z.object({
   data: z.record(z.string(), z.unknown()).nullable(),
   officialSealData: z.string().nullable(),
   reviewComment: z.string().nullable().optional(),
+  reviewGrade: z.number().nullable().optional(),
+  reviewedAt: z.string().nullable().optional(),
   autoReviewReason: z.string().nullable().optional(),
 })
 const Tasks = z.array(Task)
@@ -192,79 +204,6 @@ function CopywriteField({
   )
 }
 
-function TaskImageField({
-  field,
-  value,
-  onChange,
-}: {
-  field: z.infer<typeof TemplateField>
-  value: string
-  onChange: (value: string) => void
-}) {
-  const [error, setError] = useState<string | null>(null)
-  const [compressing, setCompressing] = useState(false)
-  return (
-    <div className="space-y-2">
-      <Label>
-        {field.required ? "* " : ""}
-        {field.name}
-      </Label>
-      <Input
-        type="file"
-        accept="image/jpeg,image/png,image/webp"
-        disabled={compressing}
-        onChange={async (event) => {
-          const file = event.target.files?.[0]
-          event.target.value = ""
-          if (!file) return
-          setError(null)
-          setCompressing(true)
-          try {
-            onChange(await compressTaskImage(file))
-          } catch (uploadError) {
-            setError(
-              uploadError instanceof Error
-                ? uploadError.message
-                : "图片处理失败",
-            )
-          } finally {
-            setCompressing(false)
-          }
-        }}
-      />
-      <p className="text-muted-foreground text-xs">
-        支持 JPG、PNG、WebP；原图最大 5 MB，浏览器会压缩后以不超过 1 MB
-        的图片写入任务记录。
-      </p>
-      {compressing ? (
-        <p className="text-brand-700 text-xs">正在压缩图片…</p>
-      ) : null}
-      {error ? <p className="text-destructive text-xs">{error}</p> : null}
-      {value ? (
-        <div className="border-border/70 bg-muted/30 relative max-w-sm overflow-hidden rounded-lg border p-2">
-          <Image
-            src={value}
-            alt={`${field.name}预览`}
-            width={640}
-            height={480}
-            unoptimized
-            className="max-h-64 w-full rounded object-contain"
-          />
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="mt-2"
-            onClick={() => onChange("")}
-          >
-            移除图片
-          </Button>
-        </div>
-      ) : null}
-    </div>
-  )
-}
-
 function TaskPayloadForm({ task }: { task: z.infer<typeof Task> }) {
   const client = useQueryClient()
   const [data, setData] = useState<Record<string, unknown>>(task.data ?? {})
@@ -375,10 +314,11 @@ function TaskPayloadForm({ task }: { task: z.infer<typeof Task> }) {
             }
           />
         ) : field.type === "IMAGE" ? (
-          <TaskImageField
+          <ImageUploadField
             key={field.name}
-            field={field}
-            value={String(data[field.name] ?? "")}
+            label={field.name}
+            required={field.required}
+            value={data[field.name]}
             onChange={(value) =>
               setData((current) => ({ ...current, [field.name]: value }))
             }
@@ -455,6 +395,50 @@ function TaskPayloadForm({ task }: { task: z.infer<typeof Task> }) {
   )
 }
 
+/**
+ * 已办结任务的只读详情。
+ * 待执行 / 已退回的任务由 TaskPayloadForm 直接可编辑呈现，无需此入口；
+ * 其余状态（已通过 / 未通过 / 已逾期 / 已取消）此前只显示一行状态文字，
+ * 呈报内容无法回看，这里补上。
+ */
+function TaskDetailDialog({ task }: { task: z.infer<typeof Task> }) {
+  const comment = task.reviewComment?.trim()
+  return (
+    <Dialog>
+      <DialogTrigger asChild>
+        <Button variant="outline" size="sm" className="mt-3">
+          <FileText className="size-3.5" />
+          查看任务内容
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>{task.title}</DialogTitle>
+          <DialogDescription>
+            {statusLabel(task.status)}
+            {task.reviewedAt ? ` · 批阅于 ${dateText(task.reviewedAt)}` : ""}
+          </DialogDescription>
+        </DialogHeader>
+        <TaskSubmissionContent
+          fields={task.templateSnapshot.fields}
+          data={task.data}
+        />
+        <div className="space-y-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-sm font-medium">批阅结果</span>
+            {typeof task.reviewGrade === "number" ? (
+              <Badge variant="brand">评分 {task.reviewGrade}</Badge>
+            ) : null}
+          </div>
+          <p className="text-muted-foreground text-sm whitespace-pre-wrap">
+            {comment || "本次批阅未填写意见。"}
+          </p>
+        </div>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 export function SupervisedTasks() {
   const [filter, setFilter] = useState("pending")
   const tasks = useQuery({
@@ -515,7 +499,7 @@ export function SupervisedTasks() {
         error={tasks.error}
         isEmpty={visibleTasks.length === 0}
         onRetry={() => tasks.refetch()}
-        loading={<LoadingBlock className="h-48" />}
+        loading={<LoadingBlock rows={4} />}
         empty={
           <div className="surface-panel motion-item">
             <EmptyState
@@ -557,6 +541,11 @@ export function SupervisedTasks() {
             </CardHeader>
             <CardContent>
               <TaskPayloadForm task={task} />
+              {task.submissionId &&
+              task.status !== "PENDING" &&
+              task.status !== "RETURNED" ? (
+                <TaskDetailDialog task={task} />
+              ) : null}
               {task.officialSealData ? (
                 <Image
                   src={task.officialSealData}
@@ -614,7 +603,7 @@ export function SupervisorTasks() {
     <div className="workspace-stack mx-auto max-w-5xl">
       <PageHeader
         eyebrow="监管执行"
-        title="任务批阅"
+        title="呈报批阅"
         description="核对在押人员呈报的内容与凭据；通过或退回前，请写明必要的批阅意见。"
       />
       <QueryStateView
@@ -622,7 +611,7 @@ export function SupervisorTasks() {
         error={tasks.error}
         isEmpty={!tasks.isLoading && pending.length === 0}
         onRetry={() => tasks.refetch()}
-        loading={<LoadingBlock className="h-48" />}
+        loading={<LoadingBlock rows={4} />}
         empty={
           <div className="surface-panel motion-item">
             <EmptyState
@@ -649,78 +638,10 @@ export function SupervisorTasks() {
                   自动审核转人工：{task.autoReviewReason}
                 </p>
               )}
-              <div className="space-y-3 rounded-lg bg-slate-50 p-3">
-                {task.templateSnapshot.fields.map((field) => {
-                  const value = task.data?.[field.name]
-                  if (field.type === "COPYWRITE") {
-                    const source = (field.options?.[0] ?? "").trim()
-                    const written = String(value ?? "").trim()
-                    const exact = written === source
-                    return (
-                      <div key={field.name}>
-                        <p className="text-xs font-semibold text-slate-500">
-                          {field.name}
-                        </p>
-                        <p className="mt-1 text-xs text-slate-400">
-                          原文：{source}
-                        </p>
-                        <p className="mt-1 text-sm whitespace-pre-wrap text-slate-700">
-                          {written || "（未填写）"}
-                        </p>
-                        <p className="mt-1 text-xs">
-                          {written ? (
-                            exact ? (
-                              <span className="font-medium text-emerald-600">
-                                ✓ 逐字一致
-                              </span>
-                            ) : (
-                              <span className="font-medium text-amber-600">
-                                ⚠ 抄写与原文不一致
-                              </span>
-                            )
-                          ) : (
-                            <span className="text-slate-400">未填写</span>
-                          )}
-                        </p>
-                      </div>
-                    )
-                  }
-                  if (field.type === "IMAGE") {
-                    const image = typeof value === "string" ? value : ""
-                    return (
-                      <div key={field.name}>
-                        <p className="text-xs font-semibold text-slate-500">
-                          {field.name}
-                        </p>
-                        {image ? (
-                          <Image
-                            src={image}
-                            alt={`${field.name}提交图片`}
-                            width={640}
-                            height={480}
-                            unoptimized
-                            className="mt-2 max-h-72 w-full max-w-md rounded border object-contain"
-                          />
-                        ) : (
-                          <p className="mt-1 text-sm text-slate-400">
-                            （未上传）
-                          </p>
-                        )}
-                      </div>
-                    )
-                  }
-                  return (
-                    <div key={field.name}>
-                      <p className="text-xs font-semibold text-slate-500">
-                        {field.name}
-                      </p>
-                      <p className="mt-1 text-sm whitespace-pre-wrap text-slate-700">
-                        {String(value ?? "") || "（未填写）"}
-                      </p>
-                    </div>
-                  )
-                })}
-              </div>
+              <TaskSubmissionContent
+                fields={task.templateSnapshot.fields}
+                data={task.data}
+              />
               <div className="grid gap-3 sm:grid-cols-2">
                 <div className="space-y-2">
                   <Label>评分（可选）</Label>

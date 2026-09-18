@@ -80,23 +80,26 @@ const homeContent = {
     toneLabel: "值班监管员",
     cards: [
       {
-        label: "待审核任务",
+        id: "pendingTasks",
+        label: "待批呈报",
         value: "0",
-        detail: <span>任务提交</span>,
+        detail: <span>在押人员呈报</span>,
         icon: ClipboardCheck,
         tone: "brand" as const,
       },
       {
-        label: "补卡申请",
+        id: "pendingMakeups",
+        label: "补点申请",
         value: "0",
-        detail: <span>等待处理</span>,
+        detail: <span>待核准</span>,
         icon: TimerReset,
         tone: "warning" as const,
       },
       {
-        label: "未读通知",
+        id: "unreadNotices",
+        label: "未阅公示",
         value: "0",
-        detail: <span>待查阅的正式通知</span>,
+        detail: <span>待阅的监所公示</span>,
         icon: BellRing,
         tone: "danger" as const,
       },
@@ -108,21 +111,24 @@ const homeContent = {
     toneLabel: "模拟服刑",
     cards: [
       {
-        label: "待完成任务",
+        id: "myPendingTasks",
+        label: "待呈报任务",
         value: "0",
-        detail: <span>尚未提交的任务</span>,
+        detail: <span>尚未呈报的任务</span>,
         icon: ClipboardCheck,
         tone: "brand" as const,
       },
       {
-        label: "未读通知",
+        id: "unreadNotices",
+        label: "未阅公示",
         value: "0",
-        detail: <span>待查阅的监所通知</span>,
+        detail: <span>待阅的监所公示</span>,
         icon: BellRing,
         tone: "info" as const,
       },
       {
-        label: "在押状态",
+        id: "custodyStatus",
+        label: "在押情形",
         value: "正常",
         detail: <span>以在押档案为准</span>,
         icon: UserRound,
@@ -136,26 +142,26 @@ const serviceLinks = {
   SUPERVISOR: [
     {
       href: "/supervisor/tasks",
-      label: "任务批阅",
-      detail: "处理已提交任务",
+      label: "呈报批阅",
+      detail: "核对呈报内容并给出批阅意见",
       icon: ClipboardCheck,
     },
     {
       href: "/supervisor/checkins",
       label: "点名总览",
-      detail: "查看今日执行状态",
+      detail: "查看本班点名记录",
       icon: CalendarCheck2,
     },
     {
       href: "/supervisor/makeups",
-      label: "补卡审核",
-      detail: "处理逾期申请",
+      label: "补点核准",
+      detail: "核实漏点原因与补点凭据",
       icon: TimerReset,
     },
     {
       href: "/supervisor/reports",
-      label: "执行汇报",
-      detail: "查看与提交汇报",
+      label: "执勤台账",
+      detail: "查看与提交执勤记录",
       icon: FileText,
     },
   ],
@@ -163,25 +169,25 @@ const serviceLinks = {
     {
       href: "/my/tasks",
       label: "服刑任务",
-      detail: "完成指定内容，提交监管员批阅",
+      detail: "完成指定内容并呈报监管员批阅",
       icon: ClipboardCheck,
     },
     {
       href: "/my/checkins",
-      label: "点名打卡",
-      detail: "查看时段与补卡状态",
+      label: "点名",
+      detail: "查看点名时段与补点情况",
       icon: CalendarCheck2,
     },
     {
       href: "/my/notices",
-      label: "通知公告",
-      detail: "查阅监所通知与执行要求",
+      label: "监所公示",
+      detail: "查阅监所公示与令行要求",
       icon: BellRing,
     },
     {
       href: "/my/profile",
-      label: "个人档案",
-      detail: "查看监管与身份信息",
+      label: "在押档案",
+      detail: "查看在押情形与身份信息",
       icon: UserRound,
     },
   ],
@@ -199,8 +205,8 @@ function ServiceLinks({ kind }: { kind: WorkspaceKind }) {
         </h2>
         <p className="surface-panel__sub">
           {kind === "SUPERVISOR"
-            ? "审核、点名与执行记录"
-            : "呈报任务、查阅通知与在押档案"}
+            ? "批阅呈报、核准补点与执勤记录"
+            : "呈报任务、查阅公示与在押档案"}
         </p>
       </div>
       <div className="divide-border/60 divide-y">
@@ -246,14 +252,14 @@ function WorkspacePriority({
               ? "/supervisor/tasks"
               : "/supervisor/makeups",
             title: `有 ${pendingReviewCount} 项监管事项待处理`,
-            description: "优先处理任务审核与补卡申请，避免待办积压。",
+            description: "优先批阅呈报与核准补点，避免事项积压。",
             action: "前往处理",
             icon: ClipboardCheck,
           }
         : {
             href: "/supervisor/checkins",
-            title: "任务与补卡暂无待审",
-            description: "核对今日点名记录，留意漏点与补卡情况。",
+            title: "呈报与补点暂无待审",
+            description: "核对本班点名记录，留意漏点与补点情况。",
             action: "查看点名记录",
             icon: CalendarCheck2,
           }
@@ -261,23 +267,23 @@ function WorkspacePriority({
         ? {
             href: "/my/checkins",
             title: `当前为${summary.custodyStatus}`,
-            description: "请假期间无需手动打卡或申请补卡，系统会按规则处理。",
-            action: "查看打卡说明",
+            description: "请假期间无需手动点名或申请补点，系统按规则处理。",
+            action: "查看点名说明",
             icon: CalendarCheck2,
           }
         : summary.myPendingTasks > 0
           ? {
               href: "/my/tasks",
               title: `还有 ${summary.myPendingTasks} 项任务待呈报`,
-              description: "按截止时间完成指定内容，提交后等待监管员批阅。",
+              description: "按截止时间完成指定内容，呈报后等待监管员批阅。",
               action: "查看服刑任务",
               icon: ClipboardCheck,
             }
           : {
               href: "/my/checkins",
-              title: "当前没有待提交任务",
-              description: "仍需按时完成点名打卡，并留意监所通知与批阅结果。",
-              action: "查看打卡记录",
+              title: "当前无待呈报任务",
+              description: "仍需按时接受点名，并留意监所公示与批阅结果。",
+              action: "查看点名记录",
               icon: CalendarCheck2,
             }
   const Icon = priority.icon
@@ -341,7 +347,7 @@ function ProfileSummaryCard() {
     { label: "刑期起止", value: sentence, icon: CalendarRange },
   ]
   if (summary.isLoading)
-    return <LoadingBlock className="surface-panel motion-item h-40" />
+    return <LoadingBlock className="motion-item" rows={3} />
   if (summary.error)
     return (
       <div className="surface-panel motion-item">
@@ -388,7 +394,7 @@ function ProfileSummaryCard() {
       </div>
       {archiveLinked ? (
         <p className="border-border/60 text-muted-foreground border-t px-5 py-2.5 text-xs sm:px-6">
-          部分信息来自个人档案。如与在押情况不符，请向管理处申请核对。
+          部分信息取自在押档案。如与在押情形不符，请向管理处申请核对。
         </p>
       ) : null}
     </section>
@@ -402,7 +408,7 @@ function RoommateSummaryCard() {
   })
   const data = summary.data
   if (summary.isLoading)
-    return <LoadingBlock className="surface-panel motion-item h-40" />
+    return <LoadingBlock className="motion-item" rows={3} />
   if (summary.error)
     return (
       <div className="surface-panel motion-item">
@@ -482,17 +488,25 @@ export function RoleWorkspaceHome({
     refetchInterval: 30_000,
     refetchOnWindowFocus: true,
   })
+  const pendingReviewCount =
+    (summary.data?.pendingTasks ?? 0) + (summary.data?.pendingMakeups ?? 0)
+
+  /*
+   * 实时数值按卡片的稳定 id 取值。
+   * 不要改回按 label（中文标题）取：文案随时会调整，一旦标题改动而这里没跟上，
+   * 首页指标会静默退回硬编码的占位值，且编译器与测试都发现不了。
+   */
   const dynamicValues: Record<string, string> =
     kind === "SUPERVISOR"
       ? {
-          待审核任务: String(summary.data?.pendingTasks ?? 0),
-          补卡申请: String(summary.data?.pendingMakeups ?? 0),
-          未读通知: String(summary.data?.unreadNotices ?? 0),
+          pendingTasks: String(summary.data?.pendingTasks ?? 0),
+          pendingMakeups: String(summary.data?.pendingMakeups ?? 0),
+          unreadNotices: String(summary.data?.unreadNotices ?? 0),
         }
       : {
-          待完成任务: String(summary.data?.myPendingTasks ?? 0),
-          未读通知: String(summary.data?.unreadNotices ?? 0),
-          在押状态: summary.data?.custodyStatus ?? "待核实",
+          myPendingTasks: String(summary.data?.myPendingTasks ?? 0),
+          unreadNotices: String(summary.data?.unreadNotices ?? 0),
+          custodyStatus: summary.data?.custodyStatus ?? "待核实",
         }
   const homeTitle = (
     uiConfig.data?.homeTitle ??
@@ -519,10 +533,17 @@ export function RoleWorkspaceHome({
         }
       />
 
-      {summary.isLoading ? (
-        <LoadingBlock className="page-enter h-20" />
-      ) : summary.data && !summary.error ? (
-        <WorkspacePriority kind={kind} summary={summary.data} />
+      {/*
+        优先事项卡只在在押人员侧出现。
+        监管员侧的待办已在下方「本班审核」逐项列出（含各自数量与入口），
+        再放一张汇总卡等于同一屏把同一件事说两遍。
+      */}
+      {kind === "SUPERVISED" ? (
+        summary.isLoading ? (
+          <LoadingBlock className="page-enter h-20" />
+        ) : summary.data && !summary.error ? (
+          <WorkspacePriority kind={kind} summary={summary.data} />
+        ) : null
       ) : null}
 
       <section className="metric-grid page-enter" aria-label="今日概览">
@@ -541,11 +562,11 @@ export function RoleWorkspaceHome({
             </div>
           }
         >
-          {content.cards.map(({ label, value, detail, icon, tone }) => (
+          {content.cards.map(({ id, label, value, detail, icon, tone }) => (
             <MetricCell
-              key={label}
+              key={id}
               label={label}
-              value={dynamicValues[label] ?? value}
+              value={dynamicValues[id] ?? value}
               detail={detail}
               icon={icon}
               tone={tone}
@@ -564,27 +585,31 @@ export function RoleWorkspaceHome({
                 </span>
                 本班审核
               </h2>
-              <p className="surface-panel__sub">当前监管范围内的待审事项</p>
+              <p className="surface-panel__sub">
+                {pendingReviewCount > 0
+                  ? `共 ${pendingReviewCount} 项待处理`
+                  : "当前监管范围内的待审事项"}
+              </p>
             </div>
             <QueryStateView
               isLoading={summary.isLoading}
               error={summary.error}
               onRetry={() => summary.refetch()}
-              loading={<LoadingBlock className="h-36" />}
+              loading={<LoadingBlock rows={2} />}
             >
               <div className="divide-border/60 divide-y">
                 {[
                   {
                     href: "/supervisor/tasks",
-                    label: "任务批阅",
+                    label: "呈报批阅",
                     count: summary.data?.pendingTasks,
                     detail: "核对呈报内容，给出批阅意见",
                   },
                   {
                     href: "/supervisor/makeups",
-                    label: "补卡审核",
+                    label: "补点核准",
                     count: summary.data?.pendingMakeups,
-                    detail: "核实漏点原因与补卡凭据",
+                    detail: "核实漏点原因与补点凭据",
                   },
                 ].map((item) => (
                   <Link

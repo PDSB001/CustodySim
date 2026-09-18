@@ -169,7 +169,7 @@ function archiveSvg(
     <rect width="1240" height="${height}" fill="#f5f6fa"/>
     <rect x="48" y="48" width="1144" height="${height - 96}" fill="#ffffff" stroke="#ccd3e1" stroke-width="2"/>
     <rect x="48" y="48" width="1144" height="174" fill="#213e91"/>
-    <text x="620" y="120" text-anchor="middle" fill="#ffffff" font-family="'Microsoft YaHei', sans-serif" font-size="42" font-weight="700" letter-spacing="4">个人档案信息副本</text>
+    <text x="620" y="120" text-anchor="middle" fill="#ffffff" font-family="'Microsoft YaHei', sans-serif" font-size="42" font-weight="700" letter-spacing="4">在押档案信息副本</text>
     <text x="620" y="164" text-anchor="middle" fill="#cdd9ff" font-family="'Microsoft YaHei', sans-serif" font-size="20">${escapeXml(record.formName)}</text>
     <rect x="92" y="274" width="212" height="212" rx="8" fill="#edf1f8" stroke="#cdd5e4"/>
     ${photo ? `<image href="${photo}" x="100" y="282" width="196" height="196" preserveAspectRatio="xMidYMid slice" clip-path="url(#archive-photo-clip)"/>` : avatarPlaceholder(100, 282, 196, 196)}

@@ -5,10 +5,13 @@ import { failure, success } from "@/lib/api-response"
 import { getRequestIp } from "@/lib/admin-api"
 import { CheckinError, doCheckin, getTodayCheckinRecords } from "@/lib/checkin"
 import { getSessionUser } from "@/lib/session"
+import { validateTaskImageDataUrl } from "@/lib/task-image"
 
 const CheckinSchema = z.object({
   taskId: z.string().uuid(),
   remark: z.string().trim().max(500).optional(),
+  /** 打卡照片：浏览器端已压缩，服务端按统一规则复核（jpeg/png/webp，≤1MB） */
+  photo: z.string().optional(),
   location: z
     .object({
       label: z.string().trim().max(200).optional(),
@@ -52,6 +55,11 @@ export async function POST(request: NextRequest) {
   if (!actor) return failure("UNAUTHORIZED", "请先登录", 401)
   const parsed = CheckinSchema.safeParse(await request.json())
   if (!parsed.success) return failure("VALIDATION_ERROR", "打卡参数不合法", 400)
+  const photo = parsed.data.photo?.trim()
+  if (photo) {
+    const photoError = validateTaskImageDataUrl(photo)
+    if (photoError) return failure("VALIDATION_ERROR", photoError, 400)
+  }
   try {
     const record = await doCheckin({
       user: actor,

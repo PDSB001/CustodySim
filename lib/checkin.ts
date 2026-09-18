@@ -474,6 +474,7 @@ export async function getTodayCheckinRecords(userId: string, now = new Date()) {
       recordStatus: checkinRecords.status,
       checkinAt: checkinRecords.checkinAt,
       remark: checkinRecords.remark,
+      recordPhotoUrl: checkinRecords.photoUrl,
       recordLocation: checkinRecords.location,
       recordLocationSource: checkinRecords.locationSource,
       recordLat: checkinRecords.lat,
@@ -482,6 +483,7 @@ export async function getTodayCheckinRecords(userId: string, now = new Date()) {
       makeupId: checkinMakeups.id,
       makeupStatus: checkinMakeups.status,
       makeupReason: checkinMakeups.reason,
+      makeupPhotoUrl: checkinMakeups.photoUrl,
     })
     .from(checkinTasks)
     .innerJoin(rules, eq(rules.id, checkinTasks.ruleId))
@@ -622,6 +624,7 @@ export async function doCheckin({
   user,
   taskId,
   remark,
+  photo,
   location,
   locationSource = "IP",
   ip,
@@ -631,6 +634,8 @@ export async function doCheckin({
   user: SessionUser
   taskId: string
   remark?: string
+  /** 打卡照片（浏览器端压缩后的 data URL），沿用 checkin_records.photo_url */
+  photo?: string
   location?: CheckinLocation
   locationSource?: CheckinLocationSource
   ip?: string | null
@@ -712,6 +717,7 @@ export async function doCheckin({
         clientType: "WEB",
         browserType: userAgent?.slice(0, 100) ?? null,
         remark: remark?.trim() || null,
+        photoUrl: photo?.trim() || null,
       })
       .returning()
     if (!record) throw new CheckinError("打卡记录创建失败", 500)
@@ -723,6 +729,7 @@ export async function createCheckinMakeup({
   user,
   taskId,
   reason,
+  photo,
   location,
   locationSource = "IP",
   ip,
@@ -730,6 +737,8 @@ export async function createCheckinMakeup({
   user: SessionUser
   taskId: string
   reason: string
+  /** 补卡凭证照片（浏览器端压缩后的 data URL），沿用 checkin_makeups.photo_url */
+  photo?: string
   location?: CheckinLocation
   locationSource?: CheckinLocationSource
   ip?: string | null
@@ -787,6 +796,7 @@ export async function createCheckinMakeup({
           .update(checkinMakeups)
           .set({
             reason: reason.trim(),
+            photoUrl: photo?.trim() || null,
             status: "PENDING",
             location: resolvedLocation,
             ip: ip ?? null,
@@ -807,6 +817,7 @@ export async function createCheckinMakeup({
             date: task.scheduleAt,
             slotIndex: task.slotIndex,
             reason: reason.trim(),
+            photoUrl: photo?.trim() || null,
             location: resolvedLocation,
             ip: ip ?? null,
           })
@@ -848,6 +859,7 @@ export async function reviewCheckinMakeup({
       status: checkinMakeups.status,
       location: checkinMakeups.location,
       ip: checkinMakeups.ip,
+      photoUrl: checkinMakeups.photoUrl,
     })
     .from(checkinMakeups)
     .where(eq(checkinMakeups.id, makeupId))
@@ -909,6 +921,8 @@ export async function reviewCheckinMakeup({
           slotIndex: makeup.slotIndex,
           makeupId: makeup.id,
           remark: comment?.trim() || "补卡审核通过",
+          // 补卡核准后生成的记录继承凭证照片，本人回看该时段时可见。
+          photoUrl: makeup.photoUrl ?? null,
           location: recordLocation,
           locationSource: gpsStillValid ? "GPS" : isGps ? "GPS_PURGED" : "IP",
           lat: gpsStillValid ? String(makeupLocation.lat) : null,
@@ -927,6 +941,9 @@ export async function reviewCheckinMakeup({
             status: "MAKEUP",
             makeupId: makeup.id,
             remark: comment?.trim() || "补卡审核通过",
+            // 仅在补卡确实带了凭证时覆盖：迟到打卡已有记录（可能已有现场照片），
+            // 不能因为本次补卡没传照片就把原照片擦掉。
+            ...(makeup.photoUrl ? { photoUrl: makeup.photoUrl } : {}),
             location: recordLocation,
             locationSource: gpsStillValid ? "GPS" : isGps ? "GPS_PURGED" : "IP",
             lat: gpsStillValid ? String(makeupLocation.lat) : null,
@@ -957,6 +974,7 @@ export async function getCheckinReviewQueue(actor: SessionUser) {
       userName: users.name,
       ruleName: rules.name,
       reason: checkinMakeups.reason,
+      photoUrl: checkinMakeups.photoUrl,
       status: checkinMakeups.status,
       date: checkinMakeups.date,
       slotIndex: checkinMakeups.slotIndex,

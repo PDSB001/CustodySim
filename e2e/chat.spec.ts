@@ -220,7 +220,7 @@ test("被监管人可以打开响应式聊天工作台", async ({ page }) => {
   await page.getByRole("button", { name: /登\s*录/ }).click()
   await expect(page).toHaveURL("/my")
   await page.goto("/my/chat")
-  await expect(page.getByRole("heading", { name: "监室聊天" })).toBeVisible()
+  await expect(page.getByRole("heading", { name: "监室通信" })).toBeVisible()
   await expect(page.getByRole("button", { name: "发起私聊" })).toBeVisible()
   await expect(page.getByText("会话", { exact: true })).toBeVisible()
   const completed = page.locator("details").filter({

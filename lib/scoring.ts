@@ -540,7 +540,7 @@ export async function runWeeklyScoreReview(now = new Date()) {
       // 公示与禁闭令同事务写入，避免中断后禁闭已生效却永久缺少公示。
       await tx.insert(notices).values({
         title: "禁闭公示",
-        content: `${user.name} 因周度行为考核积分为 ${totalScore} 分，依积分规则执行禁闭。执行期限：${created.startAt.toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" })} 至 ${created.endAt.toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" })}。禁闭期间按加强点名安排报到，并按时呈报每日反思任务。`,
+        content: `${user.name} 因周度考核记分为 ${totalScore} 分，依积分规则执行禁闭。执行期限：${created.startAt.toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" })} 至 ${created.endAt.toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" })}。禁闭期间按加强点名安排报到，并按时呈报每日反思任务。`,
         targetRole: "ALL",
         priority: "IMPORTANT",
         published: true,

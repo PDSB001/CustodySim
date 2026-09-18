@@ -17,6 +17,7 @@ import {
 } from "@/lib/db/schema"
 import { getSessionUser } from "@/lib/session"
 import { shanghaiLocalToIso } from "@/lib/shanghai-datetime"
+import { validateTaskImages } from "@/lib/task-image"
 import {
   getAdminUserId,
   getSupervisorIdsForSupervised,
@@ -35,6 +36,7 @@ export async function GET() {
           type: applications.type,
           title: applications.title,
           reason: applications.reason,
+          attachments: applications.attachments,
           payload: applications.payload,
           archiveRecordId: applications.archiveRecordId,
           archiveSnapshot: applications.archiveSnapshot,
@@ -71,6 +73,12 @@ export async function POST(request: NextRequest) {
     return failure("FORBIDDEN", "仅被监管人可发起申请", 403)
   const parsed = ApplicationDraftSchema.safeParse(await request.json())
   if (!parsed.success) return failure("VALIDATION_ERROR", "申请数据不合法", 400)
+  const attachments = parsed.data.attachments ?? []
+  if (attachments.length) {
+    const attachmentError = validateTaskImages(attachments)
+    if (attachmentError)
+      return failure("VALIDATION_ERROR", attachmentError, 400)
+  }
   try {
     const [supervisorIds, adminId] = await Promise.all([
       getSupervisorIdsForSupervised(actor.id),
@@ -124,6 +132,7 @@ export async function POST(request: NextRequest) {
           type: parsed.data.type,
           title: APPLICATION_TYPE_LABELS[parsed.data.type],
           reason: parsed.data.reason,
+          attachments,
           payload:
             parsed.data.type === "LEAVE"
               ? {

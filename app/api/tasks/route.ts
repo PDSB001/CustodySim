@@ -42,6 +42,13 @@ export async function GET() {
         reviewComment: sql<
           string | null
         >`(select ${reportReviews.comment} from ${reportReviews} where ${reportReviews.submissionId} = ${reportSubmissions.id} order by ${reportReviews.createdAt} desc limit 1)`,
+        // 被监管人查看已办结任务时需要展示批阅时间与评分（取最新一条批阅）
+        reviewGrade: sql<
+          number | null
+        >`(select ${reportReviews.grade} from ${reportReviews} where ${reportReviews.submissionId} = ${reportSubmissions.id} order by ${reportReviews.createdAt} desc limit 1)`,
+        reviewedAt: sql<
+          Date | null
+        >`(select ${reportReviews.createdAt} from ${reportReviews} where ${reportReviews.submissionId} = ${reportSubmissions.id} order by ${reportReviews.createdAt} desc limit 1)`,
         inputVersion: sql<string>`${reportTasks.updatedAt}::text || '/' || ${reportSubmissions.updatedAt}::text`,
       })
       .from(reportTasks)

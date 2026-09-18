@@ -196,6 +196,17 @@
   --chart-4: oklch(0.7 0.14 232);
   --chart-5: oklch(0.74 0.18 322);
   --chart-6: oklch(0.7 0.18 12);
+
+  /*
+   * 深色底上的阴影必须更黑才看得见：浅色阴影 rgba(15,23,42,…) 压在深色背景上
+   * 只形成一圈灰雾，既没有层次也不干净。这里改为纯黑并提高不透明度，
+   * 让卡片层级、悬停抬升在深色模式下同样成立。
+   */
+  --shadow-soft: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-elev:
+    0 1px 2px rgba(0, 0, 0, 0.36), 0 6px 18px rgba(0, 0, 0, 0.34);
+  --shadow-pop:
+    0 6px 16px rgba(0, 0, 0, 0.42), 0 20px 48px rgba(0, 0, 0, 0.48);
 }
 
 /* =============  基础  ============= */
@@ -654,16 +665,25 @@
     color: oklch(1 0 0);
     background: color-mix(in oklab, var(--brand-500) 22%, transparent);
   }
-  .app-nav-item.is-active::before {
+  /* 选中指示条：切换导航时滑入，而不是瞬间出现 */
+  .app-nav-item::before {
     content: "";
     position: absolute;
     left: -0.75rem;
     top: 50%;
-    transform: translateY(-50%);
     width: 0.15rem;
     height: 60%;
     border-radius: 0 0.15rem 0.15rem 0;
     background: var(--brand-300);
+    transform: translateY(-50%) scaleY(0);
+    opacity: 0;
+    transition:
+      transform 180ms cubic-bezier(0.16, 1, 0.3, 1),
+      opacity 140ms ease;
+  }
+  .app-nav-item.is-active::before {
+    transform: translateY(-50%) scaleY(1);
+    opacity: 1;
   }
   .app-nav-item__icon {
     width: 0.95rem;
@@ -783,10 +803,18 @@
     overflow: hidden;
   }
   .surface-panel--interactive {
-    transition: border-color 0.15s ease;
+    transition:
+      border-color 0.15s ease,
+      box-shadow 0.18s ease,
+      transform 0.18s ease;
   }
   .surface-panel--interactive:hover {
     border-color: color-mix(in oklab, var(--brand-500) 28%, var(--border));
+    box-shadow: var(--shadow-elev);
+    transform: translateY(-1px);
+  }
+  .surface-panel--interactive:active {
+    transform: translateY(0);
   }
   .surface-panel--brand {
     background: color-mix(in oklab, var(--brand-500) 4%, var(--card));
@@ -831,10 +859,18 @@
     align-items: center;
     gap: 1rem;
     padding: 1.15rem;
-    transition: border-color 150ms ease;
+    transition:
+      border-color 150ms ease,
+      box-shadow 0.18s ease,
+      transform 0.18s ease;
   }
   .priority-action:hover {
     border-color: var(--brand-500);
+    box-shadow: var(--shadow-elev);
+    transform: translateY(-1px);
+  }
+  .priority-action:active {
+    transform: translateY(0);
   }
   .priority-action__cta {
     display: inline-flex;
@@ -905,10 +941,15 @@
     border: 1px solid color-mix(in oklab, var(--border) 80%, transparent);
     border-radius: var(--radius-xl);
     padding: 0.95rem 1.05rem;
-    transition: border-color 0.15s ease;
+    transition:
+      border-color 0.15s ease,
+      box-shadow 0.18s ease,
+      transform 0.18s ease;
   }
   .metric-cell:hover {
     border-color: color-mix(in oklab, var(--brand-500) 30%, var(--border));
+    box-shadow: var(--shadow-elev);
+    transform: translateY(-1px);
   }
   .metric-cell__head {
     display: flex;
@@ -974,6 +1015,10 @@
     font-weight: 500;
     line-height: 1.25;
     white-space: nowrap;
+    /* 状态切换时颜色平滑过渡，避免突跳 */
+    transition:
+      background-color 180ms ease,
+      color 180ms ease;
   }
   .status-pill::before {
     content: "";
@@ -1151,5 +1196,210 @@
   }
   .login-showcase > * {
     position: relative;
+  }
+}
+
+/* =============  交互细节与动效（克制：时长 ≤ 280ms，位移 ≤ 5px）  ============= */
+@layer components {
+  /*
+   * 列表项 / 卡片入场。
+   * 注意：motion-item 此前被多处 className 引用（任务卡片、查询状态面板等）
+   * 但本文件从未定义它，属于空引用；这里补上定义，让它真正生效。
+   */
+  .motion-item {
+    animation: workspace-enter 0.26s ease both;
+  }
+
+  /*
+   * 页面区块错峰入场：同一页里的面板按顺序出现，形成先后层次，
+   * 而不是整屏同时闪现。声明在本文件末尾，以覆盖子元素上原有的 page-enter
+   * （两者时长接近，观感统一）。
+   */
+  .workspace-stack > * {
+    animation: workspace-enter 0.26s ease both;
+  }
+  .workspace-stack > *:nth-child(1) {
+    animation-delay: 0ms;
+  }
+  .workspace-stack > *:nth-child(2) {
+    animation-delay: 40ms;
+  }
+  .workspace-stack > *:nth-child(3) {
+    animation-delay: 80ms;
+  }
+  .workspace-stack > *:nth-child(4) {
+    animation-delay: 120ms;
+  }
+  .workspace-stack > *:nth-child(5) {
+    animation-delay: 160ms;
+  }
+  .workspace-stack > *:nth-child(6) {
+    animation-delay: 200ms;
+  }
+  .workspace-stack > *:nth-child(n + 7) {
+    animation-delay: 240ms;
+  }
+
+  /* 骨架屏扫光：比整块呼吸更有方向感，加载态不再"死板" */
+  .skeleton-shimmer {
+    position: relative;
+    overflow: hidden;
+    background: color-mix(in oklab, var(--muted) 55%, transparent);
+  }
+  .skeleton-shimmer::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(
+      90deg,
+      transparent,
+      color-mix(in oklab, var(--card) 65%, transparent),
+      transparent
+    );
+    transform: translateX(-100%);
+    animation: skeleton-sweep 1.4s ease-in-out infinite;
+  }
+  @keyframes skeleton-sweep {
+    to {
+      transform: translateX(100%);
+    }
+  }
+
+  /* 无障碍：以上动效在用户要求减少动态时全部关闭 */
+  @media (prefers-reduced-motion: reduce) {
+    .motion-item,
+    .workspace-stack > *,
+    .skeleton-shimmer::after {
+      animation: none;
+    }
+    .app-nav-item::before {
+      transition: none;
+    }
+    .surface-panel--interactive,
+    .metric-cell,
+    .priority-action {
+      transition-property: border-color;
+    }
+    .surface-panel--interactive:hover,
+    .metric-cell:hover,
+    .priority-action:hover,
+    .surface-panel--interactive:active,
+    .priority-action:active {
+      transform: none;
+    }
+  }
+
+  /*
+   * 数据表格：应用内的表格都是原生 table，没有使用 ui/table 里的原语，
+   * 因此原语上那些 hover/居中样式完全不生效，需要在这里补。
+   * - 行悬停反馈：长表格里能明显减少看串行
+   * - 标识/时间列加 .table-cell-nowrap 避免在词中断行（原生 td 默认换行）
+   */
+  .app-main tbody tr {
+    transition: background-color 0.12s ease;
+  }
+  .app-main tbody tr:hover {
+    background: color-mix(in oklab, var(--muted) 45%, transparent);
+  }
+  .table-cell-nowrap {
+    white-space: nowrap;
+  }
+}
+
+/* =============  打印  ============= */
+/*
+ * 此前全项目没有任何打印规则：用浏览器打印会把侧栏、顶栏、按钮、
+ * 动效位移和阴影一起打到纸上。以下规则让所有页面开箱即可出纸，
+ * 只保留正文内容；若某个页面需要按业务字段定制（例如隐去内部备注），
+ * 再单独加 @media print 覆盖即可。
+ */
+@media print {
+  /* 打印一律用白底黑字，避免深色主题打印出满纸灰底 */
+  :root,
+  .dark {
+    --background: #fff;
+    --foreground: #000;
+    --card: #fff;
+    --border: #9ca3af;
+    --muted: #f3f4f6;
+    --muted-foreground: #374151;
+    --shadow-soft: none;
+    --shadow-elev: none;
+    --shadow-pop: none;
+  }
+  html,
+  body {
+    background: #fff !important;
+    color: #000 !important;
+  }
+
+  /* 外壳只留内容区 */
+  .app-shell {
+    display: block;
+    min-height: 0;
+  }
+  .app-sidebar,
+  .app-topbar,
+  [data-sonner-toaster],
+  .toaster,
+  .empty-illustration__blob,
+  .mesh-bg-strong,
+  .login-showcase::before {
+    display: none !important;
+  }
+  .app-main {
+    max-width: none;
+    padding: 0;
+  }
+
+  /* 交互控件不上纸（按钮与标签栏）。表单控件的值要保留，因此不动 input/select/textarea */
+  button,
+  [data-slot="button"] {
+    display: none !important;
+  }
+
+  /* 面板与卡片改为纯边框，且不跨页断裂 */
+  .surface-panel,
+  .metric-cell,
+  .priority-action,
+  [data-slot="card"] {
+    box-shadow: none !important;
+    border: 1px solid var(--border) !important;
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  /* 表头跨页重复，行与图片不跨页断开 */
+  thead {
+    display: table-header-group;
+  }
+  tr,
+  img {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  /* 状态与徽章保留轮廓，去掉底色依赖，黑白打印也能区分 */
+  .status-pill,
+  [data-slot="badge"] {
+    border: 1px solid currentColor;
+  }
+  a {
+    color: inherit;
+    text-decoration: none;
+  }
+
+  /* 入场动效在纸上毫无意义，直接落到终态 */
+  .page-enter,
+  .workspace-enter,
+  .motion-item,
+  .workspace-stack > * {
+    animation: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+  }
+
+  @page {
+    margin: 14mm;
   }
 }

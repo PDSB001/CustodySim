@@ -1197,6 +1197,9 @@ export const applications = pgTable(
     ),
     archiveSnapshot: jsonb("archive_snapshot"),
     officialSealData: text("official_seal_data"),
+    // 申请附件：与任务图片同一套约定（data URL 字符串数组），张数与格式由
+    // lib/task-image.ts 的校验统一约束，历史行默认空数组。
+    attachments: jsonb("attachments").notNull().default([]),
     status: varchar("status", { length: 30 }).notNull().default("DRAFT"),
     submittedAt: timestamp("submitted_at", { withTimezone: true }),
     decidedAt: timestamp("decided_at", { withTimezone: true }),

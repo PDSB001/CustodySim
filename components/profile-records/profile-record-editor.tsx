@@ -6,6 +6,7 @@ import { Fragment, useEffect, useRef, useState } from "react"
 import { z } from "zod"
 
 import { requestApi } from "@/components/shared/api-client"
+import { ImageUploadField } from "@/components/shared/image-upload-field"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -29,7 +30,15 @@ import {
 export const ProfileFieldSchema = z.object({
   id: z.string().optional(),
   name: z.string(),
-  type: z.enum(["TEXT", "TEXTAREA", "NUMBER", "SELECT", "DATE", "COPYWRITE"]),
+  type: z.enum([
+    "TEXT",
+    "TEXTAREA",
+    "NUMBER",
+    "SELECT",
+    "DATE",
+    "COPYWRITE",
+    "IMAGE",
+  ]),
   required: z.boolean(),
   options: z.array(z.string()),
 })
@@ -281,6 +290,20 @@ export function ProfileRecordEditor({
                             placeholder="请逐字抄写上方内容"
                           />
                         </div>
+                      ) : field.type === "IMAGE" ? (
+                        <ImageUploadField
+                          label={field.name}
+                          required={field.required}
+                          showLabel={false}
+                          value={data[field.name]}
+                          disabled={!editable}
+                          onChange={(value) =>
+                            setData((current) => ({
+                              ...current,
+                              [field.name]: value,
+                            }))
+                          }
+                        />
                       ) : field.type === "TEXTAREA" ? (
                         <Textarea
                           disabled={!editable}

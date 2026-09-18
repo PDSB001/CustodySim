@@ -11,12 +11,12 @@ export const UI_CONFIG_DEFAULTS: Record<
 > = {
   SUPERVISOR: {
     homeTitle: "{name}，当班执勤",
-    homeSubtitle: "先批阅任务与补卡，再核对点名记录，落实本班监管事项。",
+    homeSubtitle: "按班次批阅呈报、核准补点，核对点名记录，落实本班监管事项。",
     homeBanner: "",
   },
   SUPERVISED: {
     homeTitle: "{name}，监室日程",
-    homeSubtitle: "按时点名，完成指定任务；留意批阅意见与监所通知。",
+    homeSubtitle: "按规定时间接受点名、完成指令任务，服从监室管理，留意监所公示与批阅意见。",
     homeBanner: "",
   },
 }

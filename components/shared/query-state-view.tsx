@@ -44,12 +44,33 @@ export function ErrorState({
   )
 }
 
-export function LoadingBlock({ className }: { className?: string }) {
+export function LoadingBlock({
+  className,
+  rows,
+}: {
+  className?: string
+  /** 传入行数时渲染成"多行骨架"，贴合列表内容的真实高度，避免数据到达时布局跳动。 */
+  rows?: number
+}) {
+  if (rows && rows > 0)
+    return (
+      <div role="status" aria-label="加载中" className={className}>
+        <div className="flex flex-col gap-3">
+          {Array.from({ length: rows }, (_, index) => (
+            <div
+              key={index}
+              className="skeleton-shimmer rounded-xl"
+              style={{ height: "3.5rem" }}
+            />
+          ))}
+        </div>
+      </div>
+    )
   return (
     <div
       role="status"
       aria-label="加载中"
-      className={`bg-muted/40 animate-pulse rounded-xl ${className ?? "min-h-[120px]"}`}
+      className={`skeleton-shimmer rounded-xl ${className ?? "min-h-[120px]"}`}
     />
   )
 }

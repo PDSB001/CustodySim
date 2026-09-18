@@ -33,7 +33,7 @@ const NoticesSchema = z.array(NoticeSchema)
 const audienceText: Record<string, string> = { ALL: "全体人员", SUPERVISED: "在押人员", SUPERVISOR: "监管员", ADMIN: "管理处" }
 const priorityText: Record<string, string> = { NORMAL: "普通", IMPORTANT: "重要", URGENT: "紧急" }
 
-export function NoticesWorkspace({ title = "通知公告" }: { title?: string }) {
+export function NoticesWorkspace({ title = "监所公示" }: { title?: string }) {
   const client = useQueryClient()
   const notices = useQuery({ queryKey: ["notices"], queryFn: () => requestApi("/api/notices", NoticesSchema) })
   const read = useMutation({

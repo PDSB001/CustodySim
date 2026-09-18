@@ -259,6 +259,8 @@ export const ApplicationDraftSchema = z
     temporaryReleaseStartAt: z.string().regex(DATETIME_LOCAL_REGEX).nullable().optional(),
     temporaryReleaseEndAt: z.string().regex(DATETIME_LOCAL_REGEX).nullable().optional(),
     archiveRecordId: z.string().uuid().nullable().optional(),
+    /** 申请附件：data URL 字符串数组。张数、格式与大小由 lib/task-image.ts 统一校验。 */
+    attachments: z.array(z.string()).optional(),
   })
   .superRefine((value, context) => {
     if (value.type === "LEAVE") {

@@ -1,6 +1,6 @@
 import { z } from "zod"
 
-import { validateTaskImageDataUrl } from "@/lib/task-image"
+import { validateTaskImages } from "@/lib/task-image"
 import { hasComputedProfileAge } from "@/lib/profile-age"
 
 export const FIELD_TYPES = [
@@ -41,12 +41,14 @@ export function validateFieldPayload(
   for (const field of fields) {
     if (ageIsComputed && field.name === "年龄") continue
     const value = payload[field.name]
-    if (
-      field.required &&
-      (value === undefined || value === null || value === "")
-    )
-      errors[field.name] = "此项为必填"
-    if (value === undefined || value === null || value === "") continue
+    // 空数组与空字符串一样视为"未填写"，否则多图字段可以用 [] 绕过必填校验
+    const isEmpty =
+      value === undefined ||
+      value === null ||
+      value === "" ||
+      (Array.isArray(value) && value.length === 0)
+    if (field.required && isEmpty) errors[field.name] = "此项为必填"
+    if (isEmpty) continue
     if (field.type === "NUMBER" && Number.isNaN(Number(value)))
       errors[field.name] = "请输入数字"
     if (field.name === "出生日") {
@@ -74,7 +76,7 @@ export function validateFieldPayload(
         errors[field.name] = "抄写内容与原文不一致"
     }
     if (field.type === "IMAGE") {
-      const error = validateTaskImageDataUrl(value)
+      const error = validateTaskImages(value)
       if (error) errors[field.name] = error
     }
   }
