@@ -62,8 +62,11 @@ export async function GET() {
       number: person.prisonerNumber ?? person.customNumber,
       organizationPath,
       custodyLevel: person.custodyLevel,
+      // 始终返回字符串兜底，避免键被 JSON 省略导致前端 schema 解析失败。
       custodyLevelLabel:
-        CUSTODY_LEVEL_LABELS[person.custodyLevel as CustodyLevel],
+        CUSTODY_LEVEL_LABELS[person.custodyLevel as CustodyLevel] ??
+        person.custodyLevel ??
+        "",
       ...linked,
     })
   } catch (error) {

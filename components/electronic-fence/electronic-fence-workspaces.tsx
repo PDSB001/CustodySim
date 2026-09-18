@@ -330,28 +330,6 @@ export function MyElectronicFence() {
                   <p className="text-muted-foreground mt-1 text-sm">
                     以中心点为半径 {fence.data.radiusMeters} 米的可活动范围
                   </p>
-                </div>
-              </div>
-              <StatusPill
-                tone={profile.data?.geofenceApplicable ? "success" : "neutral"}
-              >
-                {profile.data?.geofenceApplicable
-                  ? "当前参与判定"
-                  : "当前不参与判定"}
-              </StatusPill>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="flex flex-wrap items-center justify-between gap-4 p-5">
-              <div className="flex items-start gap-3">
-                <span className="bg-brand-500/10 text-brand-700 grid size-10 place-items-center rounded-lg">
-                  <MapPinned className="size-5" />
-                </span>
-                <div>
-                  <p className="font-semibold">{fence.data.name}</p>
-                  <p className="text-muted-foreground mt-1 text-sm">
-                    以中心点为半径 {fence.data.radiusMeters} 米的可活动范围
-                  </p>
                   <p className="text-muted-foreground mt-1 text-xs">
                     最近定位：
                     {fence.data.latestLocation?.reportedAt

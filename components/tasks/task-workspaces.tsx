@@ -285,6 +285,7 @@ function TaskPayloadForm({ task }: { task: z.infer<typeof Task> }) {
       }),
     onSuccess: () => {
       client.invalidateQueries({ queryKey: ["tasks"] })
+      client.invalidateQueries({ queryKey: ["dashboard-summary"] })
       toast.success("任务已呈报，等待批阅")
     },
     onError: (error) =>
@@ -601,6 +602,7 @@ export function SupervisorTasks() {
       }),
     onSuccess: () => {
       client.invalidateQueries({ queryKey: ["tasks"] })
+      client.invalidateQueries({ queryKey: ["dashboard-summary"] })
       toast.success("审核结果已提交")
     },
     onError: (error) =>

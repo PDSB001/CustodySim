@@ -412,7 +412,12 @@ export function ScoreboardManage({
               <Button
                 className="w-full"
                 variant="brand"
-                disabled={!reason || !Number(points) || adjust.isPending}
+                disabled={
+                  !reason ||
+                  !Number.isFinite(Number(points)) ||
+                  Number(points) === 0 ||
+                  adjust.isPending
+                }
                 onClick={() => adjust.mutate()}
               >
                 {adjust.isPending ? "记录中…" : "确认记录积分"}

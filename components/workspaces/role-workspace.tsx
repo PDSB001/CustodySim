@@ -29,6 +29,7 @@ import {
   QueryStateView,
 } from "@/components/shared/query-state-view"
 import { StatusPill } from "@/components/shared/status-pill"
+import { DashboardSummarySchema } from "@/lib/dashboard-summary-schema"
 import type { SessionUser } from "@/lib/session"
 
 type WorkspaceKind = "SUPERVISOR" | "SUPERVISED"
@@ -38,17 +39,6 @@ const UiConfigSchema = z.object({
   homeTitle: z.string(),
   homeSubtitle: z.string(),
   homeBanner: z.string(),
-})
-
-const DashboardSummarySchema = z.object({
-  pendingTasks: z.number(),
-  pendingMakeups: z.number(),
-  pendingCheckins: z.number(),
-  myPendingTasks: z.number(),
-  inCustodyPersons: z.number(),
-  enabledRules: z.number(),
-  custodyStatus: z.string(),
-  unreadNotices: z.number(),
 })
 
 const ProfileSummarySchema = z.object({

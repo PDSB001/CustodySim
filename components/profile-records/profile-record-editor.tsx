@@ -2,7 +2,7 @@
 
 import { Camera, Save, Send, X } from "lucide-react"
 import Image from "next/image"
-import { Fragment, useEffect, useState } from "react"
+import { Fragment, useEffect, useRef, useState } from "react"
 import { z } from "zod"
 
 import { requestApi } from "@/components/shared/api-client"
@@ -72,7 +72,13 @@ export function ProfileRecordEditor({
   >(record?.signatureMode === "HANDWRITTEN" ? record.signatureData : null)
   const [saving, setSaving] = useState(false)
 
+  // 仅在切换到另一份档案时用服务端数据重建表单；同一档案的后台刷新
+  // 不应覆盖用户尚未保存的编辑内容。
+  const syncedRecordKey = useRef<string | null>(null)
   useEffect(() => {
+    const key = `${form.id}:${record?.id ?? "new"}`
+    if (syncedRecordKey.current === key) return
+    syncedRecordKey.current = key
     setData(applyComputedProfileAge(record?.data ?? {}, form.fields))
     setPhotoData(record?.photoData ?? null)
     setSignatureMode(record?.signatureMode ?? "GENERATED")

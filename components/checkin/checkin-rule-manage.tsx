@@ -115,9 +115,11 @@ export function CheckinRuleManage() {
                 min="1"
                 max="10080"
                 value={timeoutMinutes}
-                onChange={(event) =>
-                  setTimeoutMinutes(Number(event.target.value))
-                }
+                onChange={(event) => {
+                  const next = Number(event.target.value)
+                  if (Number.isFinite(next))
+                    setTimeoutMinutes(Math.max(1, Math.min(10080, next)))
+                }}
               />
             </div>
             <div className="space-y-2">

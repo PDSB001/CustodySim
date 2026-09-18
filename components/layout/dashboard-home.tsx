@@ -13,7 +13,6 @@ import {
   UsersRound,
 } from "lucide-react"
 import Link from "next/link"
-import { z } from "zod"
 
 import { requestApi } from "@/components/shared/api-client"
 import { MetricCell } from "@/components/shared/metric-cell"
@@ -24,17 +23,8 @@ import {
 } from "@/components/shared/query-state-view"
 import { PageHeader } from "@/components/shared/page-header"
 import { StatusPill } from "@/components/shared/status-pill"
+import { DashboardSummarySchema } from "@/lib/dashboard-summary-schema"
 import type { SessionUser } from "@/lib/session"
-
-const DashboardSummary = z.object({
-  pendingTasks: z.number(),
-  pendingMakeups: z.number(),
-  pendingCheckins: z.number(),
-  myPendingTasks: z.number(),
-  inCustodyPersons: z.number(),
-  enabledRules: z.number(),
-  custodyStatus: z.string(),
-})
 
 const quickActions = [
   {
@@ -73,7 +63,8 @@ const healthItems: Array<[string, string]> = [
 export function DashboardHome({ user }: Readonly<{ user: SessionUser }>) {
   const summary = useQuery({
     queryKey: ["dashboard-summary"],
-    queryFn: () => requestApi("/api/dashboard-summary", DashboardSummary),
+    queryFn: () =>
+      requestApi("/api/dashboard-summary", DashboardSummarySchema),
     refetchInterval: 30_000,
   })
   const data = summary.data

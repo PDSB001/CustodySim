@@ -54,7 +54,7 @@ export function PrisonerNumberManage() {
     queryFn: () => requestApi("/api/admin/prisoner-numbers", NumbersSchema),
   })
   const rule = useQuery({
-    queryKey: ["numbering-rule"],
+    queryKey: ["numbering-rule", "options"],
     queryFn: () => requestApi("/api/admin/numbering", RuleSchema),
   })
   const refresh = () => {

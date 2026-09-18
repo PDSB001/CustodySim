@@ -158,7 +158,11 @@ export function RelationManage() {
                   size="icon"
                   disabled={!supervisorToAdd}
                   onClick={() => {
-                    setSupervisorIds((current) => [...current, supervisorToAdd])
+                    setSupervisorIds((current) =>
+                      current.includes(supervisorToAdd)
+                        ? current
+                        : [...current, supervisorToAdd],
+                    )
                     setSupervisorToAdd("")
                   }}
                   aria-label="添加监管员"
@@ -219,7 +223,11 @@ export function RelationManage() {
                   size="icon"
                   disabled={!supervisedToAdd}
                   onClick={() => {
-                    setSupervisedIds((current) => [...current, supervisedToAdd])
+                    setSupervisedIds((current) =>
+                      current.includes(supervisedToAdd)
+                        ? current
+                        : [...current, supervisedToAdd],
+                    )
                     setSupervisedToAdd("")
                   }}
                   aria-label="添加在押人员"

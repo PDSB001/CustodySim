@@ -266,6 +266,7 @@ function CheckinCard({
     },
     onSuccess: () => {
       client.invalidateQueries({ queryKey: ["checkins"] })
+      client.invalidateQueries({ queryKey: ["dashboard-summary"] })
       toast.success("打卡已记录")
     },
     onError: (error) => {
@@ -289,7 +290,8 @@ function CheckinCard({
     },
     onSuccess: () => {
       client.invalidateQueries({ queryKey: ["checkins"] })
-      client.invalidateQueries({ queryKey: ["makeups"] })
+      client.invalidateQueries({ queryKey: ["makeup-review"] })
+      client.invalidateQueries({ queryKey: ["dashboard-summary"] })
       setShowMakeup(false)
       toast.success("补卡申请已提交")
     },
