@@ -4,24 +4,33 @@ const logDirectory = path.join(__dirname, ".logs")
 
 // Load variables from .env.local so the standalone server has AUTH_SECRET,
 // DATABASE_URL etc. at runtime (standalone mode does not load .env.local itself).
+// 解析单个值：支持引号包裹、行内注释与 \n 转义。
+function parseEnvValue(rawValue) {
+  const trimmed = rawValue.trim()
+  if (!trimmed) return ""
+  const quote = trimmed[0]
+  if (quote !== '"' && quote !== "'") {
+    const hashIndex = trimmed.indexOf(" #")
+    const bare = hashIndex === -1 ? trimmed : trimmed.slice(0, hashIndex)
+    return bare.trim()
+  }
+  const body = trimmed.slice(1).replace(/\\n/g, "\n")
+  const closing = body.lastIndexOf(quote)
+  return closing === -1 ? body : body.slice(0, closing)
+}
+
 function loadEnvLocal() {
   const envPath = path.join(__dirname, ".env.local")
   if (!fs.existsSync(envPath)) return {}
   const vars = {}
   for (const rawLine of fs.readFileSync(envPath, "utf8").split(/\r?\n/)) {
-    const line = rawLine.trim()
+    let line = rawLine.trim()
     if (!line || line.startsWith("#")) continue
+    if (line.startsWith("export ")) line = line.slice("export ".length).trim()
     const eq = line.indexOf("=")
     if (eq === -1) continue
     const key = line.slice(0, eq).trim()
-    let value = line.slice(eq + 1).trim()
-    if (
-      (value.startsWith('"') && value.endsWith('"')) ||
-      (value.startsWith("'") && value.endsWith("'"))
-    ) {
-      value = value.slice(1, -1)
-    }
-    if (key) vars[key] = value
+    if (key) vars[key] = parseEnvValue(line.slice(eq + 1))
   }
   return vars
 }

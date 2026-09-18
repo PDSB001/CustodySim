@@ -6,12 +6,12 @@ This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-
 
 | 层级       | 覆盖内容                                                       | 命令                                |
 | ---------- | -------------------------------------------------------------- | ----------------------------------- |
-| 静态检查   | 所有受维护源码的 ESLint 零警告检查                             | `npx --yes pnpm@11.19.0 lint`       |
-| 类型检查   | 全项目 TypeScript 类型检查                                     | `npx --yes pnpm@11.19.0 typecheck`  |
-| 单元测试   | 组织层级、编号、密码、规则周期、表单载荷、档案及申请审批状态机 | `npx --yes pnpm@11.19.0 test`       |
-| 监听测试   | 修改领域规则时持续运行单元测试                                 | `npx --yes pnpm@11.19.0 test:watch` |
-| 端到端测试 | 三类角色登录、角色路由、申请入口及权限隔离                     | `npx --yes pnpm@11.19.0 test:e2e`   |
-| 全量验证   | 依次执行静态、类型、单元与端到端检查                           | `npx --yes pnpm@11.19.0 test:all`   |
+| 静态检查   | 所有受维护源码的 ESLint 零警告检查                             | `npx --yes pnpm@11.24.0 lint`       |
+| 类型检查   | 全项目 TypeScript 类型检查                                     | `npx --yes pnpm@11.24.0 typecheck`  |
+| 单元测试   | 组织层级、编号、密码、规则周期、表单载荷、档案及申请审批状态机 | `npx --yes pnpm@11.24.0 test`       |
+| 监听测试   | 修改领域规则时持续运行单元测试                                 | `npx --yes pnpm@11.24.0 test:watch` |
+| 端到端测试 | 三类角色登录、角色路由、申请入口及权限隔离                     | `npx --yes pnpm@11.24.0 test:e2e`   |
+| 全量验证   | 依次执行静态、类型、单元与端到端检查                           | `npx --yes pnpm@11.24.0 test:all`   |
 
 端到端测试默认使用独立的 `http://127.0.0.1:3100`，避免占用日常开发的 3000 端口；可通过 `E2E_BASE_URL` 覆盖。首次运行若提示缺少浏览器，请执行：
 
@@ -42,7 +42,7 @@ npx playwright install chromium
 首次部署已可使用依赖内置数据。建议注册免费的 MaxMind GeoLite2 账户后，将 `MAXMIND_LICENSE_KEY` 写入 `.env.local`；也可以用 `MAXMIND_GEOIP_CONF` 指向包含 `LicenseKey` 的 MaxMind 配置文件。随后运行：
 
 ```powershell
-npx --yes pnpm@11.19.0 geoip:update
+npx --yes pnpm@11.24.0 geoip:update
 ```
 
 生产部署脚本在检测到 `MAXMIND_LICENSE_KEY` 后会自动执行更新。
@@ -103,8 +103,10 @@ To learn more about Next.js, take a look at the following resources:
 
 You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
 
-## Deploy on Vercel
+## 部署
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+生产环境通过 PM2 运行 Next.js standalone 产物，入口脚本为 `deploy.sh`：
+安装依赖、ESLint 与 TypeScript 检查、单元测试、构建，复制 `public` 与
+`.next/static` 到 standalone 目录，生成一次数据库备份后使用
+`drizzle-kit push` 同步结构，最后 `pm2 startOrReload ecosystem.config.cjs`。
+实时聊天由同一份 PM2 配置中的 `custodysim-chat-realtime` 进程提供。
