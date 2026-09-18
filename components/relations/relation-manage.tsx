@@ -1,7 +1,7 @@
 "use client"
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Trash2, UsersRound } from "lucide-react"
+import { Plus, Trash2, UsersRound, X } from "lucide-react"
 import { useState } from "react"
 import { z } from "zod"
 import { requestApi } from "@/components/shared/api-client"
@@ -39,8 +39,10 @@ const User = z.object({ id: z.string(), name: z.string(), role: z.string() })
 export function RelationManage() {
   const client = useQueryClient()
   const [name, setName] = useState("")
-  const [supervisorId, setSupervisorId] = useState("")
-  const [supervisedId, setSupervisedId] = useState("")
+  const [supervisorIds, setSupervisorIds] = useState<string[]>([])
+  const [supervisedIds, setSupervisedIds] = useState<string[]>([])
+  const [supervisorToAdd, setSupervisorToAdd] = useState("")
+  const [supervisedToAdd, setSupervisedToAdd] = useState("")
   const relations = useQuery({
     queryKey: ["relations"],
     queryFn: () => requestApi("/api/admin/relations", z.array(Relation)),
@@ -55,15 +57,23 @@ export function RelationManage() {
         method: "POST",
         body: JSON.stringify({
           name,
-          supervisorScopes: [{ targetType: "USER", targetId: supervisorId }],
-          supervisedScopes: [{ targetType: "USER", targetId: supervisedId }],
+          supervisorScopes: supervisorIds.map((targetId) => ({
+            targetType: "USER",
+            targetId,
+          })),
+          supervisedScopes: supervisedIds.map((targetId) => ({
+            targetType: "USER",
+            targetId,
+          })),
         }),
       }),
     onSuccess: () => {
       client.invalidateQueries({ queryKey: ["relations"] })
       setName("")
-      setSupervisorId("")
-      setSupervisedId("")
+      setSupervisorIds([])
+      setSupervisedIds([])
+      setSupervisorToAdd("")
+      setSupervisedToAdd("")
       toast.success("监管关系已创建")
     },
     onError: (error) =>
@@ -98,39 +108,134 @@ export function RelationManage() {
             />
           </div>
           <div className="space-y-2">
-            <Label>监管员</Label>
-            <Select value={supervisorId} onValueChange={setSupervisorId}>
-              <SelectTrigger className="w-full">
-                <SelectValue placeholder="请选择" />
-              </SelectTrigger>
-              <SelectContent>
-                {supervisors.map((user) => (
-                  <SelectItem key={user.id} value={user.id}>
-                    {user.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <Label>监管员（可多选）</Label>
+            <div className="space-y-2">
+              {supervisorIds.map((id) => (
+                <div
+                  key={id}
+                  className="border-input bg-muted/30 flex items-center justify-between rounded-md border px-3 py-2 text-sm"
+                >
+                  <span>
+                    {supervisors.find((user) => user.id === id)?.name ?? id}
+                  </span>
+                  <button
+                    type="button"
+                    className="text-muted-foreground hover:text-destructive"
+                    onClick={() =>
+                      setSupervisorIds((current) =>
+                        current.filter((item) => item !== id),
+                      )
+                    }
+                    aria-label="移除监管员"
+                  >
+                    <X className="size-4" />
+                  </button>
+                </div>
+              ))}
+              <div className="flex gap-2">
+                <Select
+                  value={supervisorToAdd}
+                  onValueChange={setSupervisorToAdd}
+                >
+                  <SelectTrigger className="min-w-0 flex-1">
+                    <SelectValue placeholder="选择监管员" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {supervisors.map((user) => (
+                      <SelectItem
+                        key={user.id}
+                        value={user.id}
+                        disabled={supervisorIds.includes(user.id)}
+                      >
+                        {user.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  disabled={!supervisorToAdd}
+                  onClick={() => {
+                    setSupervisorIds((current) => [...current, supervisorToAdd])
+                    setSupervisorToAdd("")
+                  }}
+                  aria-label="添加监管员"
+                >
+                  <Plus className="size-4" />
+                </Button>
+              </div>
+            </div>
           </div>
           <div className="space-y-2">
-            <Label>在押人员</Label>
-            <Select value={supervisedId} onValueChange={setSupervisedId}>
-              <SelectTrigger className="w-full">
-                <SelectValue placeholder="请选择" />
-              </SelectTrigger>
-              <SelectContent>
-                {supervised.map((user) => (
-                  <SelectItem key={user.id} value={user.id}>
-                    {user.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <Label>在押人员（可多选）</Label>
+            <div className="space-y-2">
+              {supervisedIds.map((id) => (
+                <div
+                  key={id}
+                  className="border-input bg-muted/30 flex items-center justify-between rounded-md border px-3 py-2 text-sm"
+                >
+                  <span>
+                    {supervised.find((user) => user.id === id)?.name ?? id}
+                  </span>
+                  <button
+                    type="button"
+                    className="text-muted-foreground hover:text-destructive"
+                    onClick={() =>
+                      setSupervisedIds((current) =>
+                        current.filter((item) => item !== id),
+                      )
+                    }
+                    aria-label="移除在押人员"
+                  >
+                    <X className="size-4" />
+                  </button>
+                </div>
+              ))}
+              <div className="flex gap-2">
+                <Select
+                  value={supervisedToAdd}
+                  onValueChange={setSupervisedToAdd}
+                >
+                  <SelectTrigger className="min-w-0 flex-1">
+                    <SelectValue placeholder="选择在押人员" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {supervised.map((user) => (
+                      <SelectItem
+                        key={user.id}
+                        value={user.id}
+                        disabled={supervisedIds.includes(user.id)}
+                      >
+                        {user.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  disabled={!supervisedToAdd}
+                  onClick={() => {
+                    setSupervisedIds((current) => [...current, supervisedToAdd])
+                    setSupervisedToAdd("")
+                  }}
+                  aria-label="添加在押人员"
+                >
+                  <Plus className="size-4" />
+                </Button>
+              </div>
+            </div>
           </div>
           <Button
             variant="brand"
             disabled={
-              !name || !supervisorId || !supervisedId || create.isPending
+              !name ||
+              !supervisorIds.length ||
+              !supervisedIds.length ||
+              create.isPending
             }
             onClick={() => create.mutate()}
           >

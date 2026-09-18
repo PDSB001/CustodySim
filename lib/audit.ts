@@ -1,6 +1,6 @@
 import { auditLogs } from "@/lib/db/schema"
-import type { SessionUser } from "@/lib/session"
 import { db } from "@/lib/db"
+import { getActorType, type AuditActor } from "@/lib/system-identity"
 
 export async function writeAuditLog(
   {
@@ -11,7 +11,7 @@ export async function writeAuditLog(
     entityId,
     detail = {},
   }: {
-    actor: SessionUser
+    actor: AuditActor
     action: string
     actionLabel: string
     entityType: string
@@ -24,6 +24,7 @@ export async function writeAuditLog(
     actorId: actor.id,
     actorName: actor.name,
     actorRole: actor.role,
+    actorType: getActorType(actor),
     action,
     actionLabel,
     entityType,

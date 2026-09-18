@@ -14,6 +14,7 @@ const AuditSchema = z.object({
   id: z.string(),
   actorName: z.string(),
   actorRole: z.string(),
+  actorType: z.string().catch("USER"),
   action: z.string(),
   actionLabel: z.string(),
   entityType: z.string(),
@@ -53,9 +54,18 @@ export function AuditTimeline() {
                     </p>
                     <Badge variant="brand">{audit.entityType}</Badge>
                   </div>
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    {audit.actorName} · {audit.actorRole}
-                  </p>
+                  <div className="mt-1 flex flex-wrap items-center gap-2">
+                    <Badge
+                      variant={
+                        audit.actorType === "SYSTEM_AI" ? "info" : "secondary"
+                      }
+                    >
+                      {audit.actorType === "SYSTEM_AI" ? "AI 系统" : "真人用户"}
+                    </Badge>
+                    <p className="text-sm text-muted-foreground">
+                      {audit.actorName} · {audit.actorRole}
+                    </p>
+                  </div>
                   <p className="mt-0.5 text-xs text-muted-foreground/70">
                     {formatDate(audit.createdAt)}
                   </p>

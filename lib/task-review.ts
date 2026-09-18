@@ -13,6 +13,7 @@ import {
 } from "@/lib/db/schema"
 import { getOfficialSealData } from "@/lib/seal-server"
 import type { SessionUser } from "@/lib/session"
+import { SYSTEM_AI_ACTOR } from "@/lib/system-identity"
 import {
   getTaskOutcomeWeekKey,
   getTaskOutcomeScoreDelta,
@@ -57,6 +58,8 @@ export async function applyTaskReview(
   const parsed = ReviewSchema.safeParse(input)
   if (!parsed.success || actor.role === "SUPERVISED")
     throw new ReviewConflictError("无审核权限或参数不合法")
+  // 携带配置版本号的调用来自自动审核；此时权限仍按监管账号校验，但业务身份记为系统级 AI。
+  const automated = Boolean(expectedVersion?.configRevision)
   const [row] = await db
     .select({
       taskId: reportTasks.id,
@@ -176,7 +179,7 @@ export async function applyTaskReview(
         .insert(reportReviews)
         .values({
           ...parsed.data,
-          reviewerId: actor.id,
+          reviewerId: automated ? null : actor.id,
           submissionId: parsed.data.submissionId,
         })
         .returning()
@@ -207,7 +210,7 @@ export async function applyTaskReview(
             priorReturns.length > 0 ? "任务打回后按时通过" : "任务首次按时通过",
           source: "TASK_OUTCOME",
           sourceId: row.taskId,
-          operatorId: actor.id,
+          operatorId: automated ? null : actor.id,
           weekKey: getTaskOutcomeWeekKey(row.scheduleAt),
           executor: tx,
         })
@@ -227,14 +230,15 @@ export async function applyTaskReview(
         })
       await writeAuditLog(
         {
-          actor,
+          actor: automated ? SYSTEM_AI_ACTOR : actor,
           action: "REVIEW",
           actionLabel:
             parsed.data.result === "APPROVED" ? "审核通过任务" : "退回任务",
           entityType: "report_submission",
           entityId: parsed.data.submissionId,
           detail: {
-            automated: Boolean(expectedVersion),
+            automated,
+            actorType: automated ? "SYSTEM_AI" : "USER",
             result: parsed.data.result,
             grade: parsed.data.grade ?? null,
             scoreDelta,

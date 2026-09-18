@@ -219,6 +219,7 @@ export const auditLogs = pgTable(
     actorId: uuid("actor_id").references(() => users.id),
     actorName: varchar("actor_name", { length: 100 }).notNull(),
     actorRole: varchar("actor_role", { length: 20 }).notNull(),
+    actorType: varchar("actor_type", { length: 20 }).notNull().default("USER"),
     action: varchar("action", { length: 80 }).notNull(),
     actionLabel: varchar("action_label", { length: 120 }).notNull(),
     entityType: varchar("entity_type", { length: 80 }).notNull(),
@@ -702,9 +703,7 @@ export const reportReviews = pgTable(
     submissionId: uuid("submission_id")
       .notNull()
       .references(() => reportSubmissions.id, { onDelete: "cascade" }),
-    reviewerId: uuid("reviewer_id")
-      .notNull()
-      .references(() => users.id),
+    reviewerId: uuid("reviewer_id").references(() => users.id),
     result: varchar("result", { length: 20 }).notNull(),
     grade: integer("grade"),
     comment: text("comment"),
