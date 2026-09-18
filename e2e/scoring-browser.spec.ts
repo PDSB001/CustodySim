@@ -250,6 +250,11 @@ test("真实登录、提交审核后更正上周积分，取消的检讨在页�
       ).status(),
     ).toBe(400)
     await page.goto("/my/tasks")
+    // 已取消的任务不在默认的「待执行」视图中，需切到「执行记录」。
+    await page
+      .getByLabel("任务状态筛选")
+      .getByRole("button", { name: /执行记录/ })
+      .click()
     const card = page
       .locator('[data-slot="card"]')
       .filter({ hasText: "应撤销的反思任务" })

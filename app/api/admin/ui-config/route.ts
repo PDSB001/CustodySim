@@ -7,19 +7,7 @@ import { UiConfigSchema } from "@/lib/admin-schemas"
 import { writeAuditLog } from "@/lib/audit"
 import { db } from "@/lib/db"
 import { uiConfigs } from "@/lib/db/schema"
-
-const DEFAULTS = {
-  SUPERVISOR: {
-    homeTitle: "你好，{name}",
-    homeSubtitle: "集中处理今日任务、打卡异常、补卡审核与执行汇报。",
-    homeBanner: "",
-  },
-  SUPERVISED: {
-    homeTitle: "你好，{name}",
-    homeSubtitle: "查看今天需要完成的任务、打卡时段与通知，所有操作从这里开始。",
-    homeBanner: "",
-  },
-}
+import { UI_CONFIG_DEFAULTS as DEFAULTS } from "@/lib/ui-config-defaults"
 
 export async function GET() {
   const actor = await getAdminUser()

@@ -85,6 +85,10 @@ test("真实 MFA 启用、恢复码登录与挑战重放拦截；邮件配置页
     )!
     await page.goto("/mfa")
     await page.getByLabel("一次性验证码或恢复码").fill(recoveryCodes[0])
+    // 「信任设备」默认不再勾选，此处显式勾选以覆盖信任设备写入路径。
+    await page
+      .getByRole("checkbox", { name: "在此设备保持登录 30 天" })
+      .check()
     await page.getByRole("button", { name: "验证并继续" }).click()
     await expect(page).toHaveURL(`${baseURL}/`)
     const replay = await other.post("/api/auth/mfa/verify", {

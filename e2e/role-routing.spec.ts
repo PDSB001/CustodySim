@@ -61,7 +61,7 @@ test("移动尺寸登录后保留会话并进入个人服务台", async ({ page 
   await page.setViewportSize({ width: 390, height: 844 })
   await login(page, "user", "user12345")
   await expect(page).toHaveURL("/my")
-  await expect(page.getByRole("heading", { name: "你好，刘晨" })).toBeVisible()
+  await expect(page.getByRole("heading", { name: "刘晨，监室日程" })).toBeVisible()
   await expect(page.getByLabel("今日打卡")).toBeVisible()
 })
 
@@ -201,7 +201,7 @@ test("管理员可以进入印章与通知中心", async ({ page }) => {
   await page.goto("/official-seals")
   await expect(page.getByRole("heading", { name: "印章中心" })).toBeVisible()
   await page.goto("/notices")
-  await expect(page.getByRole("heading", { name: "通知中心" })).toBeVisible()
+  await expect(page.getByRole("heading", { name: "监所通知" })).toBeVisible()
 })
 
 test("管理员可以查看档案并看到归档删除操作列", async ({ page }) => {

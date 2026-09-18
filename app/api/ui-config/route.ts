@@ -5,22 +5,7 @@ import { failure, success } from "@/lib/api-response"
 import { db } from "@/lib/db"
 import { uiConfigs } from "@/lib/db/schema"
 import { getSessionUser } from "@/lib/session"
-
-const DEFAULTS: Record<
-  string,
-  { homeTitle: string; homeSubtitle: string; homeBanner: string }
-> = {
-  SUPERVISOR: {
-    homeTitle: "{name}，当班执勤",
-    homeSubtitle: "先批阅任务与补卡，再核对点名记录，落实本班监管事项。",
-    homeBanner: "",
-  },
-  SUPERVISED: {
-    homeTitle: "{name}，监室日程",
-    homeSubtitle: "按时点名，完成指定任务；留意批阅意见与监所通知。",
-    homeBanner: "",
-  },
-}
+import { UI_CONFIG_DEFAULTS as DEFAULTS } from "@/lib/ui-config-defaults"
 
 export async function GET(request: NextRequest) {
   const user = await getSessionUser()
