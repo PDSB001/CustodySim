@@ -1,4 +1,4 @@
-import { and, desc, eq, gt, isNull, or } from "drizzle-orm"
+import { and, desc, eq, gt, isNull, lt, or, sql } from "drizzle-orm"
 import { NextRequest } from "next/server"
 import { z } from "zod"
 
@@ -9,11 +9,55 @@ import { getSessionUser } from "@/lib/session"
 
 const ReadSchema = z.object({ noticeId: z.string().uuid() })
 
-export async function GET() {
+const DEFAULT_PAGE_SIZE = 20
+const MAX_PAGE_SIZE = 50
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/**
+ * 受众侧公示列表：游标分页，避免一次把全部通知正文回传。
+ *
+ * 排序用 (createdAt, id)：publishedAt 可空，用它做游标会让历史 null 行在翻页时消失。
+ * 代价是「重新发布」的旧通知仍按创建时间排在原位，不跳到最前。
+ */
+export async function GET(request: NextRequest) {
   const actor = await getSessionUser()
   if (!actor) return failure("UNAUTHORIZED", "请先登录", 401)
+
+  const params = request.nextUrl.searchParams
+  const requested = Number(params.get("limit") ?? DEFAULT_PAGE_SIZE)
+  const limit = Math.min(
+    Math.max(
+      Number.isFinite(requested) ? Math.trunc(requested) : DEFAULT_PAGE_SIZE,
+      1,
+    ),
+    MAX_PAGE_SIZE,
+  )
+  const [cursorTime, cursorId] = (params.get("cursor") ?? "").split("|")
+  const cursorDate = cursorTime ? new Date(cursorTime) : null
+  const hasCursor =
+    cursorDate !== null &&
+    !Number.isNaN(cursorDate.getTime()) &&
+    UUID_PATTERN.test(cursorId ?? "")
+
+  const now = new Date()
+  const visible = and(
+    eq(notices.published, true),
+    or(eq(notices.targetRole, "ALL"), eq(notices.targetRole, actor.role)),
+    or(isNull(notices.expiresAt), gt(notices.expiresAt, now)),
+  )
+  const cursorWhere = hasCursor
+    ? or(
+        lt(notices.createdAt, cursorDate),
+        and(
+          eq(notices.createdAt, cursorDate),
+          lt(notices.id, sql`${cursorId}::uuid`),
+        ),
+      )
+    : undefined
+  const where = cursorWhere ? and(visible, cursorWhere) : visible
+
   try {
-    const now = new Date()
     const rows = await db
       .select({
         id: notices.id,
@@ -29,17 +73,25 @@ export async function GET() {
       .from(notices)
       .leftJoin(
         noticeReads,
-        and(eq(noticeReads.noticeId, notices.id), eq(noticeReads.userId, actor.id)),
-      )
-      .where(
         and(
-          eq(notices.published, true),
-          or(eq(notices.targetRole, "ALL"), eq(notices.targetRole, actor.role)),
-          or(isNull(notices.expiresAt), gt(notices.expiresAt, now)),
+          eq(noticeReads.noticeId, notices.id),
+          eq(noticeReads.userId, actor.id),
         ),
       )
-      .orderBy(desc(notices.publishedAt), desc(notices.createdAt))
-    return success(rows)
+      .where(where)
+      .orderBy(desc(notices.createdAt), desc(notices.id))
+      // 多取一条用于判断是否还有下一页
+      .limit(limit + 1)
+
+    const hasMore = rows.length > limit
+    const items = hasMore ? rows.slice(0, limit) : rows
+    const last = items.at(-1)
+
+    return success({
+      items,
+      nextCursor:
+        hasMore && last ? `${last.createdAt.toISOString()}|${last.id}` : null,
+    })
   } catch (error) {
     console.error("[API notices GET]", error)
     return failure("INTERNAL_ERROR", "服务器错误", 500)

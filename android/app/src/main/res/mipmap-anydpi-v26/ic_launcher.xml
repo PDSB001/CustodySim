@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  自适应图标。目录必须带 -v26 限定符：自适应图标是 API 26 引入的资源形态，
+  放到无版本的 mipmap-anydpi 里 aapt2 不会采纳（会报 resource mipmap/ic_launcher not found）。
+  lint 的 ObsoleteSdkInt 会提示该限定符"多余"，这是它的误判，别照着改。
+-->
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@color/ic_launcher_background" />
+    <foreground android:drawable="@drawable/ic_launcher_foreground" />
+</adaptive-icon>

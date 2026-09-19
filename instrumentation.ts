@@ -2,6 +2,10 @@ export async function register() {
   if (process.env.NEXT_RUNTIME === "nodejs") {
     const { startGpsPrivacyRetentionScheduler } =
       await import("@/lib/privacy-retention")
+    const { startNoticeRetentionScheduler } =
+      await import("@/lib/notice-retention")
+    const { startAuditLogRetentionScheduler } =
+      await import("@/lib/audit-retention")
     const { startScheduledCustodyStatusScheduler } =
       await import("@/lib/custody-checkin")
     const { startCheckinStatusScheduler, startLeaveSystemMakeupScheduler } =
@@ -11,6 +15,8 @@ export async function register() {
     const { startAutoReviewScheduler } =
       await import("@/lib/auto-review-server")
     startGpsPrivacyRetentionScheduler()
+    startNoticeRetentionScheduler()
+    startAuditLogRetentionScheduler()
     startScheduledCustodyStatusScheduler()
     startLeaveSystemMakeupScheduler()
     startCheckinStatusScheduler()

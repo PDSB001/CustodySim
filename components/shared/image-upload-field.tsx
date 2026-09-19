@@ -59,6 +59,7 @@ export function ImageUploadField({
   hint,
   showLabel = true,
   max,
+  compact,
 }: {
   label: string
   required?: boolean
@@ -70,6 +71,11 @@ export function ImageUploadField({
   showLabel?: boolean
   /** 允许的张数上限，默认 3。单图场景（打卡照片、补卡凭证）传 1。 */
   max?: number
+  /**
+   * 紧凑模式：用于首页「当前任务」这类纵向空间紧张的场景。
+   * 只压缩上传框高度与说明行数，不改变任何上传/压缩/张数逻辑。
+   */
+  compact?: boolean
 }) {
   const images = normalizeTaskImages(value)
   const [error, setError] = useState<string | null>(null)
@@ -78,7 +84,7 @@ export function ImageUploadField({
   const reachedLimit = images.length >= limit
 
   return (
-    <div className="space-y-2">
+    <div className={compact ? "space-y-1.5" : "space-y-2"}>
       {showLabel ? (
         <Label>
           {required ? "* " : ""}
@@ -87,14 +93,20 @@ export function ImageUploadField({
       ) : null}
       <label
         className={cn(
-          "border-border/70 bg-muted/20 focus-within:border-brand-700/60 flex cursor-pointer items-center gap-3 rounded-xl border border-dashed px-4 py-3 transition-colors",
+          "border-border/70 bg-muted/20 focus-within:border-brand-700/60 flex cursor-pointer items-center gap-3 rounded-xl border border-dashed transition-colors",
+          compact ? "px-3 py-1.5" : "px-4 py-3",
           !(disabled || compressing || reachedLimit) &&
             "hover:border-brand-700/50 hover:bg-muted/40",
           (disabled || compressing || reachedLimit) &&
             "cursor-not-allowed opacity-70",
         )}
       >
-        <span className="border-border/70 bg-background flex size-9 shrink-0 items-center justify-center rounded-full border">
+        <span
+          className={cn(
+            "border-border/70 bg-background flex shrink-0 items-center justify-center rounded-full border",
+            compact ? "size-8" : "size-9",
+          )}
+        >
           <ImagePlus className="text-brand-700 size-4" />
         </span>
         <span className="min-w-0 text-sm font-medium">
@@ -139,19 +151,18 @@ export function ImageUploadField({
         />
       </label>
       <p className="text-muted-foreground text-xs">
-        {hint ??
-          "支持 JPG、PNG、WebP，原图最大 5 MB，浏览器会压缩到 1 MB 以内再写入记录。"}
-        {" "}
-        （最多 {limit} 张，已上传 {images.length} 张）
+        {compact
+          ? `${hint ?? "支持 JPG、PNG、WebP"}（最多 ${limit} 张，已上传 ${images.length} 张）`
+          : `${hint ?? "支持 JPG、PNG、WebP，原图最大 5 MB，浏览器会压缩到 1 MB 以内再写入记录。"} （最多 ${limit} 张，已上传 ${images.length} 张）`}
       </p>
-      {reachedLimit ? (
+      {reachedLimit && !compact ? (
         <p className="text-muted-foreground text-xs">
           如需更换，请先移除已上传的图片。
         </p>
       ) : null}
       {error ? <p className="text-destructive text-xs">{error}</p> : null}
       {images.length ? (
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+        <div className={cn("grid grid-cols-2", compact ? "gap-2" : "gap-3 sm:grid-cols-3")}>
           {images.map((image, index) => (
             <div
               key={`${index}-${image.slice(-12)}`}
@@ -163,7 +174,7 @@ export function ImageUploadField({
                 width={640}
                 height={480}
                 unoptimized
-                className="h-32 w-full object-cover"
+                className={cn("w-full object-cover", compact ? "h-24" : "h-32")}
               />
               <Button
                 type="button"

@@ -1290,6 +1290,10 @@ export const notices = pgTable(
   },
   (table) => [
     index("notices_published_idx").on(table.published, table.publishedAt),
+    // 保留期清理按 published/createdAt 与 published/updatedAt 过滤，
+    // 没有这个索引会走整表顺序扫描。
+    index("notices_retention_idx").on(table.published, table.createdAt),
+    index("notices_updated_at_idx").on(table.updatedAt),
   ],
 )
 

@@ -150,7 +150,7 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
         </div>
       </div>
 
-      <nav className="flex min-h-0 flex-1 flex-col gap-3.5 overflow-y-auto pb-3">
+      <nav className="flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto pb-3">
         {navSections.map((section) => {
           const expanded =
             openSections.has(section.label) ||

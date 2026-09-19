@@ -181,13 +181,23 @@ function statusTone(status: string): StatusTone {
 
 type CheckinTask = z.infer<typeof Checkin>
 
-function useLiveNow() {
+/**
+ * 当前时间。
+ * intervalMs 默认 1 秒（打卡倒计时需要秒级）；不需要秒级精度的场景
+ * （历史记录列表、只要判断时段相位的排序）传大值，避免整页每秒重渲染。
+ */
+function useLiveNow(intervalMs = 1_000) {
   const [now, setNow] = useState(() => Date.now())
   useEffect(() => {
-    const timer = window.setInterval(() => setNow(Date.now()), 1_000)
+    const timer = window.setInterval(() => setNow(Date.now()), intervalMs)
     return () => window.clearInterval(timer)
-  }, [])
+  }, [intervalMs])
   return now
+}
+
+/** 只接受 YYYY-MM-DD，避免把非法 query 直接打给接口（接口会返回 400）。 */
+function normalizeDateKey(value?: string) {
+  return value && /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : ""
 }
 
 function formatCountdown(milliseconds: number) {
@@ -213,6 +223,28 @@ function getCheckinTiming(task: CheckinTask, now: number) {
       label: `距截止 ${formatCountdown(deadline - now)}`,
     }
   return { phase: "expired" as const, label: "本时段已截止" }
+}
+
+/**
+ * 与 getCheckinTiming 同源，但拆成「状态 + 时间」两段，
+ * 用于渲染成时间状态胶囊，而不是把倒计时塞进按钮文案里。
+ */
+function getCheckinPhase(task: CheckinTask, now: number) {
+  const scheduleAt = new Date(task.scheduleAt).getTime()
+  const deadline = new Date(task.deadline).getTime()
+  if (now < scheduleAt)
+    return {
+      phase: "upcoming" as const,
+      title: "可打卡时间未到",
+      value: `${formatCountdown(scheduleAt - now)}后开放`,
+    }
+  if (now <= deadline)
+    return {
+      phase: "active" as const,
+      title: "可打卡时段进行中",
+      value: `距截止 ${formatCountdown(deadline - now)}`,
+    }
+  return { phase: "expired" as const, title: "本时段已截止", value: null }
 }
 
 function getGpsLocation() {
@@ -311,9 +343,23 @@ function CheckinCard({
       toast.error(error instanceof Error ? error.message : "申请失败"),
   })
   const canMakeup = ["MISSED", "LATE", "MAKEUP_REJECTED"].includes(task.status)
-  const now = useLiveNow()
+  // 只有"执行卡"需要秒级倒计时；历史记录列表用 60 秒粒度即可，避免每张卡每秒重渲染
+  const now = useLiveNow(variant === "action" ? 1_000 : 60_000)
   const timing = getCheckinTiming(task, now)
+  const phase = getCheckinPhase(task, now)
   const isAvailable = task.status === "PENDING" && timing.phase === "active"
+  /*
+   * 任务状态色语义：
+   *   待执行（还没到时段）→ 蓝；进行中（时段内）→ 品牌蓝紫；
+   *   已完成 → 绿；迟到/补点在审 → 黄；缺卡/驳回 → 红。
+   * 其余状态沿用 statusTone 的统一映射，避免同一状态出现相近色。
+   */
+  const pillTone: StatusTone =
+    task.status === "PENDING"
+      ? timing.phase === "active"
+        ? "brand"
+        : "info"
+      : statusTone(task.status)
 
   return (
     <Card
@@ -325,19 +371,19 @@ function CheckinCard({
     >
       <CardHeader>
         <div className="flex items-start justify-between gap-3">
-          <div>
+          <div className="min-w-0">
+            {/* 第一层：任务名称 + 紧邻的任务状态 */}
             <CardTitle>
               {task.slotLabel ? `${task.slotLabel} · ` : ""}
               {task.ruleName}
             </CardTitle>
-            <p className="text-muted-foreground mt-2 flex items-center gap-1.5 text-xs">
-              <Clock3 className="size-3.5" />
-              {timeText(task.scheduleAt)} 打卡 · {timeText(task.deadline)} 截止
+            {/* 第二层：截止时间用时钟图标承载，比纯文字更容易扫到 */}
+            <p className="text-muted-foreground mt-1.5 flex items-center gap-1.5 text-xs">
+              <Clock3 className="size-3.5 shrink-0" />
+              {timeText(task.scheduleAt)} 开始 · {timeText(task.deadline)} 截止
             </p>
           </div>
-          <StatusPill tone={statusTone(task.status)}>
-            {statusText(task.status)}
-          </StatusPill>
+          <StatusPill tone={pillTone}>{statusText(task.status)}</StatusPill>
         </div>
       </CardHeader>
       <CardContent className={compact ? "space-y-3" : "space-y-4"}>
@@ -353,6 +399,46 @@ function CheckinCard({
           )}
         {task.status === "PENDING" && variant === "action" && (
           <>
+            {/* 第二层：当前状态 + 时间状态胶囊（提示条，不是按钮） */}
+            <div
+              className={cn(
+                "time-capsule",
+                phase.phase === "expired" && "time-capsule--expired",
+              )}
+            >
+              <TimerReset className="size-3.5 shrink-0" />
+              <span className="font-medium">{phase.title}</span>
+              {phase.value ? (
+                <span className="time-capsule__value">{phase.value}</span>
+              ) : null}
+            </div>
+
+            {/* 第三层：必要条件（展示"当前设置"，与下方的操作按钮区分开） */}
+            <dl className="text-muted-foreground flex flex-wrap items-center gap-x-5 gap-y-1.5 text-xs">
+              <div className="flex items-center gap-1.5">
+                <dt>定位方式</dt>
+                <dd className="text-foreground font-medium">
+                  {gpsEnabled ? "精确 GPS" : "IP 定位"}
+                </dd>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <dt>定位要求</dt>
+                <dd className="text-foreground font-medium">
+                  {task.needLocation ? "需要定位" : "无需定位"}
+                </dd>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <dt>打卡照片</dt>
+                <dd className="text-foreground font-medium">可选</dd>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <dt>打卡备注</dt>
+                <dd className="text-foreground font-medium">
+                  {task.needRemark ? "需填写" : "选填"}
+                </dd>
+              </div>
+            </dl>
+
             {task.needRemark && (
               <div className="space-y-2">
                 <Label>打卡备注</Label>
@@ -378,7 +464,7 @@ function CheckinCard({
                 <span className="flex min-w-0 items-center gap-2">
                   <LocateFixed className="text-brand-700 size-4 shrink-0" />
                   <span className="text-foreground text-sm font-medium">
-                    定位设置
+                    定位方式设置
                   </span>
                   <span
                     className={cn(
@@ -463,10 +549,20 @@ function CheckinCard({
               label="打卡照片"
               hint="可选，例如现场或门牌照片"
               max={1}
+              compact
               value={photo}
               onChange={setPhoto}
             />
+            {/* 第四层：唯一主 CTA。不可操作时在按钮上方说明原因，而不是把倒计时写进按钮 */}
+            {!isAvailable ? (
+              <p className="text-muted-foreground text-xs">
+                {phase.phase === "upcoming"
+                  ? "尚未到打卡时间，按钮将在可打卡时段开放后可用。"
+                  : "本时段已截止，如未按时打卡请按规则申请补卡。"}
+              </p>
+            ) : null}
             <Button
+              className="w-full sm:w-auto"
               disabled={checkin.isPending || !isAvailable}
               onClick={() => {
                 setGpsError(null)
@@ -474,11 +570,7 @@ function CheckinCard({
               }}
             >
               <CheckCircle2 />
-              {checkin.isPending
-                ? "正在记录…"
-                : isAvailable
-                  ? `${timing.label} · 立即打卡`
-                  : timing.label}
+              {checkin.isPending ? "正在记录…" : "立即打卡"}
             </Button>
           </>
         )}
@@ -698,7 +790,8 @@ export function CheckinHomeCard() {
     queryFn: () => requestApi("/api/checkins", Checkins),
     enabled: custodyProfile.data?.canCheckin === true,
   })
-  const now = useLiveNow()
+  // 这里只需要按时段相位排序，不需要秒级刷新
+  const now = useLiveNow(60_000)
   const currentTask = checkins.data
     ?.filter((task) => task.status === "PENDING")
     .sort((left, right) => {
@@ -731,7 +824,6 @@ export function CheckinHomeCard() {
   const statusLabel =
     PRISONER_CUSTODY_STATUS_LABELS[custody.custodyStatus] ?? "未知"
   const onLeave = custody.custodyStatus === "ON_LEAVE"
-  const showGpsHint = !onLeave && custody.canCheckin
   let body: React.ReactNode
   if (onLeave) {
     body = (
@@ -757,31 +849,16 @@ export function CheckinHomeCard() {
     )
   } else if (!currentTask) {
     body = (
-      <div className="text-muted-foreground border-border/60 bg-muted/30 rounded-lg border border-dashed px-4 py-6 text-center text-xs">
-        今日暂无待打卡时段
-      </div>
+      <p className="text-muted-foreground border-border/60 bg-muted/30 rounded-lg border border-dashed px-4 py-5 text-center text-xs">
+        今日暂无待打卡时段，点名安排下达后会在此显示当前任务。
+      </p>
     )
   } else {
     body = <CheckinCard task={currentTask} compact />
   }
 
   return (
-    <section className="space-y-3" aria-label="今日打卡">
-      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
-        <p className="text-muted-foreground text-xs">
-          {showGpsHint
-            ? "定位默认 IP，可在下方切换 GPS"
-            : `当前监管状态：${statusLabel}`}
-        </p>
-        <Link
-          href="/my/checkins"
-          className="text-brand-700 hover:text-brand-900 ml-auto text-xs font-semibold transition-colors"
-        >
-          查看记录 →
-        </Link>
-      </div>
-      {body}
-    </section>
+    <section aria-label="今日打卡">{body}</section>
   )
 }
 
@@ -894,7 +971,7 @@ export function MakeupReview() {
   )
 }
 
-export function DailyCheckins() {
+export function DailyCheckins({ initialDate }: { initialDate?: string }) {
   return (
     <div className="workspace-stack mx-auto max-w-5xl">
       <PageHeader
@@ -902,13 +979,14 @@ export function DailyCheckins() {
         title="点名记录"
         description="按日期核对监管范围内人员的报到、漏点与补卡情况。"
       />
-      <CheckinHistory />
+      <CheckinHistory initialDate={initialDate} />
     </div>
   )
 }
 
-function CheckinHistory() {
-  const [date, setDate] = useState("")
+function CheckinHistory({ initialDate }: { initialDate?: string }) {
+  // 支持从首页「今日执行」带 ?date= 直达，否则默认让用户自己选日期
+  const [date, setDate] = useState(() => normalizeDateKey(initialDate))
   const history = useQuery({
     queryKey: ["supervision-checkins-history", date],
     queryFn: () =>

@@ -18,12 +18,13 @@ export default async function LoginPage() {
         <div className="absolute top-1/3 right-1/4 h-72 w-72 rounded-full bg-[color:var(--info)]/25 blur-3xl" />
       </div>
 
-      <div className="bg-card/80 relative grid w-full max-w-5xl overflow-hidden rounded-3xl border border-white/10 shadow-[0_28px_96px_-32px_rgba(0,0,0,0.6)] backdrop-blur-xl lg:min-h-[640px] lg:grid-cols-[1.05fr_0.95fr]">
+      <div className="bg-card/80 relative grid w-full max-w-5xl overflow-hidden rounded-3xl border border-white/10 shadow-[0_28px_96px_-32px_rgba(0,0,0,0.6)] backdrop-blur-xl lg:min-h-[560px] lg:grid-cols-[1.05fr_0.95fr]">
         <AuthShowcase />
 
-        <section className="bg-card/95 flex items-center justify-center p-6 sm:p-10 lg:p-12 xl:p-14">
+        {/* pb 略大于 pt：登录内容视觉中心略高于数学中心，避免看起来"偏上" */}
+        <section className="bg-card/95 flex items-center justify-center p-6 sm:p-9 lg:px-10 lg:pt-10 lg:pb-14 xl:px-11 xl:pt-11 xl:pb-16">
           <div className="w-full max-w-sm">
-            <div className="mb-9 flex items-center gap-2 lg:hidden">
+            <div className="mb-7 flex items-center gap-2 lg:hidden">
               <span className="from-brand-500 shadow-glow-brand grid size-10 place-items-center rounded-xl bg-gradient-to-br to-[color:var(--chart-5)] text-white">
                 <ShieldCheck className="size-5" />
               </span>
@@ -36,18 +37,18 @@ export default async function LoginPage() {
               <Sparkles className="size-3" />
               身份核验
             </div>
-            <h1 className="font-display text-foreground mt-4 text-3xl font-bold tracking-[-0.025em] sm:text-4xl">
+            <h1 className="font-display text-foreground mt-3.5 text-3xl font-bold tracking-[-0.025em] sm:text-4xl">
               进入 CustodySim
             </h1>
-            <p className="text-muted-foreground mt-3 text-sm leading-6">
+            <p className="text-foreground/75 mt-2.5 text-sm leading-6">
               验证身份后，进入管理处、值班室或你的监室。
             </p>
 
-            <div className="mt-9">
+            <div className="mt-7">
               <LoginForm />
             </div>
 
-            <p className="text-muted-foreground/70 mt-9 text-center text-xs">
+            <p className="text-muted-foreground/70 mt-7 text-center text-xs">
               CustodySim · 监管任务模拟系统
             </p>
           </div>

@@ -26,6 +26,8 @@
     "db:ensure-entry-form": "tsx --env-file=.env.local scripts/ensure-entry-registration-form.ts",
     "db:reconcile-profile-record-sequence": "tsx --env-file=.env.local scripts/reconcile-profile-record-sequence.ts",
     "chat:cleanup": "tsx --env-file=.env.local scripts/cleanup-chat.ts",
+    "notices:cleanup": "tsx --env-file=.env.local scripts/cleanup-notices.ts",
+    "audit-logs:cleanup": "tsx --env-file=.env.local scripts/cleanup-audit-logs.ts",
     "geoip:update": "tsx --env-file=.env.local scripts/update-geoip.ts"
   },
   "dependencies": {

@@ -3,7 +3,13 @@ import type { ReactNode } from "react"
 
 import { cn } from "@/lib/utils"
 
-type IconTone = "brand" | "info" | "success" | "warning" | "danger"
+type IconTone =
+  | "brand"
+  | "info"
+  | "success"
+  | "warning"
+  | "danger"
+  | "neutral"
 
 export function MetricCell({
   label,

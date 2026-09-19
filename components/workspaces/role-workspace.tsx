@@ -116,7 +116,8 @@ const homeContent = {
         value: "0",
         detail: <span>尚未呈报的任务</span>,
         icon: ClipboardCheck,
-        tone: "brand" as const,
+        // 待处理类：黄色代表"待处理"，为 0 时由 metricTone 退回中性
+        tone: "warning" as const,
       },
       {
         id: "unreadNotices",
@@ -137,6 +138,18 @@ const homeContent = {
     ],
   },
 } as const
+
+type MetricTone = "brand" | "info" | "success" | "warning" | "danger" | "neutral"
+
+/**
+ * 数值型指标为 0 时退回中性色，避免"没有待办也保持高亮"；
+ * 非数值状态（例如在押情形）保留其语义色。
+ */
+function metricTone(id: string, fallback: MetricTone, value: string) {
+  const numeric = Number(value)
+  if (id === "custodyStatus" || !Number.isFinite(numeric)) return fallback
+  return numeric > 0 ? fallback : "neutral"
+}
 
 const serviceLinks = {
   SUPERVISOR: [
@@ -196,9 +209,10 @@ const serviceLinks = {
 function ServiceLinks({ kind }: { kind: WorkspaceKind }) {
   return (
     <div className="surface-panel overflow-hidden">
+      {/* 快捷事务入口：glyph 改为中性，避免与"当前任务"抢视觉层级 */}
       <div className="surface-panel__head">
         <h2 className="surface-panel__title">
-          <span className="glyph">
+          <span className="glyph bg-muted text-muted-foreground">
             <ArrowRight className="size-3.5" />
           </span>
           {kind === "SUPERVISOR" ? "执勤入口" : "监室事务"}
@@ -214,16 +228,16 @@ function ServiceLinks({ kind }: { kind: WorkspaceKind }) {
           <Link
             key={href}
             href={href}
-            className="group hover:bg-muted/50 flex items-center gap-3 px-5 py-3 transition-colors sm:px-6"
+            className="group hover:bg-muted/50 flex items-center gap-3 px-5 py-2.5 transition-colors sm:px-6"
           >
             <span className="bg-muted text-muted-foreground group-hover:bg-brand-500/10 group-hover:text-brand-700 grid size-8 shrink-0 place-items-center rounded-lg transition-colors">
               <Icon className="size-4" />
             </span>
             <span className="min-w-0 flex-1">
-              <span className="text-foreground block text-sm font-medium">
+              <span className="text-foreground block text-[13px] font-medium">
                 {label}
               </span>
-              <span className="text-muted-foreground mt-0.5 block text-xs">
+              <span className="text-muted-foreground mt-0.5 block truncate text-xs">
                 {detail}
               </span>
             </span>
@@ -232,83 +246,6 @@ function ServiceLinks({ kind }: { kind: WorkspaceKind }) {
         ))}
       </div>
     </div>
-  )
-}
-
-function WorkspacePriority({
-  kind,
-  summary,
-}: {
-  kind: WorkspaceKind
-  summary: z.infer<typeof DashboardSummarySchema>
-}) {
-  const isOnLeave = summary.custodyStatus.includes("请假")
-  const pendingReviewCount = summary.pendingTasks + summary.pendingMakeups
-  const priority =
-    kind === "SUPERVISOR"
-      ? pendingReviewCount > 0
-        ? {
-            href: summary.pendingTasks
-              ? "/supervisor/tasks"
-              : "/supervisor/makeups",
-            title: `有 ${pendingReviewCount} 项监管事项待处理`,
-            description: "优先批阅呈报与核准补点，避免事项积压。",
-            action: "前往处理",
-            icon: ClipboardCheck,
-          }
-        : {
-            href: "/supervisor/checkins",
-            title: "呈报与补点暂无待审",
-            description: "核对本班点名记录，留意漏点与补点情况。",
-            action: "查看点名记录",
-            icon: CalendarCheck2,
-          }
-      : isOnLeave
-        ? {
-            href: "/my/checkins",
-            title: `当前为${summary.custodyStatus}`,
-            description: "请假期间无需手动点名或申请补点，系统按规则处理。",
-            action: "查看点名说明",
-            icon: CalendarCheck2,
-          }
-        : summary.myPendingTasks > 0
-          ? {
-              href: "/my/tasks",
-              title: `还有 ${summary.myPendingTasks} 项任务待呈报`,
-              description: "按截止时间完成指定内容，呈报后等待监管员批阅。",
-              action: "查看服刑任务",
-              icon: ClipboardCheck,
-            }
-          : {
-              href: "/my/checkins",
-              title: "当前无待呈报任务",
-              description: "仍需按时接受点名，并留意监所公示与批阅结果。",
-              action: "查看点名记录",
-              icon: CalendarCheck2,
-            }
-  const Icon = priority.icon
-
-  return (
-    <Link
-      href={priority.href}
-      className="surface-panel surface-panel--brand priority-action group page-enter"
-    >
-      <span className="bg-brand-500/12 text-brand-700 grid size-10 shrink-0 place-items-center rounded-xl">
-        <Icon className="size-5" />
-      </span>
-      <span className="min-w-0 flex-1">
-        <span className="text-foreground block text-sm font-semibold">
-          {priority.title}
-        </span>
-        <span className="text-muted-foreground mt-1 block text-sm">
-          {priority.description}
-        </span>
-      </span>
-      <span className="priority-action__cta">
-        {priority.action}
-        <ArrowRight className="size-4 transition-transform group-hover:translate-x-0.5" />
-      </span>
-    </Link>
   )
 }
 
@@ -528,23 +465,18 @@ export function RoleWorkspaceHome({
           </span>
         }
         description={homeSubtitle}
+        alignActionWithTitle
         action={
           <StatusPill tone={content.tone}>{content.toneLabel}</StatusPill>
         }
       />
 
       {/*
-        优先事项卡只在在押人员侧出现。
-        监管员侧的待办已在下方「本班审核」逐项列出（含各自数量与入口），
-        再放一张汇总卡等于同一屏把同一件事说两遍。
+        这里刻意不再放"还有 N 项任务待呈报"整行提醒卡：
+        该数量已在下方统计卡「待呈报任务」中呈现，同一屏说两遍属于信息重复。
+        待遇到"临近截止/已逾期/异常"这类需要立即处理的情形，
+        再由数据层提供字段后升级为提醒条，不在前端凭空造判断。
       */}
-      {kind === "SUPERVISED" ? (
-        summary.isLoading ? (
-          <LoadingBlock className="page-enter h-20" />
-        ) : summary.data && !summary.error ? (
-          <WorkspacePriority kind={kind} summary={summary.data} />
-        ) : null
-      ) : null}
 
       <section className="metric-grid page-enter" aria-label="今日概览">
         <QueryStateView
@@ -562,16 +494,23 @@ export function RoleWorkspaceHome({
             </div>
           }
         >
-          {content.cards.map(({ id, label, value, detail, icon, tone }) => (
-            <MetricCell
-              key={id}
-              label={label}
-              value={dynamicValues[id] ?? value}
-              detail={detail}
-              icon={icon}
-              tone={tone}
-            />
-          ))}
+          {content.cards.map(({ id, label, value, detail, icon, tone }) => {
+            const displayValue = dynamicValues[id] ?? value
+            return (
+              <MetricCell
+                key={id}
+                label={label}
+                value={displayValue}
+                detail={detail}
+                icon={icon}
+                tone={
+                  kind === "SUPERVISED"
+                    ? metricTone(id, tone, displayValue)
+                    : tone
+                }
+              />
+            )
+          })}
         </QueryStateView>
       </section>
 
@@ -637,7 +576,7 @@ export function RoleWorkspaceHome({
           <ServiceLinks kind={kind} />
         </section>
       ) : (
-        <section className="page-enter grid items-start gap-4 lg:grid-cols-[minmax(0,1.25fr)_minmax(16rem,0.75fr)]">
+        <section className="page-enter grid items-start gap-4 lg:grid-cols-[minmax(0,1.6fr)_minmax(16rem,1fr)]">
           <div className="surface-panel">
             <div className="surface-panel__head">
               <h2 className="surface-panel__title">
@@ -646,9 +585,19 @@ export function RoleWorkspaceHome({
                 </span>
                 今日点名 · 打卡
               </h2>
-              <p className="surface-panel__sub">
-                按规定时段报到，漏点需申请补卡
-              </p>
+              <div className="flex items-center gap-3">
+                <p className="surface-panel__sub">
+                  按规定时段报到，漏点需申请补卡
+                </p>
+                {/* 次级操作：仅文字链接，权重低于当前任务、截止时间与主按钮 */}
+                <Link
+                  href="/my/checkins"
+                  className="text-muted-foreground hover:text-brand-700 inline-flex shrink-0 items-center gap-0.5 text-xs font-medium transition-colors"
+                >
+                  查看记录
+                  <ArrowRight className="size-3" />
+                </Link>
+              </div>
             </div>
             <div className="surface-panel__body">
               <CheckinHomeCard />

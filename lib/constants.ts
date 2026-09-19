@@ -79,3 +79,19 @@ export const ORGANIZATION_CATEGORY_LABELS: Record<
   WARD: "监区",
   ROOM: "监室",
 }
+
+/**
+ * 监所通知的保留期（3 个月）。
+ * 放在这里而不是 lib/notice-retention.ts：后者会 import 数据库，
+ * 客户端组件（管理端发布记录）也要读这个常量来展示保留策略。
+ */
+export const NOTICE_RETENTION_DAYS = 90
+
+/**
+ * 操作审计日志的保留期（2 年）。
+ *
+ * 审计数据此前没有任何保留策略，会随每次管理操作无限增长。审计需要长期留档，
+ * 因此这里取一个保守值：2 年。如果需要永久保留，把 lib/audit-retention.ts 的
+ * 调度器停用（删除 instrumentation.ts 里那一行调用）即可，删除历史不会被自动执行。
+ */
+export const AUDIT_LOG_RETENTION_DAYS = 730

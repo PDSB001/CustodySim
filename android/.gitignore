@@ -1,0 +1,20 @@
+# Gradle
+.gradle/
+build/
+
+# Gradle 自动生成的守护进程 JVM 约束：与本机 JDK 绑定，不该跟着版本库走
+gradle/gradle-daemon-jvm.properties
+
+# Android Studio / IntelliJ
+.idea/
+*.iml
+local.properties
+captures/
+
+# 原生构建产物
+.externalNativeBuild/
+.cxx/
+
+# 签名材料绝不入库
+*.jks
+*.keystore

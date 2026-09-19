@@ -58,15 +58,15 @@ export function LoginForm() {
   }
 
   return (
-    <form action={handleSubmit} className="flex flex-col gap-4">
+    <form action={handleSubmit} className="flex flex-col gap-3.5">
       <div className="flex flex-col gap-1.5">
         <label
           htmlFor="username"
-          className="text-foreground/70 text-xs font-semibold tracking-wide"
+          className="text-foreground/80 text-xs font-semibold tracking-wide"
         >
           账号
         </label>
-        <InputGroup className="border-border/70 bg-background/80 focus-within:border-brand-500 focus-within:ring-brand-500/30 h-11 rounded-xl transition focus-within:ring-2">
+        <InputGroup className="border-border/70 bg-muted/45 focus-within:border-brand-500/70 focus-within:bg-card focus-within:ring-brand-500/20 h-11 rounded-xl transition focus-within:ring-[3px]">
           <InputGroupAddon align="inline-start">
             <UserRound className="text-muted-foreground size-4" />
           </InputGroupAddon>
@@ -84,11 +84,11 @@ export function LoginForm() {
       <div className="flex flex-col gap-1.5">
         <label
           htmlFor="password"
-          className="text-foreground/70 text-xs font-semibold tracking-wide"
+          className="text-foreground/80 text-xs font-semibold tracking-wide"
         >
           密码
         </label>
-        <InputGroup className="border-border/70 bg-background/80 focus-within:border-brand-500 focus-within:ring-brand-500/30 h-11 rounded-xl transition focus-within:ring-2">
+        <InputGroup className="border-border/70 bg-muted/45 focus-within:border-brand-500/70 focus-within:bg-card focus-within:ring-brand-500/20 h-11 rounded-xl transition focus-within:ring-[3px]">
           <InputGroupAddon align="inline-start">
             <Lock className="text-muted-foreground size-4" />
           </InputGroupAddon>
@@ -104,17 +104,14 @@ export function LoginForm() {
         </InputGroup>
       </div>
 
-      {error ? (
-        <div className="border-overdue/30 bg-overdue/10 text-overdue rounded-lg border px-3 py-2 text-xs">
-          {error}
-        </div>
-      ) : null}
+      {error ? <div className="form-error">{error}</div> : null}
 
+      {/* 品牌渐变收窄在主蓝紫色相内，避免高饱和霓虹紫；hover/active 只做轻微变化 */}
       <Button
         type="submit"
         size="lg"
         disabled={submitting}
-        className="from-brand-600 hover:from-brand-700 mt-2 h-11 w-full rounded-xl bg-gradient-to-r to-[color:var(--chart-5)] text-white shadow-[0_8px_24px_-8px_rgba(112,80,255,0.6)] hover:to-[color:var(--chart-5)]"
+        className="from-brand-600 to-brand-400 mt-1 h-11 w-full rounded-xl bg-gradient-to-r text-white shadow-md shadow-brand-600/25 hover:from-brand-700 hover:shadow-lg hover:shadow-brand-600/30"
       >
         {submitting ? <Loader2 className="size-4 animate-spin" /> : "登 录"}
       </Button>
