@@ -4,7 +4,7 @@ import { NextRequest } from "next/server"
 import { NATIVE_CLIENT_HEADER } from "@/lib/native-client"
 import { getTrustedOrigins, isSameOriginMutation } from "@/lib/request-origin"
 
-const APP_ORIGIN = "https://www.jxydev.top"
+const APP_ORIGIN = "https://app.example.com"
 
 function write(
   path = "/api/auth/logout",
@@ -49,12 +49,12 @@ test("原生客户端头取值不合约定时不放行", () => {
 
 test("受信任 Origin 放行，未知 Origin 拒绝", () => {
   vi.stubEnv("NODE_ENV", "production")
-  vi.stubEnv("APP_ORIGIN", `${APP_ORIGIN},https://jxydev.top`)
+  vi.stubEnv("APP_ORIGIN", `${APP_ORIGIN},https://example.com`)
   expect(
     isSameOriginMutation(write("/api/checkins", { origin: APP_ORIGIN })),
   ).toBe(true)
   expect(
-    isSameOriginMutation(write("/api/checkins", { origin: "https://jxydev.top" })),
+    isSameOriginMutation(write("/api/checkins", { origin: "https://example.com" })),
   ).toBe(true)
   expect(
     isSameOriginMutation(

@@ -69,9 +69,17 @@ class PortalRepository(private val api: ApiClient) {
         })
     }
 
+    /**
+     * 保存档案草稿。
+     *
+     * [photoData] 始终随请求发送：传 null 表示清除已上传的证件照（服务端 schema 允许 nullable）。
+     */
     suspend fun saveProfileRecord(formId: String, data: JSONObject, photoData: String? = null): ApiResult<JSONObject> {
-        val body = JSONObject().put("formId", formId).put("data", data).put("signatureMode", "GENERATED")
-        if (photoData != null) body.put("photoData", photoData)
+        val body = JSONObject()
+            .put("formId", formId)
+            .put("data", data)
+            .put("signatureMode", "GENERATED")
+            .put("photoData", photoData ?: JSONObject.NULL)
         return api.post("/api/profile-records", body)
     }
 

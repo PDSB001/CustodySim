@@ -85,23 +85,52 @@ private fun formatDateTime(iso: String): String = runCatching {
 private fun formatGrade(grade: Double): String =
     if (grade % 1.0 == 0.0) grade.toInt().toString() else grade.toString()
 
+/** 任务列表每页条数：首屏只取一页，滚到底再取下一页。 */
+private const val TASKS_PAGE_SIZE = 20
+
 /** 服刑任务页：列表 + 动态表单提交。 */
 @Composable
 fun TasksScreen(container: AppContainer, scrollBehavior: ScrollBehavior) {
     val scope = rememberCoroutineScope()
     var tasks by remember { mutableStateOf<List<ReportTask>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
+    var loadingMore by remember { mutableStateOf(false) }
+    var reachedEnd by remember { mutableStateOf(false) }
     var notice by remember { mutableStateOf<String?>(null) }
     var editing by remember { mutableStateOf<ReportTask?>(null) }
     var sheetVisible by remember { mutableStateOf(false) }
 
+    /** 刷新：回到第一页。 */
     suspend fun refresh() {
         loading = true
-        when (val result = container.taskRepository.fetchTasks()) {
-            is ApiResult.Ok -> { tasks = result.data; notice = null }
+        when (val result = container.taskRepository.fetchTasks(limit = TASKS_PAGE_SIZE)) {
+            is ApiResult.Ok -> {
+                tasks = result.data
+                reachedEnd = result.data.size < TASKS_PAGE_SIZE
+                notice = null
+            }
             is ApiResult.Err -> notice = result.message
         }
         loading = false
+    }
+
+    /** 追加下一页；游标用最后一条的 (scheduleAt, id)，与后端倒序一致。 */
+    suspend fun loadMore() {
+        if (loadingMore || reachedEnd) return
+        val last = tasks.lastOrNull() ?: return
+        loadingMore = true
+        val cursor = "${last.scheduleAt}|${last.id}"
+        when (val result = container.taskRepository.fetchTasks(limit = TASKS_PAGE_SIZE, cursor = cursor)) {
+            is ApiResult.Ok -> {
+                // 翻页期间可能有新任务插入头部，按 id 去重，避免重复项。
+                val known = tasks.mapTo(mutableSetOf()) { it.id }
+                tasks = tasks + result.data.filterNot { it.id in known }
+                reachedEnd = result.data.size < TASKS_PAGE_SIZE
+                notice = null
+            }
+            is ApiResult.Err -> notice = result.message
+        }
+        loadingMore = false
     }
 
     LaunchedEffect(Unit) { refresh() }
@@ -131,6 +160,13 @@ fun TasksScreen(container: AppContainer, scrollBehavior: ScrollBehavior) {
                         TaskRow(task, onEdit = { editing = task; sheetVisible = true })
                     }
                 }
+            }
+        }
+        // 触底加载：这一项进入组合即请求下一页；列表变长后它会滚出视口，不会重复触发。
+        if (tasks.isNotEmpty() && !reachedEnd && notice == null) {
+            item(key = "tasks-load-more") {
+                LaunchedEffect(tasks.size) { loadMore() }
+                PageState(stringResource(R.string.loading), loading = true)
             }
         }
         if (tasks.isNotEmpty()) notice?.let { item { NoticeBanner(it, error = true) } }

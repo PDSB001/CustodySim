@@ -14,6 +14,8 @@ captures/
 # 原生构建产物
 .externalNativeBuild/
 .cxx/
+# release 产物会把编译期写入的 BASE_URL 一起打进去，不入库
+app/release/
 
 # 签名材料绝不入库
 *.jks

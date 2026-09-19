@@ -1,11 +1,15 @@
 package com.custodysim.app.ui.mine
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import android.app.DatePickerDialog
 import java.util.Calendar
@@ -81,34 +85,51 @@ fun AccountHub(container: AppContainer, allowEditing: Boolean = true) {
             else -> LazyColumn(contentPadding = PaddingValues(AppSpace.page), verticalArrangement = Arrangement.spacedBy(AppSpace.medium)) {
                 items(archives) { item ->
                     SettingGroup(modifier = Modifier.padding(horizontal = AppSpace.page)) {
-                        Text(item.formName, style = MiuixTheme.textStyles.body1)
-                        Text(
-                            "${statusLabel(item.status)}${item.code?.let { " · 编号 $it" } ?: ""}",
-                            color = if (item.status == "LOCKED") MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                        )
-                        item.lockedAt?.let { Text(it, color = MiuixTheme.colorScheme.onSurfaceVariantSummary) }
-                        val summary = item.fields.mapNotNull { field ->
-                            item.data.optString(field.name).takeIf { it.isNotBlank() && it != "null" }?.let { "${field.name}：$it" }
-                        }.joinToString("\n")
-                        if (summary.isNotBlank()) Text(summary, color = MiuixTheme.colorScheme.onSurfaceVariantSummary, modifier = Modifier.padding(top = AppSpace.small))
-                        TextButton(
-                            text = stringResource(R.string.archive_identity_image),
-                            onClick = {
-                                val uri = ProfileImageGenerator.saveIdentityPng(context, item)
-                                Toast.makeText(context, if (uri != null) R.string.archive_exported else R.string.archive_export_failed, Toast.LENGTH_SHORT).show()
-                            },
-                            modifier = Modifier.fillMaxWidth(),
-                            colors = ButtonDefaults.textButtonColorsPrimary(),
-                        )
-                        TextButton(
-                            text = stringResource(R.string.archive_export_image),
-                            onClick = {
-                                val uri = ProfileImageGenerator.saveArchivePng(context, item)
-                                Toast.makeText(context, if (uri != null) R.string.archive_exported else R.string.archive_export_failed, Toast.LENGTH_SHORT).show()
-                            },
-                            modifier = Modifier.fillMaxWidth(),
-                            colors = ButtonDefaults.textButtonColorsPrimary(),
-                        )
+                        // 用 Column 统一内边距与行间距，避免相邻的整宽按钮彼此紧贴。
+                        Column(
+                            Modifier.fillMaxWidth().padding(AppSpace.inset),
+                            verticalArrangement = Arrangement.spacedBy(AppSpace.medium),
+                        ) {
+                            Text(item.userName.ifBlank { "未填写" }, style = MiuixTheme.textStyles.body1)
+                            Text(item.formName, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                            Text(
+                                buildString {
+                                    append(statusLabel(item.status))
+                                    item.code?.let { append(" · 编号 ").append(it) }
+                                    item.boxName?.let { append(" · 档案盒 ").append(it) }
+                                },
+                                color = if (item.status == "LOCKED") MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                            )
+                            item.lockedAt?.let { Text("归档于 $it", color = MiuixTheme.colorScheme.onSurfaceVariantSummary) }
+
+                            // 与 Web 端卷宗一致：证件照、电子签名、公章都要能看到图片本身
+                            item.photoData?.let { ArchiveImage("证件照", it, ContentScale.Crop) }
+                            item.signatureData?.let { ArchiveImage("电子签名", it, ContentScale.Fit) }
+                            item.officialSealData?.let { ArchiveImage("公章", it, ContentScale.Fit) }
+
+                            val summary = item.fields.mapNotNull { field ->
+                                item.data.optString(field.name).takeIf { it.isNotBlank() && it != "null" }?.let { "${field.name}：$it" }
+                            }.joinToString("\n")
+                            if (summary.isNotBlank()) Text(summary, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                            TextButton(
+                                text = stringResource(R.string.archive_identity_image),
+                                onClick = {
+                                    val uri = ProfileImageGenerator.saveIdentityPng(context, item)
+                                    Toast.makeText(context, if (uri != null) R.string.archive_exported else R.string.archive_export_failed, Toast.LENGTH_SHORT).show()
+                                },
+                                modifier = Modifier.fillMaxWidth().padding(top = AppSpace.small),
+                                colors = ButtonDefaults.textButtonColorsPrimary(),
+                            )
+                            TextButton(
+                                text = stringResource(R.string.archive_export_image),
+                                onClick = {
+                                    val uri = ProfileImageGenerator.saveArchivePng(context, item)
+                                    Toast.makeText(context, if (uri != null) R.string.archive_exported else R.string.archive_export_failed, Toast.LENGTH_SHORT).show()
+                                },
+                                modifier = Modifier.fillMaxWidth().padding(top = AppSpace.small),
+                                colors = ButtonDefaults.textButtonColorsPrimary(),
+                            )
+                        }
                     }
                 }
             }
@@ -197,10 +218,12 @@ private fun ProfileFormsSheet(container: AppContainer, show: Boolean, onDismiss:
     var records by remember(show) { mutableStateOf<List<ProfileRecord>>(emptyList()) }
     var selectedIndex by remember(show) { mutableIntStateOf(0) }
     var values by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
+    var photo by remember { mutableStateOf<String?>(null) }
     var loading by remember(show) { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
+    val photoPicker = rememberImagePicker(1) { urls -> photo = urls.firstOrNull() }
     val selectedForm = forms.getOrNull(selectedIndex)
     val selectedRecord = selectedForm?.let { form -> records.firstOrNull { it.formId == form.id } }
     val editable = selectedRecord == null || selectedRecord.status == "DRAFT" || selectedRecord.status == "RETURNED"
@@ -216,6 +239,7 @@ private fun ProfileFormsSheet(container: AppContainer, show: Boolean, onDismiss:
     LaunchedEffect(show, selectedForm?.id, selectedRecord?.id) {
         selectedForm?.let { form ->
             values = form.fields.associate { field -> field.name to (selectedRecord?.data?.optString(field.name)?.takeIf { it != "null" } ?: "") }
+            photo = selectedRecord?.photoData
         }
     }
     OverlaySheet(show = show, title = "档案填写", onDismiss = onDismiss, busy = busy) {
@@ -247,6 +271,27 @@ private fun ProfileFormsSheet(container: AppContainer, show: Boolean, onDismiss:
                         )
                     }
                 }
+                // 证件照：导出身份牌 / 档案图片时会用到，与 Web 端一致
+                item {
+                    Column(verticalArrangement = Arrangement.spacedBy(AppSpace.small)) {
+                        ArchiveImage("证件照", photo, ContentScale.Crop)
+                        if (editable) {
+                            TextButton(
+                                text = stringResource(if (photo != null) R.string.change_photo else R.string.add_photo),
+                                enabled = !busy,
+                                onClick = photoPicker,
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = ButtonDefaults.textButtonColorsPrimary(),
+                            )
+                            if (photo != null) TextButton(
+                                text = "移除照片",
+                                enabled = !busy,
+                                onClick = { photo = null },
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        }
+                    }
+                }
                 items(selectedForm.fields, key = { it.name }) { field ->
                     val value = values[field.name].orEmpty()
                     when (field.type) {
@@ -273,35 +318,87 @@ private fun ProfileFormsSheet(container: AppContainer, show: Boolean, onDismiss:
                         else -> TextField(value = value, onValueChange = { values = values + (field.name to it) }, label = field.name, enabled = !busy && editable, modifier = Modifier.fillMaxWidth())
                     }
                 }
+                // 电子签名与公章：与 Web 端一样只做展示，公章由管理处加盖
                 item {
-                    PrimaryAction("保存草稿", enabled = !busy && editable, onClick = {
-                        scope.launch {
-                            busy = true; error = null
-                            val data = org.json.JSONObject().apply { values.forEach { (key, value) -> put(key, value) } }
-                            when (val result = container.portalRepository.saveProfileRecord(selectedForm.id, data)) {
-                                is ApiResult.Ok -> Toast.makeText(context, "草稿已保存", Toast.LENGTH_SHORT).show()
-                                is ApiResult.Err -> error = result.message
-                            }
-                            busy = false
-                        }
-                    })
-                    selectedRecord?.let { record ->
-                        if (record.status == "DRAFT" || record.status == "RETURNED") TextButton(
-                            text = "提交会签", enabled = !busy, onClick = {
-                                scope.launch {
-                                    busy = true
-                                    when (val result = container.portalRepository.submitProfileRecord(record.id)) {
-                                        is ApiResult.Ok -> { Toast.makeText(context, "档案已提交会签", Toast.LENGTH_SHORT).show(); onDismiss() }
-                                        is ApiResult.Err -> error = result.message
-                                    }
-                                    busy = false
+                    ArchiveImage(
+                        "电子签名",
+                        selectedRecord?.signatureData,
+                        ContentScale.Fit,
+                        emptyText = "保存后由系统生成",
+                    )
+                }
+                item {
+                    ArchiveImage(
+                        "公章",
+                        selectedRecord?.officialSealData,
+                        ContentScale.Fit,
+                        emptyText = "管理处最终审批后加盖公章",
+                    )
+                }
+                item {
+                    // 一个 lazy item 里平铺多个根节点会互相重叠，按钮统一放进 Column 排列。
+                    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(AppSpace.medium)) {
+                        PrimaryAction("保存草稿", enabled = !busy && editable, onClick = {
+                            scope.launch {
+                                busy = true; error = null
+                                val data = org.json.JSONObject().apply { values.forEach { (key, value) -> put(key, value) } }
+                                when (val result = container.portalRepository.saveProfileRecord(selectedForm.id, data, photo)) {
+                                    is ApiResult.Ok -> Toast.makeText(context, "草稿已保存", Toast.LENGTH_SHORT).show()
+                                    is ApiResult.Err -> error = result.message
                                 }
-                            }, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.textButtonColorsPrimary(),
-                        )
+                                busy = false
+                            }
+                        })
+                        selectedRecord?.let { record ->
+                            if (record.status == "DRAFT" || record.status == "RETURNED") TextButton(
+                                text = "提交会签", enabled = !busy, onClick = {
+                                    scope.launch {
+                                        busy = true
+                                        when (val result = container.portalRepository.submitProfileRecord(record.id)) {
+                                            is ApiResult.Ok -> { Toast.makeText(context, "档案已提交会签", Toast.LENGTH_SHORT).show(); onDismiss() }
+                                            is ApiResult.Err -> error = result.message
+                                        }
+                                        busy = false
+                                    }
+                                }, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.textButtonColorsPrimary(),
+                            )
+                        }
+                        error?.let { Text(it, color = MiuixTheme.colorScheme.error) }
                     }
-                    error?.let { Text(it, color = MiuixTheme.colorScheme.error) }
                 }
             }
+        }
+    }
+}
+
+/** 档案卷宗里的一张图片：证件照 / 电子签名 / 公章。传 null 时显示 [emptyText]。 */
+@Composable
+private fun ArchiveImage(
+    label: String,
+    dataUrl: String?,
+    contentScale: ContentScale,
+    emptyText: String = "未上传",
+) {
+    val bitmap = rememberDataUrlImage(dataUrl)
+    Column(verticalArrangement = Arrangement.spacedBy(AppSpace.tiny)) {
+        Text(label, style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+        when {
+            bitmap != null -> Image(
+                bitmap = bitmap,
+                contentDescription = label,
+                modifier = Modifier.size(112.dp).clip(RoundedCornerShape(AppShape.thumbnail)),
+                contentScale = contentScale,
+            )
+            dataUrl == null -> Text(
+                emptyText,
+                style = MiuixTheme.textStyles.footnote1,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+            )
+            else -> Text(
+                stringResource(R.string.image_unavailable),
+                style = MiuixTheme.textStyles.footnote1,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+            )
         }
     }
 }
