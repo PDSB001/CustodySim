@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
@@ -15,8 +17,25 @@ android {
         versionCode = 1
         versionName = "0.1.0"
 
-        // 服务端地址来自 gradle.properties，换环境只改配置不改代码。
-        val baseUrl = providers.gradleProperty("custodysim.baseUrl").get()
+        // 服务端地址不入库，按优先级解析：
+        //   1. android/local.properties 的 custodysim.baseUrl（本机私有，已在 .gitignore）
+        //   2. 环境变量 CUSTODYSIM_BASE_URL（CI 用）
+        //   3. gradle.properties 的 custodysim.baseUrl（仓库内只有模拟器占位地址）
+        val localPropertiesFile = rootProject.file("local.properties")
+        val localBaseUrl = if (localPropertiesFile.exists()) {
+            Properties()
+                .apply { localPropertiesFile.inputStream().use { load(it) } }
+                .getProperty("custodysim.baseUrl")
+        } else {
+            null
+        }
+        val baseUrl = listOfNotNull(
+            localBaseUrl?.trim()?.takeIf { it.isNotEmpty() },
+            providers.environmentVariable("CUSTODYSIM_BASE_URL").orNull?.trim()?.takeIf { it.isNotEmpty() },
+            providers.gradleProperty("custodysim.baseUrl").orNull?.trim()?.takeIf { it.isNotEmpty() },
+        ).firstOrNull() ?: error(
+            "缺少服务端地址：请在 android/local.properties 或 gradle.properties 配置 custodysim.baseUrl",
+        )
         buildConfigField("String", "BASE_URL", "\"$baseUrl\"")
     }
 
