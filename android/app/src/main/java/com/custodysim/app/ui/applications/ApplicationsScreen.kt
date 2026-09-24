@@ -7,11 +7,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.platform.LocalContext
-import android.app.DatePickerDialog
-import android.app.TimePickerDialog
-import java.util.Calendar
-import java.util.Locale
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import com.custodysim.app.AppContainer
 import com.custodysim.app.R
 import com.custodysim.app.data.net.ApiResult
@@ -63,6 +60,8 @@ fun ApplicationsScreen(container: AppContainer, scrollBehavior: ScrollBehavior) 
     ) {
         item {
             ListHeader(stringResource(R.string.portal_applications_hint), stringResource(R.string.portal_application_list), loading, ::refresh)
+        }
+        item {
             TextButton(text = stringResource(R.string.application_new), onClick = { submitError = null; showForm = true }, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.textButtonColorsPrimary())
         }
         when {
@@ -73,29 +72,34 @@ fun ApplicationsScreen(container: AppContainer, scrollBehavior: ScrollBehavior) 
                 SettingGroup(modifier = Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(AppSpace.inset), verticalArrangement = Arrangement.spacedBy(AppSpace.small)) {
                         Text(application.title, style = MiuixTheme.textStyles.body1)
-                        Text(application.status, color = MiuixTheme.colorScheme.primary)
+                        StatusChip(when (application.status) {
+                            "PENDING" -> "待审核"
+                            "APPROVED" -> "已批准"
+                            "REJECTED" -> "已驳回"
+                            "CANCELLED" -> "已撤销"
+                            else -> application.status
+                        }, statusColor(application.status))
                         Text(application.reason, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-                        application.submittedAt?.let { Text(it, color = MiuixTheme.colorScheme.onSurfaceVariantSummary) }
+                        application.submittedAt?.let { Text(it.replace('T', ' ').take(16), style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary) }
                     }
                 }
             }
         }
     }
     OverlaySheet(show = showForm, title = stringResource(R.string.application_new), onDismiss = { if (!submitBusy) showForm = false }, busy = submitBusy) {
-        Column(Modifier.fillMaxWidth().padding(AppSpace.page), verticalArrangement = Arrangement.spacedBy(AppSpace.medium)) {
-            OverlayDropdownPreference(
+        Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(AppSpace.page), verticalArrangement = Arrangement.spacedBy(AppSpace.medium)) {
+            SettingGroup { OverlayDropdownPreference(
                 title = stringResource(R.string.application_type),
-                summary = typeLabels[formType],
                 items = typeLabels,
                 selectedIndex = formType,
                 enabled = !submitBusy,
                 onSelectedIndexChange = { formType = it },
                 modifier = Modifier.fillMaxWidth(),
-            )
-            TextField(value = reason, onValueChange = { reason = it }, label = stringResource(R.string.application_reason), enabled = !submitBusy, modifier = Modifier.fillMaxWidth())
+            ) }
+            FramedTextField(value = reason, onValueChange = { reason = it }, label = stringResource(R.string.application_reason), enabled = !submitBusy, modifier = Modifier.fillMaxWidth())
             if (formType != 0) {
-                DateTimePickerField(stringResource(R.string.application_start), startAt, !submitBusy) { startAt = it }
-                DateTimePickerField(stringResource(R.string.application_end), endAt, !submitBusy) { endAt = it }
+                DatePreference(stringResource(R.string.application_start), startAt, !submitBusy, includeTime = true) { startAt = it }
+                DatePreference(stringResource(R.string.application_end), endAt, !submitBusy, includeTime = true) { endAt = it }
             }
             submitError?.let { Text(it, color = MiuixTheme.colorScheme.error) }
             PrimaryAction(text = stringResource(if (submitBusy) R.string.submitting else R.string.application_submit), busy = submitBusy, onClick = {
@@ -113,23 +117,4 @@ fun ApplicationsScreen(container: AppContainer, scrollBehavior: ScrollBehavior) 
             })
         }
     }
-}
-
-@Composable
-private fun DateTimePickerField(label: String, value: String, enabled: Boolean, onValueChange: (String) -> Unit) {
-    val context = LocalContext.current
-    TextButton(
-        text = if (value.isBlank()) label else "$label：$value",
-        enabled = enabled,
-        onClick = {
-            val now = Calendar.getInstance()
-            DatePickerDialog(context, { _, year, month, day ->
-                TimePickerDialog(context, { _, hour, minute ->
-                    onValueChange(String.format(Locale.US, "%04d-%02d-%02dT%02d:%02d", year, month + 1, day, hour, minute))
-                }, now.get(Calendar.HOUR_OF_DAY), now.get(Calendar.MINUTE), true).show()
-            }, now.get(Calendar.YEAR), now.get(Calendar.MONTH), now.get(Calendar.DAY_OF_MONTH)).show()
-        },
-        modifier = Modifier.fillMaxWidth(),
-        colors = ButtonDefaults.textButtonColorsPrimary(),
-    )
 }

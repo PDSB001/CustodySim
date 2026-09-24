@@ -5,11 +5,10 @@ import android.annotation.SuppressLint
 import android.content.Context
 import android.content.pm.PackageManager
 import android.location.Location
-import android.location.LocationListener
 import android.location.LocationManager
-import android.os.Build
 import android.os.CancellationSignal
 import androidx.core.content.ContextCompat
+import androidx.core.location.LocationManagerCompat
 import com.custodysim.app.data.location.PendingPoint
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeoutOrNull
@@ -42,7 +41,6 @@ class LocationCollector(private val context: Context) {
 
     /** @return 转换后的待上报点；无权限且无任何可用位置时返回 null。 */
     @SuppressLint("MissingPermission")
-    @Suppress("DEPRECATION")
     suspend fun collectOnce(): PendingPoint? {
         if (!hasForegroundPermission()) return null
 
@@ -79,29 +77,20 @@ class LocationCollector(private val context: Context) {
     @SuppressLint("MissingPermission")
     private suspend fun requestSingleFix(): Location? {
         val provider = providers().firstOrNull() ?: return null
-        return withTimeoutOrNull(FIX_TIMEOUT_MS) {
-            if (Build.VERSION.SDK_INT >= 30) {
-                suspendCancellableCoroutine<Location?> { continuation ->
-                    val signal = CancellationSignal()
-                    continuation.invokeOnCancellation { signal.cancel() }
-                    runCatching {
-                        locationManager.getCurrentLocation(
-                            provider,
-                            signal,
-                            ContextCompat.getMainExecutor(context),
-                        ) { location -> continuation.resume(location) }
-                    }.onFailure { continuation.resume(null) }
+        return suspendCancellableCoroutine { continuation ->
+            val signal = CancellationSignal()
+            continuation.invokeOnCancellation { signal.cancel() }
+            runCatching {
+                LocationManagerCompat.getCurrentLocation(
+                    locationManager,
+                    provider,
+                    signal,
+                    ContextCompat.getMainExecutor(context),
+                ) { location ->
+                    if (continuation.isActive) continuation.resume(location)
                 }
-            } else {
-                suspendCancellableCoroutine<Location?> { continuation ->
-                    val listener = LocationListener { location -> continuation.resume(location) }
-                    continuation.invokeOnCancellation {
-                        runCatching { locationManager.removeUpdates(listener) }
-                    }
-                    runCatching {
-                        locationManager.requestSingleUpdate(provider, listener, context.mainLooper)
-                    }.onFailure { continuation.resume(null) }
-                }
+            }.onFailure {
+                if (continuation.isActive) continuation.resume(null)
             }
         }
     }

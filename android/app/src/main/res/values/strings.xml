@@ -11,6 +11,7 @@
     <string name="chat_conversations">会话列表</string>
     <string name="chat_new">发起私聊</string>
     <string name="chat_empty">暂无可用会话</string>
+    <string name="chat_no_candidates">暂无可发起私聊的对象</string>
     <string name="chat_no_messages">暂无消息</string>
     <string name="chat_open">打开</string>
     <string name="back_to_list">返回会话</string>
@@ -95,10 +96,20 @@
     <string name="tasks_hint">查看待办与批阅结果，及时提交汇报</string>
     <string name="tasks_empty">暂无任务</string>
     <string name="tasks_empty_hint">新的汇报任务会显示在这里</string>
-    <string name="task_pending">待提交</string>
-    <string name="task_submitted">已提交</string>
+    <!-- 任务分类：与 Web 端「服刑任务」的三档筛选保持一致 -->
+    <string name="task_category_pending">待执行</string>
+    <string name="task_category_review">待批阅</string>
+    <string name="task_category_history">执行记录</string>
+    <string name="tasks_empty_pending">当前没有待执行任务</string>
+    <string name="tasks_empty_pending_hint">新任务按截止时间排列，请继续留意点名和监所通知。</string>
+    <string name="tasks_empty_review">暂无等待批阅的呈报</string>
+    <string name="tasks_empty_review_hint">任务提交后会在这里等待监管员批阅。</string>
+    <string name="tasks_empty_history">暂无执行记录</string>
+    <string name="tasks_empty_history_hint">已办结、逾期或取消的任务会保留在这里。</string>
+    <!-- 任务状态文案与 Web 端 statusLabel 保持一致 -->
+    <string name="task_pending">待执行</string>
+    <string name="task_submitted">待批阅</string>
     <string name="task_returned">已退回</string>
-    <string name="task_completed">已办结</string>
     <string name="checkin_pending">待打卡</string>
     <string name="checkin_done">已打卡</string>
     <string name="checkin_missed">已错过</string>

@@ -1,7 +1,10 @@
 package com.custodysim.app.ui.mine
-
+import androidx.compose.foundation.background
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.Alignment
 import androidx.compose.foundation.Image
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -11,9 +14,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import android.app.DatePickerDialog
-import java.util.Calendar
-import java.util.Locale
 import androidx.compose.ui.unit.dp
 import com.custodysim.app.AppContainer
 import com.custodysim.app.R
@@ -22,6 +22,10 @@ import com.custodysim.app.data.portal.*
 import com.custodysim.app.ui.common.*
 import com.custodysim.app.ui.theme.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import top.yukonga.miuix.kmp.basic.BasicComponent
+import top.yukonga.miuix.kmp.icon.basic.ArrowRight
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.HorizontalDivider
@@ -30,7 +34,7 @@ import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.preference.OverlayDropdownPreference
 import top.yukonga.miuix.kmp.icon.MiuixIcons
-import top.yukonga.miuix.kmp.icon.extended.Info
+import top.yukonga.miuix.kmp.icon.extended.Promotions
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import androidx.compose.ui.res.stringResource
 import android.widget.Toast
@@ -54,7 +58,12 @@ fun AccountHub(container: AppContainer, allowEditing: Boolean = true) {
     var loading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var archives by remember { mutableStateOf<List<ProfileRecord>>(emptyList()) }
+    // 身份牌/档案图片上的人员信息（编号、所在监室、管理等级）。
+    var summary by remember { mutableStateOf<ProfileSummary?>(null) }
     var showForms by remember { mutableStateOf(false) }
+    var exporting by remember { mutableStateOf(false) }
+    var exportedUri by remember { mutableStateOf<android.net.Uri?>(null) }
+    var previewLoading by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
     fun open(target: HubPanel) {
@@ -63,9 +72,19 @@ fun AccountHub(container: AppContainer, allowEditing: Boolean = true) {
         error = null
         scope.launch {
             when (target) {
-                HubPanel.ARCHIVES -> when (val r = container.portalRepository.profileRecords()) {
-                    is ApiResult.Ok -> archives = r.data
-                    is ApiResult.Err -> error = r.message
+                HubPanel.ARCHIVES -> {
+                    when (val r = container.portalRepository.profileRecords()) {
+                        is ApiResult.Ok -> archives = r.data
+                        is ApiResult.Err -> error = r.message
+                    }
+                    // 身份牌/档案图片要展示编号、所在监室、管理等级；该接口只允许被监管人查本人
+                    // （allowEditing 即「本人」），其它角色会拿到 403 —— 取不到就不带，图片退回记录自带字段。
+                    if (allowEditing) {
+                        when (val r = container.portalRepository.profileSummary()) {
+                            is ApiResult.Ok -> summary = r.data
+                            is ApiResult.Err -> Unit
+                        }
+                    }
                 }
             }
             loading = false
@@ -84,7 +103,7 @@ fun AccountHub(container: AppContainer, allowEditing: Boolean = true) {
             archives.isEmpty() -> PageState(stringResource(R.string.portal_empty_archives))
             else -> LazyColumn(contentPadding = PaddingValues(AppSpace.page), verticalArrangement = Arrangement.spacedBy(AppSpace.medium)) {
                 items(archives) { item ->
-                    SettingGroup(modifier = Modifier.padding(horizontal = AppSpace.page)) {
+                    SettingGroup {
                         // 用 Column 统一内边距与行间距，避免相邻的整宽按钮彼此紧贴。
                         Column(
                             Modifier.fillMaxWidth().padding(AppSpace.inset),
@@ -107,27 +126,49 @@ fun AccountHub(container: AppContainer, allowEditing: Boolean = true) {
                             item.signatureData?.let { ArchiveImage("电子签名", it, ContentScale.Fit) }
                             item.officialSealData?.let { ArchiveImage("公章", it, ContentScale.Fit) }
 
-                            val summary = item.fields.mapNotNull { field ->
-                                item.data.optString(field.name).takeIf { it.isNotBlank() && it != "null" }?.let { "${field.name}：$it" }
-                            }.joinToString("\n")
-                            if (summary.isNotBlank()) Text(summary, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                            // 字段解析只在档案数据变化时做一次：导出中/预览等状态一变，整张卡片都会重组。
+                            val fieldRows = remember(item) {
+                                item.fields.mapNotNull { field ->
+                                    item.data.optString(field.name).takeIf { it.isNotBlank() && it != "null" }
+                                        ?.let { field.name to it }
+                                }
+                            }
+                            fieldRows.forEach { (label, value) ->
+                                HorizontalDivider(color = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.12f))
+                                if (value.startsWith("data:image/")) ArchiveImage(label, value, ContentScale.Fit)
+                                else BasicComponent(title = label, summary = value,
+                                    insideMargin = PaddingValues(vertical = AppSpace.small))
+                            }
+                            SectionTitle("导出图片")
                             TextButton(
                                 text = stringResource(R.string.archive_identity_image),
+                                enabled = !exporting,
                                 onClick = {
-                                    val uri = ProfileImageGenerator.saveIdentityPng(context, item)
-                                    Toast.makeText(context, if (uri != null) R.string.archive_exported else R.string.archive_export_failed, Toast.LENGTH_SHORT).show()
+                                    scope.launch {
+                                        exporting = true
+                                        try {
+                                            exportedUri = withContext(Dispatchers.IO) { runCatching { ProfileImageGenerator.saveIdentityPng(context, item, summary) }.getOrNull() }
+                                            Toast.makeText(context, if (exportedUri != null) R.string.archive_exported else R.string.archive_export_failed, Toast.LENGTH_SHORT).show()
+                                        } finally { exporting = false }
+                                    }
                                 },
                                 modifier = Modifier.fillMaxWidth().padding(top = AppSpace.small),
                                 colors = ButtonDefaults.textButtonColorsPrimary(),
                             )
                             TextButton(
                                 text = stringResource(R.string.archive_export_image),
+                                enabled = !exporting,
                                 onClick = {
-                                    val uri = ProfileImageGenerator.saveArchivePng(context, item)
-                                    Toast.makeText(context, if (uri != null) R.string.archive_exported else R.string.archive_export_failed, Toast.LENGTH_SHORT).show()
+                                    scope.launch {
+                                        exporting = true
+                                        try {
+                                            exportedUri = withContext(Dispatchers.IO) { runCatching { ProfileImageGenerator.saveArchivePng(context, item, summary) }.getOrNull() }
+                                            Toast.makeText(context, if (exportedUri != null) R.string.archive_exported else R.string.archive_export_failed, Toast.LENGTH_SHORT).show()
+                                        } finally { exporting = false }
+                                    }
                                 },
                                 modifier = Modifier.fillMaxWidth().padding(top = AppSpace.small),
-                                colors = ButtonDefaults.textButtonColorsPrimary(),
+                                colors = ButtonDefaults.textButtonColors(textColor = MiuixTheme.colorScheme.primary),
                             )
                         }
                     }
@@ -136,6 +177,28 @@ fun AccountHub(container: AppContainer, allowEditing: Boolean = true) {
         }
     }
     ProfileFormsSheet(container, showForms) { showForms = false }
+    val exportPreview by produceState<androidx.compose.ui.graphics.ImageBitmap?>(null, exportedUri) {
+        previewLoading = true
+        value = null
+        val uri = exportedUri
+        value = withContext(Dispatchers.IO) {
+            runCatching { uri?.let { context.contentResolver.openInputStream(it)?.use { stream ->
+                android.graphics.BitmapFactory.decodeStream(stream)?.asImageBitmap()
+            } } }.getOrNull()
+        }
+        previewLoading = false
+    }
+    OverlaySheet(show = exportedUri != null, title = "图片预览", onDismiss = { exportedUri = null }) {
+        val bitmap = exportPreview
+        if (bitmap == null) PageState(stringResource(if (previewLoading) R.string.loading else R.string.image_unavailable), loading = previewLoading)
+        else Column(Modifier.verticalScroll(rememberScrollState()).padding(AppSpace.page),
+            verticalArrangement = Arrangement.spacedBy(AppSpace.medium)) {
+            Image(bitmap, contentDescription = "已生成的档案图片",
+                modifier = Modifier.fillMaxWidth().aspectRatio(bitmap.width.toFloat() / bitmap.height)
+                    .clip(RoundedCornerShape(AppShape.control)), contentScale = ContentScale.Fit)
+            NoticeBanner(stringResource(R.string.archive_exported))
+        }
+    }
 }
 
 /** Notification sheet opened from the Home top app bar. */
@@ -167,23 +230,19 @@ fun NoticeSheet(container: AppContainer, show: Boolean, onDismiss: () -> Unit) {
             ) {
                 items(notices) { item ->
                     SettingGroup {
-                        Row(
-                            Modifier.fillMaxWidth().padding(AppSpace.inset),
-                            horizontalArrangement = Arrangement.spacedBy(AppSpace.medium),
-                            verticalAlignment = androidx.compose.ui.Alignment.Top,
-                        ) {
-                            Icon(MiuixIcons.Info, contentDescription = stringResource(R.string.portal_notices), tint = MiuixTheme.colorScheme.primary)
-                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(AppSpace.small)) {
-                                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                                    Text(item.title, style = MiuixTheme.textStyles.body1)
-                                    Text(
-                                        stringResource(if (item.read) R.string.portal_read else R.string.portal_unread),
-                                        color = if (item.read) MiuixTheme.colorScheme.onSurfaceVariantSummary else MiuixTheme.colorScheme.primary,
-                                        style = MiuixTheme.textStyles.footnote1,
-                                    )
-                                }
-                                HorizontalDivider(color = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.22f))
-                                Text(item.content, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                        Column(Modifier.fillMaxWidth().padding(AppSpace.inset),
+                            verticalArrangement = Arrangement.spacedBy(AppSpace.medium)) {
+                            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(AppSpace.small)) {
+                                Icon(MiuixIcons.Promotions, contentDescription = null,
+                                    modifier = Modifier.size(24.dp), tint = MiuixTheme.colorScheme.primary)
+                                Text(item.title, modifier = Modifier.weight(1f), style = MiuixTheme.textStyles.body1)
+                                StatusChip(stringResource(if (item.read) R.string.portal_read else R.string.portal_unread),
+                                    if (item.read) MiuixTheme.colorScheme.onSurfaceVariantSummary else MiuixTheme.colorScheme.primary)
+                            }
+                            HorizontalDivider(color = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.12f))
+                            Text(item.content, style = MiuixTheme.textStyles.body2,
+                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                                 if (!item.read) {
                                     TextButton(
                                         text = stringResource(R.string.portal_mark_read),
@@ -202,7 +261,6 @@ fun NoticeSheet(container: AppContainer, show: Boolean, onDismiss: () -> Unit) {
                                         colors = ButtonDefaults.textButtonColorsPrimary(),
                                     )
                                 }
-                            }
                         }
                     }
                 }
@@ -227,6 +285,12 @@ private fun ProfileFormsSheet(container: AppContainer, show: Boolean, onDismiss:
     val selectedForm = forms.getOrNull(selectedIndex)
     val selectedRecord = selectedForm?.let { form -> records.firstOrNull { it.formId == form.id } }
     val editable = selectedRecord == null || selectedRecord.status == "DRAFT" || selectedRecord.status == "RETURNED"
+    // 「罩杯」只对女性适用（与 Web 端一致）。用 derivedStateOf 只订阅「性别」这一个键，
+    // 这样输入其它字段时不会把这张表牵进来重组。
+    val gender by remember { derivedStateOf { values["性别"].orEmpty() } }
+    val visibleFields = remember(selectedForm, gender) {
+        selectedForm?.fields?.filterNot { it.name == "罩杯" && gender != "女" } ?: emptyList()
+    }
     LaunchedEffect(show) {
         if (!show) return@LaunchedEffect
         loading = true; error = null
@@ -242,7 +306,9 @@ private fun ProfileFormsSheet(container: AppContainer, show: Boolean, onDismiss:
             photo = selectedRecord?.photoData
         }
     }
-    OverlaySheet(show = show, title = "档案填写", onDismiss = onDismiss, busy = busy) {
+    // 这个弹层字段最多：每个字段一张卡片或一个输入框，如实走 squircle 渲染滑动会掉帧，
+    // 所以只在这里关掉（见 OverlaySheet 的 squircle 参数）。
+    OverlaySheet(show = show, title = "档案填写", onDismiss = onDismiss, busy = busy, squircle = false) {
         when {
             loading -> PageState(stringResource(R.string.loading), loading = true)
             error != null && forms.isEmpty() -> PageState(stringResource(R.string.load_failed), error)
@@ -255,13 +321,13 @@ private fun ProfileFormsSheet(container: AppContainer, show: Boolean, onDismiss:
                 verticalArrangement = Arrangement.spacedBy(AppSpace.medium),
             ) {
                 item {
-                    OverlayDropdownPreference(
-                        title = "档案分卷", summary = selectedForm.name, items = forms.map { it.name }, selectedIndex = selectedIndex,
+                    SettingGroup { OverlayDropdownPreference(
+                        title = "档案分卷", items = forms.map { it.name }, selectedIndex = selectedIndex,
                         enabled = !busy, onSelectedIndexChange = { selectedIndex = it }, modifier = Modifier.fillMaxWidth(),
-                    )
+                    ) }
                 }
                 selectedForm.content?.takeIf { it.isNotBlank() }?.let { description ->
-                    item { Text(description, color = MiuixTheme.colorScheme.onSurfaceVariantSummary) }
+                    item { NoticeBanner(description) }
                 }
                 if (selectedRecord != null && !editable) {
                     item {
@@ -292,30 +358,31 @@ private fun ProfileFormsSheet(container: AppContainer, show: Boolean, onDismiss:
                         }
                     }
                 }
-                items(selectedForm.fields, key = { it.name }) { field ->
-                    val value = values[field.name].orEmpty()
+                item { NoticeBanner(stringResource(R.string.required_hint)) }
+                items(visibleFields, key = { it.name }) { field ->
+                    // 键入任何字段都会整体替换 values，直接读它会让整张表单的所有字段跟着重组。
+                    // derivedStateOf 把订阅收窄到本字段：值没变就不会重建这一行。
+                    val value by remember(field.name) { derivedStateOf { values[field.name].orEmpty() } }
+                    // 必填项标签带 *（与 Web 端一致），说明见上方提示。
+                    val label = if (field.required) "${field.name} *" else field.name
                     when (field.type) {
-                        "SELECT" -> OverlayDropdownPreference(
-                            title = field.name, summary = value.ifBlank { "请选择" }, items = listOf("请选择") + field.options,
+                        "SELECT" -> SettingGroup { OverlayDropdownPreference(
+                            title = label, items = listOf("请选择") + field.options,
                             selectedIndex = (field.options.indexOf(value) + 1).coerceAtLeast(0), enabled = !busy && editable,
-                            onSelectedIndexChange = { index -> values = values + (field.name to if (index == 0) "" else field.options[index - 1]) },
+                            onSelectedIndexChange = { index ->
+                                val next = if (index == 0) "" else field.options[index - 1]
+                                // 性别改成非「女」时顺手清掉罩杯，避免留下不适用的数据。
+                                values = if (field.name == "性别" && next != "女") {
+                                    values + (field.name to next) + ("罩杯" to "")
+                                } else {
+                                    values + (field.name to next)
+                                }
+                            },
                             modifier = Modifier.fillMaxWidth(),
-                        )
-                        "DATE" -> TextButton(
-                            text = if (value.isBlank()) field.name else "${field.name}：$value", enabled = !busy && editable,
-                            onClick = {
-                                val now = Calendar.getInstance()
-                                DatePickerDialog(context, { _, year, month, day ->
-                                    val formatted = if (field.name == "出生年月") {
-                                        String.format(Locale.US, "%04d-%02d", year, month + 1)
-                                    } else {
-                                        String.format(Locale.US, "%04d-%02d-%02d", year, month + 1, day)
-                                    }
-                                    values = values + (field.name to formatted)
-                                }, now.get(Calendar.YEAR), now.get(Calendar.MONTH), now.get(Calendar.DAY_OF_MONTH)).show()
-                            }, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.textButtonColorsPrimary(),
-                        )
-                        else -> TextField(value = value, onValueChange = { values = values + (field.name to it) }, label = field.name, enabled = !busy && editable, modifier = Modifier.fillMaxWidth())
+                        ) }
+                        "DATE" -> DatePreference(label, value, enabled = !busy && editable,
+                            monthOnly = field.name == "出生年月") { values = values + (field.name to it) }
+                        else -> FramedTextField(value = value, onValueChange = { values = values + (field.name to it) }, label = label, enabled = !busy && editable, modifier = Modifier.fillMaxWidth())
                     }
                 }
                 // 电子签名与公章：与 Web 端一样只做展示，公章由管理处加盖
@@ -386,8 +453,9 @@ private fun ArchiveImage(
             bitmap != null -> Image(
                 bitmap = bitmap,
                 contentDescription = label,
-                modifier = Modifier.size(112.dp).clip(RoundedCornerShape(AppShape.thumbnail)),
-                contentScale = contentScale,
+                modifier = Modifier.fillMaxWidth().height(if (contentScale == ContentScale.Crop) 200.dp else 140.dp)
+                    .clip(RoundedCornerShape(AppShape.thumbnail)).background(androidx.compose.ui.graphics.Color.White).padding(AppSpace.small),
+                contentScale = ContentScale.Fit,
             )
             dataUrl == null -> Text(
                 emptyText,
@@ -405,7 +473,6 @@ private fun ArchiveImage(
 
 @Composable
 private fun HubRow(label: String, onClick: () -> Unit) {
-    Row(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(AppSpace.inset)) {
-        Text(label, style = MiuixTheme.textStyles.body1)
-    }
+    BasicComponent(title = label, onClick = onClick,
+        endActions = { Icon(MiuixIcons.Basic.ArrowRight, contentDescription = null) })
 }

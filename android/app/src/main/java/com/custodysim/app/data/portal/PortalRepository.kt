@@ -33,6 +33,17 @@ data class ProfileRecord(
     val fields: List<ProfileField>,
 )
 
+/**
+ * 个人监管摘要（编号 / 所在监室 / 管理等级），身份牌与档案图片需要。
+ *
+ * 服务端 `/api/my/profile-summary` 只允许被监管人查本人，其它角色返回 403。
+ */
+data class ProfileSummary(
+    val number: String?,
+    val organizationPath: String?,
+    val custodyLevelLabel: String?,
+)
+
 class PortalRepository(private val api: ApiClient) {
     private fun parseFields(array: JSONArray?): List<ProfileField> = (0 until (array?.length() ?: 0)).map { index ->
         val item = array!!.getJSONObject(index)
@@ -67,6 +78,18 @@ class PortalRepository(private val api: ApiClient) {
                 updatedAt = item.optString("updatedAt"), fields = parseFields(item.optJSONArray("fields")),
             )
         })
+    }
+
+    /** 本人监管摘要（编号 / 所在监室 / 管理等级）。服务端只允许被监管人查本人，其它角色拿到 403。 */
+    suspend fun profileSummary(): ApiResult<ProfileSummary> = when (val result = api.get("/api/my/profile-summary")) {
+        is ApiResult.Err -> result
+        is ApiResult.Ok -> ApiResult.Ok(
+            ProfileSummary(
+                number = result.data.optString("number").takeIf { it.isNotBlank() && it != "null" },
+                organizationPath = result.data.optString("organizationPath").takeIf { it.isNotBlank() && it != "null" },
+                custodyLevelLabel = result.data.optString("custodyLevelLabel").takeIf { it.isNotBlank() && it != "null" },
+            ),
+        )
     }
 
     /**

@@ -46,6 +46,7 @@ object AppSpace {
 
 object AppShape {
     val control = 16.dp
+    val field = 20.dp
     val group = 24.dp
     val sheet = 32.dp
     val thumbnail = 12.dp

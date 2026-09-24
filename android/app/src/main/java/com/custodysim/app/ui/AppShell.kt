@@ -3,7 +3,6 @@ package com.custodysim.app.ui
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.*
 import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.ContentTransform
 import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -11,18 +10,17 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.selection.selectable
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.semantics.Role
 import com.custodysim.app.AppContainer
 import com.custodysim.app.BuildConfig
 import com.custodysim.app.R
@@ -43,13 +41,15 @@ import top.yukonga.miuix.kmp.basic.*
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Contacts
 import top.yukonga.miuix.kmp.icon.extended.Home
-import top.yukonga.miuix.kmp.icon.extended.Info
 import top.yukonga.miuix.kmp.icon.extended.Messages
+import top.yukonga.miuix.kmp.icon.extended.Promotions
 import top.yukonga.miuix.kmp.icon.extended.Notes
 import top.yukonga.miuix.kmp.icon.extended.Recent
 import top.yukonga.miuix.kmp.icon.extended.Tasks
+import top.yukonga.miuix.kmp.icon.extended.Refresh
+import top.yukonga.miuix.kmp.icon.basic.ArrowRight
 import top.yukonga.miuix.kmp.overlay.OverlayDialog
-import top.yukonga.miuix.kmp.preference.OverlaySpinnerPreference
+import top.yukonga.miuix.kmp.preference.*
 import top.yukonga.miuix.kmp.basic.DropdownItem
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
@@ -62,22 +62,38 @@ fun AppShell(container: AppContainer, session: SessionUser, notice: String?,
     onNotice: (String) -> Unit, onLogout: () -> Unit) {
     var tab by rememberSaveable { mutableStateOf(MainTab.HOME) }
     var showNotices by rememberSaveable { mutableStateOf(false) }
+    var chatConversationTitle by remember { mutableStateOf<String?>(null) }
+    var chatBackRequest by remember { mutableIntStateOf(0) }
+    var chatRefreshRequest by remember { mutableIntStateOf(0) }
     val stateHolder = rememberSaveableStateHolder()
     BackHandler(tab != MainTab.HOME) { tab = MainTab.HOME }
     // Each tab keeps its own content state through SaveableStateProvider. Do not key the
     // whole scaffold by tab: doing so would recreate AnimatedContent and make transitions
     // appear to snap instead of animating from the previous page.
-    val scrollBehavior = MiuixScrollBehavior()
+    val tabScrollBehaviors = MainTab.entries.map { destination -> key(destination) { MiuixScrollBehavior() } }
+    val scrollBehavior = tabScrollBehaviors[tab.ordinal]
         Scaffold(
             topBar = {
                 TopAppBar(
-                    title = stringResource(tab.label),
+                    title = if (tab == MainTab.CHAT) chatConversationTitle ?: stringResource(tab.label) else stringResource(tab.label),
                     scrollBehavior = scrollBehavior,
+                    navigationIcon = {
+                        if (tab == MainTab.CHAT && chatConversationTitle != null) IconButton(
+                            onClick = { chatBackRequest++ }) {
+                            Icon(MiuixIcons.Basic.ArrowRight,
+                                contentDescription = stringResource(R.string.back_to_list),
+                                modifier = Modifier.graphicsLayer { rotationZ = 180f })
+                        }
+                    },
                     actions = {
                         if (tab == MainTab.HOME) {
                             IconButton(onClick = { showNotices = true }) {
-                                Icon(MiuixIcons.Messages, contentDescription = stringResource(R.string.portal_notices), tint = MiuixTheme.colorScheme.primary)
+                                Icon(MiuixIcons.Promotions, contentDescription = stringResource(R.string.portal_notices), tint = MiuixTheme.colorScheme.primary)
                             }
+                        }
+                        if (tab == MainTab.CHAT && chatConversationTitle != null) IconButton(
+                            onClick = { chatRefreshRequest++ }) {
+                            Icon(MiuixIcons.Refresh, contentDescription = stringResource(R.string.refresh))
                         }
                     },
                 )
@@ -94,7 +110,7 @@ fun AppShell(container: AppContainer, session: SessionUser, notice: String?,
                                 MainTab.APPLICATIONS -> MiuixIcons.Tasks
                                 MainTab.CHAT -> MiuixIcons.Messages
                                 MainTab.MINE -> MiuixIcons.Contacts
-                            }, label = stringResource(destination.label),
+                            }, label = if (destination == MainTab.APPLICATIONS) "申请" else stringResource(destination.label),
                         )
                     }
                 }
@@ -107,26 +123,30 @@ fun AppShell(container: AppContainer, session: SessionUser, notice: String?,
                         modifier = Modifier.fillMaxSize(),
                         targetState = tab,
                         transitionSpec = {
+                            val direction = if (targetState.ordinal > initialState.ordinal) 1 else -1
                             (fadeIn(animationSpec = androidx.compose.animation.core.tween(320)) +
                                 slideInHorizontally(
                                     animationSpec = androidx.compose.animation.core.tween(320),
-                                    initialOffsetX = { it / 3 },
+                                    initialOffsetX = { direction * it / 8 },
                                 )) togetherWith
                                 (fadeOut(animationSpec = androidx.compose.animation.core.tween(220)) +
                                     slideOutHorizontally(
                                         animationSpec = androidx.compose.animation.core.tween(220),
-                                        targetOffsetX = { -it / 5 },
-                                    )) using SizeTransform(clip = false)
+                                        targetOffsetX = { -direction * it / 8 },
+                                    )) using SizeTransform(clip = true)
                         },
                         label = "main-tab-transition",
                     ) { destination ->
                     stateHolder.SaveableStateProvider(destination.name) {
+                        val scrollBehavior = tabScrollBehaviors[destination.ordinal]
                         when (destination) {
                             MainTab.HOME -> HomeScreen(container, session, notice, onNotice, scrollBehavior)
                             MainTab.CHECKINS -> CheckinsScreen(container, scrollBehavior)
                             MainTab.TASKS -> TasksScreen(container, scrollBehavior)
                             MainTab.APPLICATIONS -> ApplicationsScreen(container, scrollBehavior)
-                            MainTab.CHAT -> ChatScreen(container, session, scrollBehavior)
+                            MainTab.CHAT -> ChatScreen(container, session, scrollBehavior,
+                                onConversationChanged = { chatConversationTitle = it },
+                                backRequest = chatBackRequest, refreshRequest = chatRefreshRequest)
                             MainTab.MINE -> MineScreen(container, session, onLogout, scrollBehavior)
                         }
                     }
@@ -187,82 +207,71 @@ private fun MineScreen(container: AppContainer, session: SessionUser, onLogout: 
         }
         if (session.mustChangePassword) item { NoticeBanner(stringResource(R.string.password_notice), error = true) }
         item {
-            SectionTitle(stringResource(R.string.account))
-            SettingGroup {
-                InfoRow(stringResource(R.string.username), session.username)
-                InfoRow(stringResource(R.string.role), roleLabel(session.role))
+            Column {
+                SectionTitle(stringResource(R.string.account))
+                SettingGroup {
+                    InfoRow(stringResource(R.string.username), session.username)
+                    InfoRow(stringResource(R.string.role), roleLabel(session.role))
+                }
             }
         }
         item {
-            SectionTitle(stringResource(R.string.appearance))
-            SettingGroup {
-                Appearance.entries.forEach { value ->
-                    val label = stringResource(when (value) {
-                        Appearance.SYSTEM -> R.string.appearance_system
-                        Appearance.LIGHT -> R.string.appearance_light
-                        Appearance.DARK -> R.string.appearance_dark
-                    })
-                    Row(
-                        Modifier.fillMaxWidth().selectable(selected = appearance.mode == value,
-                            role = Role.RadioButton, onClick = {
+            Column {
+                SectionTitle(stringResource(R.string.appearance))
+                SettingGroup {
+                    Appearance.entries.forEach { value ->
+                        val label = stringResource(when (value) {
+                            Appearance.SYSTEM -> R.string.appearance_system
+                            Appearance.LIGHT -> R.string.appearance_light
+                            Appearance.DARK -> R.string.appearance_dark
+                        })
+                        RadioButtonPreference(title = label, selected = appearance.mode == value,
+                            radioButtonLocation = RadioButtonLocation.End,
+                            onClick = {
                                 haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                                 appearance.select(value)
-                            }).padding(AppSpace.inset),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(AppSpace.page),
-                    ) {
-                        Text(label, modifier = Modifier.weight(1f), style = MiuixTheme.textStyles.body1)
-                        RadioButton(selected = appearance.mode == value, onClick = null)
+                            })
                     }
                 }
             }
         }
         item {
-            SectionTitle(stringResource(R.string.location_settings))
-            SettingGroup {
-                Row(
-                    Modifier.fillMaxWidth().padding(AppSpace.inset),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(AppSpace.page),
-                ) {
-                    Column(Modifier.weight(1f)) {
-                        Text(stringResource(R.string.location_reporting), style = MiuixTheme.textStyles.body1)
-                        Text(
-                            stringResource(if (locationEnabled) R.string.location_reporting_enabled else R.string.location_reporting_disabled),
-                            style = MiuixTheme.textStyles.footnote1,
-                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                        )
-                    }
-                    Switch(checked = locationEnabled, onCheckedChange = { enabled ->
-                        locationEnabled = enabled
-                        LocationPreferences.setEnabled(context, enabled)
-                        if (enabled) LocationScheduler.ensurePeriodic(context)
-                        else LocationScheduler.cancel(context)
-                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                    })
+            Column {
+                SectionTitle(stringResource(R.string.location_settings))
+                SettingGroup {
+                    SwitchPreference(
+                        title = stringResource(R.string.location_reporting),
+                        summary = stringResource(if (locationEnabled) R.string.location_reporting_enabled else R.string.location_reporting_disabled),
+                        checked = locationEnabled, onCheckedChange = { enabled ->
+                            locationEnabled = enabled
+                            LocationPreferences.setEnabled(context, enabled)
+                            if (enabled) LocationScheduler.ensurePeriodic(context) else LocationScheduler.cancel(context)
+                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                        })
+                    OverlaySpinnerPreference(
+                        title = stringResource(R.string.location_interval_label),
+                        items = intervals.map { minutes ->
+                            DropdownItem(text = stringResource(R.string.location_interval_option, minutes))
+                        },
+                        selectedIndex = intervals.indexOf(locationInterval).coerceAtLeast(0),
+                        enabled = locationEnabled,
+                        onSelectedIndexChange = { index ->
+                            val minutes = intervals[index]
+                            locationInterval = minutes
+                            LocationPreferences.setIntervalMinutes(context, minutes)
+                            if (locationEnabled) LocationScheduler.reschedule(context, minutes)
+                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
                 }
-                OverlaySpinnerPreference(
-                    title = stringResource(R.string.location_interval_label),
-                    summary = stringResource(R.string.location_interval, locationInterval),
-                    items = intervals.map { minutes ->
-                        DropdownItem(text = stringResource(R.string.location_interval_option, minutes))
-                    },
-                    selectedIndex = intervals.indexOf(locationInterval).coerceAtLeast(0),
-                    enabled = locationEnabled,
-                    onSelectedIndexChange = { index ->
-                        val minutes = intervals[index]
-                        locationInterval = minutes
-                        LocationPreferences.setIntervalMinutes(context, minutes)
-                        if (locationEnabled) LocationScheduler.reschedule(context, minutes)
-                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                )
             }
         }
         item {
-            SectionTitle(stringResource(R.string.about))
-            SettingGroup { InfoRow(stringResource(R.string.version), BuildConfig.VERSION_NAME) }
+            Column {
+                SectionTitle(stringResource(R.string.about))
+                SettingGroup { InfoRow(stringResource(R.string.version), BuildConfig.VERSION_NAME) }
+            }
         }
         item { AccountHub(container, session.isSupervised) }
         item {

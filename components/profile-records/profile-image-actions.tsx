@@ -68,12 +68,17 @@ function displayValue(value: unknown) {
   }
 }
 
-function lines(value: string, maxCharacters: number) {
+function lines(value: string, maxCharacters: number, maxLines = 4) {
   const normalized = value.replace(/\s+/g, " ").trim() || "未填写"
   const result: string[] = []
   for (let index = 0; index < normalized.length; index += maxCharacters)
     result.push(normalized.slice(index, index + maxCharacters))
-  return result.slice(0, 4)
+  if (result.length <= maxLines) return result
+  // 放不下的部分截断，末行补省略号，避免看起来像内容凭空少了
+  const clipped = result.slice(0, maxLines)
+  clipped[maxLines - 1] =
+    `${clipped[maxLines - 1].slice(0, Math.max(1, maxCharacters - 1))}…`
+  return clipped
 }
 
 function textBlock({
@@ -81,6 +86,7 @@ function textBlock({
   y,
   value,
   maxCharacters,
+  maxLines = 4,
   fontSize = 28,
   color = "#16233f",
   lineHeight = 40,
@@ -90,6 +96,7 @@ function textBlock({
   y: number
   value: string
   maxCharacters: number
+  maxLines?: number
   fontSize?: number
   color?: string
   lineHeight?: number
@@ -98,6 +105,7 @@ function textBlock({
   return `<text x="${x}" y="${y}" fill="${color}" font-family="'Microsoft YaHei', 'Noto Sans CJK SC', sans-serif" font-size="${fontSize}" font-weight="${weight}">${lines(
     value,
     maxCharacters,
+    maxLines,
   )
     .map(
       (line, index) =>
@@ -146,10 +154,20 @@ function archiveSvg(
   }))
   const contentStart = 520
   const rowHeight = 110
-  const height = Math.max(
-    1754,
-    contentStart + fieldRows.length * rowHeight + 250,
-  )
+  // 每行最多排两行文字：起始 y+34、行高 31，第二行落在 y+65，而行分隔线在 y+82，放得下。
+  const rowMaxLines = 2
+  // 标签列 x=112 到值列 x=350 之间只有 238px，字号 23 时约 10 个字；值列到右边界 1148 有
+  // 798px，字号 25 时约 30 个字。超出的截断，否则「体态备注（纹身、疤痕或明显体征）」这类
+  // 长标签会直接压在内容上。
+  const labelMaxCharacters = 10
+  const valueMaxCharacters = 30
+  const footerY = contentStart + fieldRows.length * rowHeight + 96
+  // 页脚要同时放下公章(150)、签名(100)和底部说明文字，footerY 到底边至少留
+  // 8 + 150 + 40 + 76，否则公章会压在说明文字上、甚至画出画布。
+  const height = Math.max(1754, footerY + 274)
+  const footerTextY = height - 76
+  const sealY = footerTextY - 40 - 150
+  const signatureY = footerTextY - 40 - 100
   const photo = safeImage(record.photoData)
   const signature = safeImage(record.signatureData)
   const seal = safeImage(record.officialSealData)
@@ -157,11 +175,10 @@ function archiveSvg(
     .map((field, index) => {
       const y = contentStart + index * rowHeight
       return `<line x1="92" y1="${y + 82}" x2="1148" y2="${y + 82}" stroke="#dbe0ea"/>
-        <text x="112" y="${y + 34}" fill="#69758b" font-family="'Microsoft YaHei', sans-serif" font-size="23" font-weight="600">${escapeXml(field.label)}</text>
-        ${textBlock({ x: 350, y: y + 34, value: field.value, maxCharacters: 44, fontSize: 25, lineHeight: 31 })}`
+        ${textBlock({ x: 112, y: y + 34, value: field.label, maxCharacters: labelMaxCharacters, maxLines: rowMaxLines, fontSize: 23, color: "#69758b", lineHeight: 27, weight: 600 })}
+        ${textBlock({ x: 350, y: y + 34, value: field.value, maxCharacters: valueMaxCharacters, maxLines: rowMaxLines, fontSize: 25, lineHeight: 31 })}`
     })
     .join("")
-  const footerY = contentStart + fieldRows.length * rowHeight + 96
   return `<svg xmlns="http://www.w3.org/2000/svg" width="1240" height="${height}" viewBox="0 0 1240 ${height}">
     <defs>
       <clipPath id="archive-photo-clip"><rect x="100" y="282" width="196" height="196" rx="6"/></clipPath>
@@ -181,9 +198,9 @@ function archiveSvg(
     ${textBlock({ x: 510, y: 470, value: person.number || "待分配", maxCharacters: 28, fontSize: 25, weight: 600 })}
     ${rows}
     <line x1="92" y1="${footerY}" x2="1148" y2="${footerY}" stroke="#cdd5e4" stroke-width="2"/>
-    ${signature ? `<image href="${signature}" x="96" y="${footerY + 28}" width="240" height="100" preserveAspectRatio="xMidYMid meet"/>` : ""}
-    ${seal ? `<image href="${seal}" x="920" y="${footerY + 8}" width="150" height="150" preserveAspectRatio="xMidYMid meet"/>` : ""}
-    <text x="92" y="${height - 76}" fill="#8490a6" font-family="'Microsoft YaHei', sans-serif" font-size="18">系统生成图片副本 · 导出时间 ${escapeXml(new Date().toLocaleString("zh-CN"))}</text>
+    ${signature ? `<image href="${signature}" x="96" y="${signatureY}" width="240" height="100" preserveAspectRatio="xMidYMid meet"/>` : ""}
+    ${seal ? `<image href="${seal}" x="920" y="${sealY}" width="150" height="150" preserveAspectRatio="xMidYMid meet"/>` : ""}
+    <text x="92" y="${footerTextY}" fill="#8490a6" font-family="'Microsoft YaHei', sans-serif" font-size="18">系统生成图片副本 · 导出时间 ${escapeXml(new Date().toLocaleString("zh-CN"))}</text>
   </svg>`
 }
 

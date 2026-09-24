@@ -14,8 +14,6 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.*
 import com.custodysim.app.R
 import com.custodysim.app.ui.common.*
@@ -24,6 +22,8 @@ import top.yukonga.miuix.kmp.basic.*
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Contacts
 import top.yukonga.miuix.kmp.theme.MiuixTheme
+import top.yukonga.miuix.kmp.preference.SwitchPreference
+import androidx.compose.animation.animateContentSize
 
 /** Credentials are intentionally not persisted in saved instance state. */
 @Composable
@@ -67,38 +67,31 @@ fun LoginScreen(
                     style = MiuixTheme.textStyles.body1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
             }
             SettingGroup {
-                Column(Modifier.padding(AppSpace.inset), verticalArrangement = Arrangement.spacedBy(AppSpace.page)) {
+                Column(Modifier.animateContentSize().padding(AppSpace.inset), verticalArrangement = Arrangement.spacedBy(AppSpace.page)) {
                     if (!mfaRequired) {
-                        TextField(value = username, onValueChange = { username = it },
+                        FramedTextField(value = username, onValueChange = { username = it },
                             label = stringResource(R.string.username), enabled = !busy,
                             singleLine = true, modifier = Modifier.fillMaxWidth(),
                             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next))
-                        TextField(value = password, onValueChange = { password = it },
+                        FramedTextField(value = password, onValueChange = { password = it },
                             label = stringResource(R.string.password), enabled = !busy,
                             singleLine = true, modifier = Modifier.fillMaxWidth(),
                             visualTransformation = PasswordVisualTransformation(),
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done),
                             keyboardActions = KeyboardActions(onDone = { submit() }))
                     } else {
-                        TextField(value = code, onValueChange = { code = it },
+                        FramedTextField(value = code, onValueChange = { code = it },
                             label = stringResource(R.string.mfa_code), enabled = !busy,
                             singleLine = true, modifier = Modifier.fillMaxWidth(),
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii, imeAction = ImeAction.Done),
                             keyboardActions = KeyboardActions(onDone = { submit() }))
-                        Row(verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(AppSpace.page)) {
-                            Column(Modifier.weight(1f)) {
-                                Text(trustLabel, style = MiuixTheme.textStyles.body1)
-                                Text(stringResource(R.string.trust_hint), style = MiuixTheme.textStyles.footnote1,
-                                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-                            }
-                            Switch(checked = trustDevice, enabled = !busy,
-                                modifier = Modifier.semantics { contentDescription = trustLabel },
-                                onCheckedChange = {
-                                    trustDevice = it
-                                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                                })
-                        }
+                        SwitchPreference(title = trustLabel, summary = stringResource(R.string.trust_hint),
+                            checked = trustDevice, enabled = !busy,
+                            insideMargin = PaddingValues(),
+                            onCheckedChange = {
+                                trustDevice = it
+                                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                            })
                     }
                 }
             }

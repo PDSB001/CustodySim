@@ -28,26 +28,31 @@ export const organizations = pgTable("organizations", {
     .defaultNow(),
 })
 
-export const users = pgTable("users", {
-  id: uuid("id").defaultRandom().primaryKey(),
-  username: varchar("username", { length: 50 }).notNull().unique(),
-  passwordHash: text("password_hash").notNull(),
-  name: varchar("name", { length: 100 }).notNull(),
-  role: varchar("role", { length: 20 }).notNull(),
-  status: varchar("status", { length: 20 }).notNull().default("active"),
-  mustChangePassword: boolean("must_change_password").notNull().default(true),
-  tokenVersion: integer("token_version").notNull().default(0),
-  passwordMeta: text("password_meta"),
-  organizationId: uuid("organization_id").references(() => organizations.id),
-  phone: varchar("phone", { length: 20 }),
-  avatar: text("avatar"),
-  createdAt: timestamp("created_at", { withTimezone: true })
-    .notNull()
-    .defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true })
-    .notNull()
-    .defaultNow(),
-})
+export const users = pgTable(
+  "users",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    username: varchar("username", { length: 50 }).notNull().unique(),
+    passwordHash: text("password_hash").notNull(),
+    name: varchar("name", { length: 100 }).notNull(),
+    role: varchar("role", { length: 20 }).notNull(),
+    status: varchar("status", { length: 20 }).notNull().default("active"),
+    mustChangePassword: boolean("must_change_password").notNull().default(true),
+    tokenVersion: integer("token_version").notNull().default(0),
+    passwordMeta: text("password_meta"),
+    organizationId: uuid("organization_id").references(() => organizations.id),
+    phone: varchar("phone", { length: 20 }),
+    avatar: text("avatar"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  // 监督范围计算、任务/打卡 sweeper 都在按 role + status 过滤用户
+  (table) => [index("users_role_status_idx").on(table.role, table.status)],
+)
 
 export const persons = pgTable(
   "persons",
@@ -715,6 +720,12 @@ export const reportTasks = pgTable(
       table.scheduleAt,
     ),
     index("report_tasks_status_idx").on(table.status),
+    // 任务列表按分类取数，待执行/待批阅要按截止时间排序
+    index("report_tasks_supervised_status_deadline_idx").on(
+      table.supervisedId,
+      table.status,
+      table.deadline,
+    ),
     uniqueIndex("report_tasks_rule_user_schedule_unique").on(
       table.ruleId,
       table.supervisedId,
@@ -762,7 +773,14 @@ export const reportReviews = pgTable(
       .notNull()
       .defaultNow(),
   },
-  (table) => [index("report_reviews_submission_idx").on(table.submissionId)],
+  (table) => [
+    index("report_reviews_submission_idx").on(table.submissionId),
+    // /api/tasks 每行要取「最新一条批阅」（order by created_at desc limit 1）
+    index("report_reviews_submission_created_idx").on(
+      table.submissionId,
+      table.createdAt.desc(),
+    ),
+  ],
 )
 
 export const autoReviewSettings = pgTable("auto_review_settings", {

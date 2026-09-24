@@ -27,6 +27,14 @@ import com.custodysim.app.ui.theme.AppSpace
 import top.yukonga.miuix.kmp.basic.*
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
+/** Keep native Miuix field behavior with a quieter fill on cards and sheets. */
+@Composable
+fun softTextFieldColors(): TextFieldColors = TextFieldDefaults.textFieldColors(
+    backgroundColor = MiuixTheme.colorScheme.primary.copy(alpha = 0.055f),
+    labelColor = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+    borderColor = MiuixTheme.colorScheme.primary,
+)
+
 @Composable
 fun SettingGroup(modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
     Card(modifier = modifier.fillMaxWidth(), cornerRadius = AppShape.group,
@@ -52,18 +60,20 @@ fun SectionTitle(text: String) {
 /** Keep list utilities secondary to the actual records. */
 @Composable
 fun ListHeader(description: String, title: String, loading: Boolean, onRefresh: () -> Unit) {
-    Text(description, style = MiuixTheme.textStyles.footnote1,
-        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-        modifier = Modifier.padding(horizontal = AppSpace.inset, vertical = AppSpace.small))
-    Row(Modifier.fillMaxWidth().padding(start = AppSpace.inset, bottom = AppSpace.small),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(AppSpace.small)) {
-        Text(title, style = MiuixTheme.textStyles.footnote1,
-            color = MiuixTheme.colorScheme.onBackgroundVariant, modifier = Modifier.weight(1f))
-        TextButton(text = stringResource(if (loading) R.string.loading else R.string.refresh),
-            enabled = !loading, onClick = onRefresh,
-            colors = ButtonDefaults.textButtonColors(color = androidx.compose.ui.graphics.Color.Transparent,
-                textColor = MiuixTheme.colorScheme.primary))
+    Column(Modifier.fillMaxWidth()) {
+        Text(description, style = MiuixTheme.textStyles.footnote1,
+            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+            modifier = Modifier.padding(horizontal = AppSpace.inset, vertical = AppSpace.small))
+        Row(Modifier.fillMaxWidth().padding(start = AppSpace.inset, bottom = AppSpace.small),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(AppSpace.small)) {
+            Text(title, style = MiuixTheme.textStyles.footnote1,
+                color = MiuixTheme.colorScheme.onBackgroundVariant, modifier = Modifier.weight(1f))
+            TextButton(text = stringResource(if (loading) R.string.loading else R.string.refresh),
+                enabled = !loading, onClick = onRefresh,
+                colors = ButtonDefaults.textButtonColors(color = androidx.compose.ui.graphics.Color.Transparent,
+                    textColor = MiuixTheme.colorScheme.primary))
+        }
     }
 }
 
@@ -82,7 +92,8 @@ fun CompactAction(text: String, enabled: Boolean = true, onClick: () -> Unit) {
             targetState = text,
             transitionSpec = { (fadeIn() + scaleIn(initialScale = 0.92f)) togetherWith (fadeOut() + scaleOut(targetScale = 0.92f)) },
             label = "compact-action-label",
-        ) { label -> Text(label, style = MiuixTheme.textStyles.button) }
+        ) { label -> Text(label, style = MiuixTheme.textStyles.button,
+            color = MiuixTheme.colorScheme.onPrimary) }
     }
 }
 
@@ -109,10 +120,7 @@ fun RecordContent(actionLabel: String?, onAction: () -> Unit, content: @Composab
 /** Values stack below labels so long identifiers and large fonts never collide. */
 @Composable
 fun InfoRow(label: String, value: String) {
-    Column(Modifier.fillMaxWidth().padding(AppSpace.inset), verticalArrangement = Arrangement.spacedBy(AppSpace.tiny)) {
-        Text(label, style = MiuixTheme.textStyles.body1)
-        Text(value, style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-    }
+    BasicComponent(title = label, summary = value)
 }
 
 @Composable
@@ -157,7 +165,7 @@ fun PrimaryAction(text: String, busy: Boolean = false, enabled: Boolean = true, 
             if (isBusy) {
                 CircularProgressIndicator()
             } else {
-                Text(text, style = MiuixTheme.textStyles.button)
+                Text(text, style = MiuixTheme.textStyles.button, color = MiuixTheme.colorScheme.onPrimary)
             }
         }
     }

@@ -98,19 +98,23 @@ fun HomeScreen(container: AppContainer, session: SessionUser, notice: String?,
         }
         if (session.isSupervised) {
             item {
-                SectionTitle(stringResource(R.string.location_queue))
-                SettingGroup {
-                    InfoRow(stringResource(R.string.location_queue), stringResource(R.string.location_queue_count, queued))
-                    InfoRow(stringResource(R.string.location_interval_label), stringResource(R.string.location_interval, LocationPreferences.intervalMinutes(context)))
+                Column {
+                    SectionTitle(stringResource(R.string.location_queue))
+                    SettingGroup {
+                        InfoRow(stringResource(R.string.location_queue), stringResource(R.string.location_queue_count, queued))
+                        InfoRow(stringResource(R.string.location_interval_label), stringResource(R.string.location_interval, LocationPreferences.intervalMinutes(context)))
+                    }
                 }
             }
             item {
-                SectionTitle(stringResource(R.string.location_permissions))
-                SettingGroup {
-                    InfoRow(stringResource(R.string.foreground_permission),
-                        stringResource(if (hasForeground) R.string.granted else R.string.not_granted))
-                    InfoRow(stringResource(R.string.background_permission),
-                        stringResource(if (hasBackground) R.string.granted else R.string.not_granted))
+                Column {
+                    SectionTitle(stringResource(R.string.location_permissions))
+                    SettingGroup {
+                        InfoRow(stringResource(R.string.foreground_permission),
+                            stringResource(if (hasForeground) R.string.granted else R.string.not_granted))
+                        InfoRow(stringResource(R.string.background_permission),
+                            stringResource(if (hasBackground) R.string.granted else R.string.not_granted))
+                    }
                 }
             }
             item {

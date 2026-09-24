@@ -2,6 +2,7 @@ package com.custodysim.app.ui.common
 
 import android.graphics.BitmapFactory
 import android.util.Base64
+import android.util.LruCache
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
@@ -13,6 +14,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.ui.res.stringResource
 import com.custodysim.app.R
+import com.custodysim.app.data.media.ImagePipeline
 import com.custodysim.app.ui.theme.AppShape
 import com.custodysim.app.ui.theme.AppSpace
 import top.yukonga.miuix.kmp.basic.Text
@@ -79,8 +81,36 @@ fun ImageThumbs(images: List<String>, modifier: Modifier = Modifier, onRemove: (
     }
 }
 
-private fun decodeDataUrl(dataUrl: String): ImageBitmap? = runCatching {
-    val base64 = dataUrl.substringAfter("base64,", "")
-    val bytes = Base64.decode(base64, Base64.NO_WRAP)
-    BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap()
-}.getOrNull()
+/**
+ * 列表/表单里的缩略图最大也就 200dp 高，先读尺寸再按需降采样就够了。
+ * 原图（上传管线会压到 1600px）整张解码要好几 MB，滚动时反复分配/回收就是掉帧来源。
+ */
+private const val THUMBNAIL_TARGET_PX = 512
+
+/**
+ * 解码结果按 data URL 缓存。
+ *
+ * 图片是随条目进出组合的：没有缓存时，每次滚回来都要重新 base64 解码 + 解码位图，
+ * 长列表里来回滑动就会一直重复这份开销。按位图像素字节数计费，超预算自动淘汰。
+ */
+private const val THUMBNAIL_CACHE_BYTES = 8 * 1024 * 1024
+
+private val thumbnailCache = object : LruCache<String, ImageBitmap>(THUMBNAIL_CACHE_BYTES) {
+    override fun sizeOf(key: String, value: ImageBitmap): Int = value.width * value.height * 4
+}
+
+private fun decodeDataUrl(dataUrl: String): ImageBitmap? {
+    thumbnailCache.get(dataUrl)?.let { return it }
+    val decoded = runCatching {
+        val base64 = dataUrl.substringAfter("base64,", "")
+        val bytes = Base64.decode(base64, Base64.NO_WRAP)
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+        val options = BitmapFactory.Options().apply {
+            inSampleSize = ImagePipeline.sampleSizeFor(bounds.outWidth, bounds.outHeight, THUMBNAIL_TARGET_PX)
+        }
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)?.asImageBitmap()
+    }.getOrNull() ?: return null
+    thumbnailCache.put(dataUrl, decoded)
+    return decoded
+}

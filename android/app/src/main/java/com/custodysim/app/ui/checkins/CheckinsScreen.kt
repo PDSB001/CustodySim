@@ -8,15 +8,12 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -25,13 +22,12 @@ import com.custodysim.app.R
 import com.custodysim.app.ui.common.*
 import com.custodysim.app.ui.theme.*
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.unit.dp
@@ -43,9 +39,7 @@ import com.custodysim.app.ui.common.OverlaySheet
 import com.custodysim.app.ui.common.rememberImagePicker
 import com.custodysim.app.ui.common.statusColor
 import kotlinx.coroutines.launch
-import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
-import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.HorizontalDivider
 import top.yukonga.miuix.kmp.basic.ScrollBehavior
 import top.yukonga.miuix.kmp.basic.Text
@@ -83,9 +77,12 @@ private fun makeupStatusLabel(status: String): String = when (status) {
     else -> status
 }
 
+/** formatter 只建一次：一行要格式化两三个时间，原来每次调用都重新解析模式串。 */
+private val CHECKIN_TIME_FORMATTER = DateTimeFormatter.ofPattern("MM-dd HH:mm")
+
 private fun formatCheckinTime(iso: String): String = runCatching {
     OffsetDateTime.parse(iso).atZoneSameInstant(ZoneId.systemDefault())
-        .format(DateTimeFormatter.ofPattern("MM-dd HH:mm"))
+        .format(CHECKIN_TIME_FORMATTER)
 }.getOrDefault(iso)
 
 /** 点名页：当天时段列表 + 打卡 / 补卡。 */
@@ -132,6 +129,9 @@ fun CheckinsScreen(container: AppContainer, scrollBehavior: ScrollBehavior) {
                         slideInVertically(tween(260, delayMillis = index * 35)) { it / 10 }) {
                     GroupedListItem(first = index == 0, last = index == slots.lastIndex) {
                         SlotRow(slot) { mode -> action = Action(slot, mode); sheetVisible = true }
+                        if (index < slots.lastIndex) HorizontalDivider(
+                            modifier = Modifier.padding(horizontal = AppSpace.inset),
+                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.12f))
                     }
                 }
             }
@@ -248,17 +248,19 @@ private fun CheckinSheet(
         onDismissFinished = onDismissFinished,
     ) {
         Column(Modifier.verticalScroll(rememberScrollState()).padding(AppSpace.page)) {
+            SettingGroup {
+                InfoRow(slot.slotLabel ?: slot.ruleName, "填写后提交本次" + if (mode == Mode.CHECKIN) "打卡" else "补卡申请")
+            }
+            Spacer(Modifier.height(AppSpace.page))
             if (mode == Mode.MAKEUP) {
-                TextField(
-                    value = reason,
+                FramedTextField(value = reason,
                     onValueChange = { reason = it },
                     label = stringResource(R.string.makeup_reason),
                     enabled = !busy,
                     modifier = Modifier.fillMaxWidth(),
                 )
             } else {
-                TextField(
-                    value = remark,
+                FramedTextField(value = remark,
                     onValueChange = { remark = it },
                     label = stringResource(R.string.remark_optional),
                     enabled = !busy,

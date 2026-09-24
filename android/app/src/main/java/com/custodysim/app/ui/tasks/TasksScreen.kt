@@ -1,58 +1,61 @@
 package com.custodysim.app.ui.tasks
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.platform.LocalResources
-import androidx.compose.ui.semantics.Role
-import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.KeyboardType
 import com.custodysim.app.R
 import com.custodysim.app.ui.common.*
 import com.custodysim.app.ui.theme.*
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.mutableStateMapOf
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.custodysim.app.AppContainer
 import com.custodysim.app.data.net.ApiResult
 import com.custodysim.app.data.task.ReportTask
+import com.custodysim.app.data.task.TaskCategory
+import com.custodysim.app.data.task.TaskCounts
 import com.custodysim.app.data.task.TaskField
 import com.custodysim.app.ui.common.ImageThumbs
 import com.custodysim.app.ui.common.OverlaySheet
 import com.custodysim.app.ui.common.rememberImagePicker
 import com.custodysim.app.ui.common.statusColor
 import kotlinx.coroutines.launch
-import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
-import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.HorizontalDivider
-import top.yukonga.miuix.kmp.basic.RadioButton
 import top.yukonga.miuix.kmp.basic.ScrollBehavior
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
@@ -60,25 +63,44 @@ import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.basic.DropdownItem
 import top.yukonga.miuix.kmp.preference.OverlaySpinnerPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
-import androidx.compose.ui.platform.LocalContext
-import android.app.DatePickerDialog
-import java.util.Calendar
-import java.util.Locale
 import java.time.OffsetDateTime
 import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 
+/** 状态文案与 Web 端 `statusLabel` 一致（COMPLETED 属打卡侧状态，汇报任务不会出现）。 */
 private val STATUS_LABEL = mapOf(
     "PENDING" to R.string.task_pending, "SUBMITTED" to R.string.task_submitted,
-    "RETURNED" to R.string.task_returned, "COMPLETED" to R.string.task_completed,
+    "RETURNED" to R.string.task_returned,
     "EXPIRED" to R.string.task_expired,
     "APPROVED" to R.string.task_approved, "REJECTED" to R.string.task_rejected,
     "CANCELLED" to R.string.task_cancelled,
 )
 
+/** 分类按钮文案，与 Web 端「服刑任务」的三档筛选一致。 */
+private val CATEGORY_LABELS = mapOf(
+    TaskCategory.PENDING to R.string.task_category_pending,
+    TaskCategory.REVIEW to R.string.task_category_review,
+    TaskCategory.HISTORY to R.string.task_category_history,
+)
+
+/** 各分类空状态的标题与说明，文案与 Web 端一致。 */
+private val CATEGORY_EMPTY_TITLE = mapOf(
+    TaskCategory.PENDING to R.string.tasks_empty_pending,
+    TaskCategory.REVIEW to R.string.tasks_empty_review,
+    TaskCategory.HISTORY to R.string.tasks_empty_history,
+)
+private val CATEGORY_EMPTY_HINT = mapOf(
+    TaskCategory.PENDING to R.string.tasks_empty_pending_hint,
+    TaskCategory.REVIEW to R.string.tasks_empty_review_hint,
+    TaskCategory.HISTORY to R.string.tasks_empty_history_hint,
+)
+
+/** formatter 只建一次：原来每次排版都要重新解析模式串，列表里开销被放大。 */
+private val TASK_TIME_FORMATTER = DateTimeFormatter.ofPattern("MM-dd HH:mm")
+
 /** ISO 时间转本地「MM-dd HH:mm」；解析失败时原样返回，不影响展示。 */
 private fun formatDateTime(iso: String): String = runCatching {
-    val t = OffsetDateTime.parse(iso).atZoneSameInstant(ZoneId.systemDefault())
-    String.format(java.util.Locale.getDefault(), "%02d-%02d %02d:%02d", t.monthValue, t.dayOfMonth, t.hour, t.minute)
+    OffsetDateTime.parse(iso).atZoneSameInstant(ZoneId.systemDefault()).format(TASK_TIME_FORMATTER)
 }.getOrDefault(iso)
 
 /** 评分去掉无意义的 `.0` 尾缀。 */
@@ -88,10 +110,12 @@ private fun formatGrade(grade: Double): String =
 /** 任务列表每页条数：首屏只取一页，滚到底再取下一页。 */
 private const val TASKS_PAGE_SIZE = 20
 
-/** 服刑任务页：列表 + 动态表单提交。 */
+/** 服刑任务页：分类列表 + 动态表单提交。分类与 Web 端「服刑任务」一致。 */
 @Composable
 fun TasksScreen(container: AppContainer, scrollBehavior: ScrollBehavior) {
     val scope = rememberCoroutineScope()
+    var category by remember { mutableStateOf(TaskCategory.PENDING) }
+    var counts by remember { mutableStateOf<TaskCounts?>(null) }
     var tasks by remember { mutableStateOf<List<ReportTask>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
     var loadingMore by remember { mutableStateOf(false) }
@@ -100,10 +124,14 @@ fun TasksScreen(container: AppContainer, scrollBehavior: ScrollBehavior) {
     var editing by remember { mutableStateOf<ReportTask?>(null) }
     var sheetVisible by remember { mutableStateOf(false) }
 
-    /** 刷新：回到第一页。 */
+    /** 刷新当前分类：回到第一页，顺带更新分类数字。 */
     suspend fun refresh() {
+        val requested = category
         loading = true
-        when (val result = container.taskRepository.fetchTasks(limit = TASKS_PAGE_SIZE)) {
+        val result = container.taskRepository.fetchTasks(limit = TASKS_PAGE_SIZE, category = requested)
+        // 期间已切到别的分类，这批数据作废（分类切换会重新拉取）。
+        if (category != requested) return
+        when (result) {
             is ApiResult.Ok -> {
                 tasks = result.data
                 reachedEnd = result.data.size < TASKS_PAGE_SIZE
@@ -112,15 +140,28 @@ fun TasksScreen(container: AppContainer, scrollBehavior: ScrollBehavior) {
             is ApiResult.Err -> notice = result.message
         }
         loading = false
+        // 分类数字取不到不影响列表展示。
+        when (val countsResult = container.taskRepository.fetchTaskCounts()) {
+            is ApiResult.Ok -> counts = countsResult.data
+            is ApiResult.Err -> Unit
+        }
     }
 
-    /** 追加下一页；游标用最后一条的 (scheduleAt, id)，与后端倒序一致。 */
+    /** 追加下一页；游标用最后一条的 (deadline, id)，与后端分类内的排序一致。 */
     suspend fun loadMore() {
         if (loadingMore || reachedEnd) return
+        val requested = category
         val last = tasks.lastOrNull() ?: return
         loadingMore = true
-        val cursor = "${last.scheduleAt}|${last.id}"
-        when (val result = container.taskRepository.fetchTasks(limit = TASKS_PAGE_SIZE, cursor = cursor)) {
+        val cursor = "${last.deadline}|${last.id}"
+        val result = container.taskRepository.fetchTasks(
+            limit = TASKS_PAGE_SIZE, cursor = cursor, category = requested,
+        )
+        if (category != requested) {
+            loadingMore = false
+            return
+        }
+        when (result) {
             is ApiResult.Ok -> {
                 // 翻页期间可能有新任务插入头部，按 id 去重，避免重复项。
                 val known = tasks.mapTo(mutableSetOf()) { it.id }
@@ -133,7 +174,13 @@ fun TasksScreen(container: AppContainer, scrollBehavior: ScrollBehavior) {
         loadingMore = false
     }
 
-    LaunchedEffect(Unit) { refresh() }
+    // 首次进入与切换分类都走这里：清空上一个分类的内容再拉第一页。
+    LaunchedEffect(category) {
+        tasks = emptyList()
+        reachedEnd = false
+        notice = null
+        refresh()
+    }
 
     LazyColumn(
         modifier = Modifier.fillMaxSize().nestedScroll(scrollBehavior.nestedScrollConnection),
@@ -144,13 +191,17 @@ fun TasksScreen(container: AppContainer, scrollBehavior: ScrollBehavior) {
                 title = stringResource(R.string.task_list), loading = loading,
                 onRefresh = { scope.launch { refresh() } })
         }
+        item { CategoryTabs(selected = category, counts = counts, onSelect = { category = it }) }
         when {
             loading && tasks.isEmpty() -> item { PageState(stringResource(R.string.loading), loading = true) }
             notice != null && tasks.isEmpty() -> item {
                 PageState(stringResource(R.string.load_failed), notice, onRetry = { scope.launch { refresh() } })
             }
             tasks.isEmpty() -> item {
-                PageState(stringResource(R.string.tasks_empty), stringResource(R.string.tasks_empty_hint))
+                PageState(
+                    stringResource(CATEGORY_EMPTY_TITLE.getValue(category)),
+                    stringResource(CATEGORY_EMPTY_HINT.getValue(category)),
+                )
             }
             else -> itemsIndexed(tasks, key = { _, task -> task.id }) { index, task ->
                 AnimatedVisibility(visible = true,
@@ -158,6 +209,9 @@ fun TasksScreen(container: AppContainer, scrollBehavior: ScrollBehavior) {
                         slideInVertically(tween(260, delayMillis = index * 35)) { it / 10 }) {
                     GroupedListItem(first = index == 0, last = index == tasks.lastIndex) {
                         TaskRow(task, onEdit = { editing = task; sheetVisible = true })
+                        if (index < tasks.lastIndex) HorizontalDivider(
+                            modifier = Modifier.padding(horizontal = AppSpace.inset),
+                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.12f))
                     }
                 }
             }
@@ -184,6 +238,50 @@ fun TasksScreen(container: AppContainer, scrollBehavior: ScrollBehavior) {
                 scope.launch { refresh() }
             },
         )
+    }
+}
+
+/**
+ * 分类切换：严格单行 —— 三等分宽度 + 小字号（footnote1）+ 单行省略兜底。
+ *
+ * 不能用 Miuix 的 TextButton 按内容取宽：它字号大、内边距宽，「执行记录 · 15」会比三分之一
+ * 宽度还宽，之前就是因此把文字画到了胶囊外面。这里自绘分段控件，选中态是主色实心，
+ * 未选中态带描边（对应 Web 端筛选按钮的 default / outline 两种变体）；底部留出间距，
+ * 免得和下面的任务卡片贴在一起。
+ */
+@Composable
+private fun CategoryTabs(selected: TaskCategory, counts: TaskCounts?, onSelect: (TaskCategory) -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(bottom = AppSpace.medium),
+        horizontalArrangement = Arrangement.spacedBy(AppSpace.small),
+    ) {
+        TaskCategory.entries.forEach { item ->
+            val active = item == selected
+            val label = stringResource(CATEGORY_LABELS.getValue(item))
+            val shape = RoundedCornerShape(AppShape.control)
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .clip(shape)
+                    .background(if (active) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.surface)
+                    .then(
+                        if (active) Modifier
+                        else Modifier.border(1.dp, MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.35f), shape),
+                    )
+                    .clickable { onSelect(item) }
+                    .padding(vertical = AppSpace.medium, horizontal = AppSpace.tiny),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = counts?.let { "$label · ${it.of(item)}" } ?: label,
+                    style = MiuixTheme.textStyles.footnote1,
+                    color = if (active) MiuixTheme.colorScheme.onPrimary else MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    maxLines = 1,
+                    softWrap = false,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
     }
 }
 
@@ -222,9 +320,12 @@ private fun TaskRow(task: ReportTask, onEdit: () -> Unit) {
                 }
                 if (task.submissionStatus != null && task.status != "PENDING" && task.status != "RETURNED") {
                     task.submissionData?.let { data ->
-                        val summary = data.keys().asSequence().mapNotNull { key ->
-                            data.optString(key).takeIf { it.isNotBlank() && it != "null" }?.let { "$key：$it" }
-                        }.joinToString("\n")
+                        // 行内会随父级状态反复重组，摘要只在提交数据本身变化时重算。
+                        val summary = remember(data) {
+                            data.keys().asSequence().mapNotNull { key ->
+                                data.optString(key).takeIf { it.isNotBlank() && it != "null" }?.let { "$key：$it" }
+                            }.joinToString("\n")
+                        }
                         if (summary.isNotBlank()) Text(summary, style = MiuixTheme.textStyles.footnote1,
                             color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                     }
@@ -264,10 +365,12 @@ private fun SubmitSheet(
         ) {
             item { NoticeBanner(stringResource(R.string.required_hint)) }
             items(task.fields, key = { it.name }) { field ->
-                FieldEditor(field, values, enabled = !busy)
-                Spacer(Modifier.height(AppSpace.page))
+                Column(verticalArrangement = Arrangement.spacedBy(AppSpace.small)) {
+                    FieldEditor(field, values, enabled = !busy)
+                    Spacer(Modifier.height(AppSpace.small))
+                }
             }
-            item {
+            item { Column(verticalArrangement = Arrangement.spacedBy(AppSpace.small)) {
                 error?.let {
                     Text(it, style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.error)
                     Spacer(Modifier.height(8.dp))
@@ -301,7 +404,7 @@ private fun SubmitSheet(
                     },
                 )
                 Spacer(Modifier.height(8.dp))
-            }
+            } }
         }
     }
 }
@@ -309,6 +412,9 @@ private fun SubmitSheet(
 @Composable
 private fun FieldEditor(field: TaskField, values: MutableMap<String, Any?>, enabled: Boolean) {
     val label = field.name + if (field.required) " *" else ""
+    // 输入任一字段都会改写整个 values，直接读它会让同一表单里其它字段一起重组；
+    // 这里把订阅收窄到本字段，只有本字段的值变了才重建这一行。
+    val value by remember(field.name) { derivedStateOf { values[field.name] } }
     when (field.type) {
         "COPYWRITE" -> {
             Text(label, style = MiuixTheme.textStyles.body1)
@@ -316,24 +422,24 @@ private fun FieldEditor(field: TaskField, values: MutableMap<String, Any?>, enab
                 Text(it, style = MiuixTheme.textStyles.footnote1,
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
             }
-            val text = (values[field.name] as? String) ?: ""
-            TextField(value = text, onValueChange = { values[field.name] = it },
+            val text = (value as? String) ?: ""
+            FramedTextField(value = text, onValueChange = { values[field.name] = it },
                 label = stringResource(R.string.copywrite_input), enabled = enabled,
                 modifier = Modifier.fillMaxWidth())
         }
 
         "IMAGE" -> {
             Text(label, style = MiuixTheme.textStyles.body1)
-            val current = (values[field.name] as? List<*>)?.filterIsInstance<String>() ?: emptyList()
-            if (current.isNotEmpty()) {
-                ImageThumbs(current, Modifier.padding(top = AppSpace.small), onRemove = if (enabled) { index ->
-                    values[field.name] = current.filterIndexed { i, _ -> i != index }
+            val images = (value as? List<*>)?.filterIsInstance<String>() ?: emptyList()
+            if (images.isNotEmpty()) {
+                ImageThumbs(images, Modifier.padding(top = AppSpace.small), onRemove = if (enabled) { index ->
+                    values[field.name] = images.filterIndexed { i, _ -> i != index }
                 } else null)
             }
-            val picker = rememberImagePicker((3 - current.size).coerceAtLeast(1)) { urls -> values[field.name] = (current + urls).take(3) }
+            val picker = rememberImagePicker((3 - images.size).coerceAtLeast(1)) { urls -> values[field.name] = (images + urls).take(3) }
             TextButton(
-                text = if (current.isEmpty()) stringResource(R.string.add_images) else stringResource(R.string.more_images, current.size),
-                enabled = enabled && current.size < 3,
+                text = if (images.isEmpty()) stringResource(R.string.add_images) else stringResource(R.string.more_images, images.size),
+                enabled = enabled && images.size < 3,
                 onClick = picker,
                 modifier = Modifier.fillMaxWidth(),
                 colors = ButtonDefaults.textButtonColorsPrimary(),
@@ -341,34 +447,33 @@ private fun FieldEditor(field: TaskField, values: MutableMap<String, Any?>, enab
         }
 
         "SELECT" -> {
-            val current = values[field.name] as? String
+            val selected = value as? String
             val options = listOf("请选择") + field.options
-            val selectedOption = current?.let { field.options.indexOf(it) } ?: -1
-            OverlaySpinnerPreference(
+            val selectedOption = selected?.let { field.options.indexOf(it) } ?: -1
+            SettingGroup { OverlaySpinnerPreference(
                 title = label,
                 items = options.map { DropdownItem(text = it) },
                 selectedIndex = selectedOption.takeIf { it >= 0 }?.plus(1) ?: 0,
                 enabled = enabled,
                 onSelectedIndexChange = { index -> values[field.name] = field.options.getOrNull(index - 1) ?: "" },
                 modifier = Modifier.fillMaxWidth(),
-            )
+            ) }
         }
 
         "TEXTAREA" -> {
-            val text = (values[field.name] as? String) ?: ""
-            TextField(value = text, onValueChange = { values[field.name] = it },
+            val text = (value as? String) ?: ""
+            FramedTextField(value = text, onValueChange = { values[field.name] = it },
                 label = label, enabled = enabled, modifier = Modifier.fillMaxWidth())
         }
 
         "DATE" -> {
-            val text = (values[field.name] as? String) ?: ""
-            DatePickerField(label, text, enabled) { values[field.name] = it }
+            val text = (value as? String) ?: ""
+            DatePreference(label, text, enabled) { values[field.name] = it }
         }
 
         else -> {
-            val text = (values[field.name] as? String) ?: ""
-            TextField(
-                value = text,
+            val text = (value as? String) ?: ""
+            FramedTextField(value = text,
                 onValueChange = { values[field.name] = it },
                 label = label,
                 enabled = enabled,
@@ -377,21 +482,4 @@ private fun FieldEditor(field: TaskField, values: MutableMap<String, Any?>, enab
             )
         }
     }
-}
-
-@Composable
-private fun DatePickerField(label: String, value: String, enabled: Boolean, onValueChange: (String) -> Unit) {
-    val context = LocalContext.current
-    TextButton(
-        text = if (value.isBlank()) "$label（选择日期）" else "$label：$value",
-        enabled = enabled,
-        onClick = {
-            val now = Calendar.getInstance()
-            DatePickerDialog(context, { _, year, month, day ->
-                onValueChange(String.format(Locale.US, "%04d-%02d-%02d", year, month + 1, day))
-            }, now.get(Calendar.YEAR), now.get(Calendar.MONTH), now.get(Calendar.DAY_OF_MONTH)).show()
-        },
-        modifier = Modifier.fillMaxWidth(),
-        colors = ButtonDefaults.textButtonColorsPrimary(),
-    )
 }

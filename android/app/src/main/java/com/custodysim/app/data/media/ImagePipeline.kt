@@ -26,6 +26,20 @@ object ImagePipeline {
         return (width * scale).toInt().coerceAtLeast(1) to (height * scale).toInt().coerceAtLeast(1)
     }
 
+    /**
+     * 2 的幂次降采样系数（纯函数，可单测），保证解码后最长边不小于 [targetPx]。
+     *
+     * 列表缩略图、导出画布这类「目标就是固定小尺寸」的场景用它，
+     * 避免把原图整张解码出来 —— 一张 1600px 的照片解码后要好几 MB，
+     * 滚动时反复分配/回收会直接反映成掉帧。
+     */
+    fun sampleSizeFor(width: Int, height: Int, targetPx: Int): Int {
+        if (width <= 0 || height <= 0 || targetPx <= 0) return 1
+        var sample = 1
+        while (maxOf(width, height) / (sample * 2) >= targetPx) sample *= 2
+        return sample
+    }
+
     /** 把一张图压成 JPEG data URL；读取失败返回 null。 */
     suspend fun compressToDataUrl(context: Context, uri: Uri): String? =
         withContext(Dispatchers.IO) {
