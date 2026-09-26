@@ -94,6 +94,7 @@ export const persons = pgTable(
   },
   (table) => [
     index("persons_organization_idx").on(table.organizationId),
+    index("persons_created_id_idx").on(table.createdAt, table.id),
     index("persons_custody_profile_idx").on(
       table.custodyStatus,
       table.custodyLevel,
@@ -255,7 +256,9 @@ export const loginLogs = pgTable(
   {
     id: uuid("id").defaultRandom().primaryKey(),
     // 登录日志已冗余 username，删号时断引用即可保留安全日志。
-    userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
+    userId: uuid("user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
     username: varchar("username", { length: 50 }).notNull(),
     ip: varchar("ip", { length: 64 }),
     location: varchar("location", { length: 100 }),
@@ -1468,6 +1471,7 @@ export const chatMessages = pgTable(
     }),
     type: varchar("type", { length: 20 }).notNull().default("TEXT"),
     content: text("content"),
+    caption: text("caption"),
     recalledAt: timestamp("recalled_at", { withTimezone: true }),
     recalledBy: uuid("recalled_by").references(() => users.id),
     createdAt: timestamp("created_at", { withTimezone: true })
@@ -1480,6 +1484,15 @@ export const chatMessages = pgTable(
       table.createdAt,
     ),
     index("chat_messages_created_at_idx").on(table.createdAt),
+    index("chat_messages_conversation_cursor_idx").on(
+      table.conversationId,
+      table.createdAt.desc(),
+      table.id.desc(),
+    ),
+    index("chat_messages_sender_created_idx").on(
+      table.senderId,
+      table.createdAt,
+    ),
   ],
 )
 

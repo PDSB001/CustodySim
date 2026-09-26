@@ -42,12 +42,15 @@ export async function POST(request: NextRequest) {
       `mfa:${challenge.userId}`,
       ip,
     )
-    if (retryAfterSeconds > 0)
-      return failure(
+    if (retryAfterSeconds > 0) {
+      const response = failure(
         "RATE_LIMITED",
         `验证尝试过于频繁，请在 ${retryAfterSeconds} 秒后重试`,
         429,
       )
+      response.headers.set("Retry-After", String(retryAfterSeconds))
+      return response
+    }
 
     const verification = await consumeMfaLogin(
       challenge,

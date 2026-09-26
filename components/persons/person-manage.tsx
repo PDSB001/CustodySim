@@ -1,12 +1,15 @@
 "use client"
 
+import dynamic from "next/dynamic"
+
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { FolderOpen, Plus, Trash2, UserRound } from "lucide-react"
-import { useState } from "react"
+import { useMemo, useState } from "react"
 import { z } from "zod"
 
 import { requestApi } from "@/components/shared/api-client"
 import { EmptyState } from "@/components/shared/empty-state"
+import { ErrorState, LoadingBlock } from "@/components/shared/query-state-view"
 import { IconChip } from "@/components/shared/icon-chip"
 import { PageHeader } from "@/components/shared/page-header"
 import { StatusPill } from "@/components/shared/status-pill"
@@ -30,7 +33,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { toast } from "@/components/ui/toast"
-import { PersonArchiveDialog } from "@/components/persons/person-archive-dialog"
+
 import {
   CUSTODY_LEVEL_LABELS,
   CUSTODY_LEVELS,
@@ -38,6 +41,14 @@ import {
   PRISONER_CUSTODY_STATUS_LABELS,
   PRISONER_CUSTODY_STATUSES,
 } from "@/lib/constants"
+
+const PersonArchiveDialog = dynamic(
+  () =>
+    import("@/components/persons/person-archive-dialog").then(
+      (module) => module.PersonArchiveDialog,
+    ),
+  { loading: () => <p role="status">正在加载人员档案…</p> },
+)
 
 const OrganizationSchema = z.object({
   id: z.string(),
@@ -73,10 +84,18 @@ const PersonSchema = z.object({
   ]),
   createdAt: z.string(),
 })
-const PersonsSchema = z.array(PersonSchema)
+const PersonsSchema = z.object({
+  items: z.array(PersonSchema),
+  total: z.number(),
+  page: z.number(),
+  pageSize: z.number(),
+})
 
 export function PersonManage() {
   const queryClient = useQueryClient()
+  const [searchInput, setSearchInput] = useState("")
+  const [search, setSearch] = useState("")
+  const [page, setPage] = useState(1)
   const [open, setOpen] = useState(false)
   const [archivePerson, setArchivePerson] = useState<z.infer<
     typeof PersonSchema
@@ -91,13 +110,27 @@ export function PersonManage() {
     custodyStatus: "OUT_OF_CUSTODY",
   })
   const persons = useQuery({
-    queryKey: ["persons"],
-    queryFn: () => requestApi("/api/admin/persons", PersonsSchema),
+    queryKey: ["persons", { page, search }],
+    queryFn: ({ signal }) =>
+      requestApi(
+        `/api/admin/persons?${new URLSearchParams({ page: String(page), pageSize: "25", q: search })}`,
+        PersonsSchema,
+        { signal },
+      ),
   })
   const organizations = useQuery({
     queryKey: ["admin-organizations", "person-options"],
     queryFn: () => requestApi("/api/admin/orgs", z.array(OrganizationSchema)),
   })
+  const rooms = useMemo(
+    () =>
+      organizations.data?.filter(
+        (organization) => organization.category === "ROOM",
+      ) ?? [],
+    [organizations.data],
+  )
+  const currentPage = persons.data?.page ?? page
+  const totalPages = Math.max(1, Math.ceil((persons.data?.total ?? 0) / 25))
   const create = useMutation({
     mutationFn: () =>
       requestApi("/api/admin/persons", z.object({ id: z.string() }), {
@@ -279,18 +312,14 @@ export function PersonManage() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="__none__">请选择监室</SelectItem>
-                      {organizations.data
-                        ?.filter(
-                          (organization) => organization.category === "ROOM",
-                        )
-                        .map((organization) => (
-                          <SelectItem
-                            key={organization.id}
-                            value={organization.id}
-                          >
-                            {organization.name}
-                          </SelectItem>
-                        ))}
+                      {rooms.map((organization) => (
+                        <SelectItem
+                          key={organization.id}
+                          value={organization.id}
+                        >
+                          {organization.name}
+                        </SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>
@@ -347,6 +376,40 @@ export function PersonManage() {
           </Dialog>
         }
       />
+      <form
+        className="flex flex-wrap items-center gap-2"
+        role="search"
+        onSubmit={(event) => {
+          event.preventDefault()
+          setPage(1)
+          setSearch(searchInput.trim())
+        }}
+      >
+        <Input
+          aria-label="搜索人员"
+          placeholder="搜索姓名、编号或账号"
+          className="max-w-sm"
+          maxLength={100}
+          value={searchInput}
+          onChange={(event) => setSearchInput(event.target.value)}
+        />
+        <Button type="submit" variant="outline">
+          搜索
+        </Button>
+        {search || searchInput ? (
+          <Button
+            type="button"
+            variant="ghost"
+            onClick={() => {
+              setSearchInput("")
+              setSearch("")
+              setPage(1)
+            }}
+          >
+            清除
+          </Button>
+        ) : null}
+      </form>
       <Card>
         <CardContent className="overflow-x-auto p-0">
           <table className="w-full min-w-[1040px] text-left text-sm">
@@ -362,7 +425,7 @@ export function PersonManage() {
               </tr>
             </thead>
             <tbody className="divide-border/60 divide-y">
-              {persons.data?.map((person) => (
+              {persons.data?.items.map((person) => (
                 <tr key={person.id} className="group/row hover:bg-muted/30">
                   <td className="px-5 py-4">
                     <div className="flex items-center gap-2.5">
@@ -400,18 +463,14 @@ export function PersonManage() {
                         <SelectValue placeholder="未分配监室" />
                       </SelectTrigger>
                       <SelectContent>
-                        {organizations.data
-                          ?.filter(
-                            (organization) => organization.category === "ROOM",
-                          )
-                          .map((organization) => (
-                            <SelectItem
-                              key={organization.id}
-                              value={organization.id}
-                            >
-                              {organization.name}
-                            </SelectItem>
-                          ))}
+                        {rooms.map((organization) => (
+                          <SelectItem
+                            key={organization.id}
+                            value={organization.id}
+                          >
+                            {organization.name}
+                          </SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
                   </td>
@@ -505,13 +564,31 @@ export function PersonManage() {
                   </td>
                 </tr>
               ))}
-              {persons.data?.length === 0 && (
+              {persons.isLoading ? (
+                <tr>
+                  <td colSpan={7} className="p-5">
+                    <LoadingBlock rows={3} />
+                  </td>
+                </tr>
+              ) : null}
+              {persons.error ? (
+                <tr>
+                  <td colSpan={7}>
+                    <ErrorState onRetry={() => persons.refetch()} />
+                  </td>
+                </tr>
+              ) : null}
+              {!persons.error && persons.data?.items.length === 0 && (
                 <tr>
                   <td colSpan={7} className="p-0">
                     <EmptyState
                       icon={UserRound}
-                      title="还没有人员"
-                      description="先创建在押人员，再分配组织归属与监管级别。"
+                      title={search ? "没有匹配的人员" : "还没有人员"}
+                      description={
+                        search
+                          ? "请尝试其他姓名、编号或账号。"
+                          : "先创建在押人员，再分配组织归属与监管级别。"
+                      }
                     />
                   </td>
                 </tr>
@@ -520,6 +597,34 @@ export function PersonManage() {
           </table>
         </CardContent>
       </Card>
+      <nav
+        aria-label="人员列表分页"
+        className="flex flex-wrap items-center justify-between gap-3"
+      >
+        <p role="status" className="text-muted-foreground text-sm">
+          {persons.data
+            ? `共 ${persons.data.total} 人 · 第 ${currentPage} / ${totalPages} 页 · 每页 25 人`
+            : "正在加载人员列表…"}
+        </p>
+        <div className="flex gap-2">
+          <Button
+            variant="outline"
+            disabled={!persons.data || persons.isFetching || currentPage <= 1}
+            onClick={() => setPage(currentPage - 1)}
+          >
+            上一页
+          </Button>
+          <Button
+            variant="outline"
+            disabled={
+              !persons.data || persons.isFetching || currentPage >= totalPages
+            }
+            onClick={() => setPage(currentPage + 1)}
+          >
+            下一页
+          </Button>
+        </div>
+      </nav>
       {archivePerson ? (
         <PersonArchiveDialog
           person={archivePerson}

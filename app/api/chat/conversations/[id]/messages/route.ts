@@ -1,10 +1,11 @@
-import { and, desc, eq, gte, inArray, sql } from "drizzle-orm"
+import { and, count, desc, eq, gte, inArray, sql } from "drizzle-orm"
 import { NextRequest } from "next/server"
 import { z } from "zod"
 
 import { failure, success } from "@/lib/api-response"
 import {
   ChatMessageDraftSchema,
+  CHAT_MESSAGE_MAX_LENGTH,
   CHAT_SEND_RATE_LIMIT_COUNT,
   CHAT_SEND_RATE_LIMIT_WINDOW_MS,
   retentionCutoff,
@@ -59,6 +60,7 @@ export async function GET(
           senderName: users.name,
           type: chatMessages.type,
           content: chatMessages.content,
+          caption: chatMessages.caption,
           recalledAt: chatMessages.recalledAt,
           createdAt: chatMessages.createdAt,
         })
@@ -70,7 +72,7 @@ export async function GET(
     ).reverse()
     const readRows = rows.length
       ? await db
-          .select({ messageId: chatMessageReads.messageId })
+          .select({ messageId: chatMessageReads.messageId, count: count() })
           .from(chatMessageReads)
           .innerJoin(users, eq(users.id, chatMessageReads.userId))
           .where(
@@ -82,14 +84,16 @@ export async function GET(
               eq(users.role, "SUPERVISED"),
             ),
           )
+          .groupBy(chatMessageReads.messageId)
       : []
-    const readCounts = new Map<string, number>()
-    for (const row of readRows)
-      readCounts.set(row.messageId, (readCounts.get(row.messageId) ?? 0) + 1)
+    const readCounts = new Map(
+      readRows.map((row) => [row.messageId, row.count]),
+    )
     return success(
       rows.map((row) => ({
         ...row,
         content: row.recalledAt ? null : row.content,
+        caption: row.recalledAt ? null : row.caption,
         recalledAt: row.recalledAt?.toISOString() ?? null,
         createdAt: row.createdAt.toISOString(),
         readCount: readCounts.get(row.id) ?? 0,
@@ -111,7 +115,11 @@ export async function POST(
   if (!id.success) return failure("VALIDATION_ERROR", "会话编号无效", 400)
   const parsed = ChatMessageDraftSchema.safeParse(await request.json())
   if (!parsed.success)
-    return failure("VALIDATION_ERROR", "消息不能为空且不能超过4000字", 400)
+    return failure(
+      "VALIDATION_ERROR",
+      parsed.error.issues[0]?.message ?? `消息不能为空且不能超过${CHAT_MESSAGE_MAX_LENGTH}字`,
+      400,
+    )
   const conversation = await getChatConversationAccess(actor, id.data)
   if (!conversation) return failure("NOT_FOUND", "会话不存在", 404)
   try {
@@ -139,7 +147,9 @@ export async function POST(
         .values({
           conversationId: conversation.id,
           senderId: actor.id,
+          type: parsed.data.type,
           content: parsed.data.content,
+          caption: parsed.data.type === "IMAGE" ? parsed.data.caption ?? null : null,
         })
         .returning()
       if (!created) throw new Error("发送消息失败")

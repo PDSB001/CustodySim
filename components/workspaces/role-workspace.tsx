@@ -18,7 +18,7 @@ import {
 import Link from "next/link"
 import { z } from "zod"
 
-import { CheckinHomeCard } from "@/components/checkin/checkin-workspaces"
+import { CheckinHomeCard } from "@/components/checkin/checkin-home-card"
 import { requestApi } from "@/components/shared/api-client"
 import { EmptyState } from "@/components/shared/empty-state"
 import { MetricCell } from "@/components/shared/metric-cell"

@@ -1,7 +1,13 @@
 "use client"
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Archive, BookOpenCheck, FileText, LockKeyhole, Trash2 } from "lucide-react"
+import {
+  Archive,
+  BookOpenCheck,
+  FileText,
+  LockKeyhole,
+  Trash2,
+} from "lucide-react"
 import { useState } from "react"
 import { z } from "zod"
 
@@ -12,11 +18,23 @@ import { PageHeader } from "@/components/shared/page-header"
 import { StatusPill, type StatusTone } from "@/components/shared/status-pill"
 import { Card, CardContent } from "@/components/ui/card"
 import { toast } from "@/components/ui/toast"
-import {
-  ProfileFieldSchema,
-  ProfileRecordEditor,
-} from "@/components/profile-records/profile-record-editor"
+import dynamic from "next/dynamic"
+import { ProfileFieldSchema } from "@/lib/profile-field-schema"
 import { ProfileImageActions } from "@/components/profile-records/profile-image-actions"
+
+const ProfileRecordEditor = dynamic(
+  () =>
+    import("@/components/profile-records/profile-record-editor").then(
+      (module) => module.ProfileRecordEditor,
+    ),
+  {
+    loading: () => (
+      <p role="status" className="p-5">
+        正在加载档案编辑器…
+      </p>
+    ),
+  },
+)
 
 const FormSchema = z.object({
   id: z.string(),
@@ -283,9 +301,13 @@ export function ProfileRecordManage() {
   })
   const remove = useMutation({
     mutationFn: (id: string) =>
-      requestApi(`/api/admin/profile-records/${id}`, z.object({ id: z.string() }), {
-        method: "DELETE",
-      }),
+      requestApi(
+        `/api/admin/profile-records/${id}`,
+        z.object({ id: z.string() }),
+        {
+          method: "DELETE",
+        },
+      ),
     onSuccess: () => {
       client.invalidateQueries({ queryKey: ["profile-records", "admin"] })
       toast.success("已删除归档档案")
@@ -340,7 +362,12 @@ export function ProfileRecordManage() {
                         className="text-muted-foreground hover:text-destructive inline-flex size-8 items-center justify-center rounded-md transition-colors"
                         disabled={remove.isPending}
                         onClick={() => {
-                          if (!window.confirm(`确定删除“${record.userName} · ${record.formName}”这份已归档档案吗？删除后不可恢复。`)) return
+                          if (
+                            !window.confirm(
+                              `确定删除“${record.userName} · ${record.formName}”这份已归档档案吗？删除后不可恢复。`,
+                            )
+                          )
+                            return
                           remove.mutate(record.id)
                         }}
                       >

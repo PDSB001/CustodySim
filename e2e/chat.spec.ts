@@ -249,3 +249,133 @@ test("管理员已处理的私聊审批默认折叠", async ({ page }, testInfo)
   await expect(completed).toHaveAttribute("open", "")
   await expect(completed.getByText(/已批准|已拒绝/).first()).toBeVisible()
 })
+
+/** 1×1 PNG，用于验证图片消息链路（体积远小于 1 MB 上限）。 */
+const tinyPngBase64 =
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8AAAwAB/wF/T9ziAAAAAElFTkSuQmCC"
+
+test("聊天图片消息：类型、体积校验与会话摘要", async ({}, testInfo) => {
+  test.skip(testInfo.project.name !== "desktop-chrome", "API 链路仅需执行一次")
+  const [liu, zhou] = await Promise.all([
+    loginApi("rank_101_liu"),
+    loginApi("rank_101_zhou"),
+  ])
+  try {
+    const candidates = await call<
+      Array<{ id: string; name: string; sameRoom: boolean }>
+    >(liu, "get", "/api/chat/candidates")
+    const roommate = candidates.data.find(
+      (candidate) => candidate.name === "周宁",
+    )
+    if (!roommate) throw new Error("聊天演示账号不完整")
+    const direct = await call<{ id: string }>(
+      liu,
+      "post",
+      "/api/chat/conversations",
+      { kind: "DIRECT", targetUserId: roommate.id },
+    )
+
+    // 负例：不在白名单的格式必须被拒，且给出中文原因
+    const rejected = await liu.post(
+      `/api/chat/conversations/${direct.data.id}/messages`,
+      { data: { type: "IMAGE", content: "data:image/gif;base64,R0lGODlhAQABAA" } },
+    )
+    expect(rejected.status()).toBe(400)
+    const rejectedPayload = (await rejected.json()) as ApiPayload<unknown>
+    expect(rejectedPayload.success).toBe(false)
+    if (!rejectedPayload.success)
+      expect(rejectedPayload.error.message).toContain("图片")
+
+    const imageDataUrl = `data:image/png;base64,${tinyPngBase64}`
+    const sent = await call<{ id: string; type: string; content: string }>(
+      liu,
+      "post",
+      `/api/chat/conversations/${direct.data.id}/messages`,
+      { type: "IMAGE", content: imageDataUrl },
+    )
+    expect(sent.data.type).toBe("IMAGE")
+    const mixed = await call<{ id: string; type: string; content: string; caption: string }>(
+      liu, "post", `/api/chat/conversations/${direct.data.id}/messages`,
+      { type: "IMAGE", content: imageDataUrl, caption: "同一条图文消息" },
+    )
+    expect(mixed.data).toMatchObject({ type: "IMAGE", content: imageDataUrl, caption: "同一条图文消息" })
+
+    // 接收方拿到的仍是图片本体（未被改写），且类型正确
+    const received = await call<
+      Array<{ id: string; type: string; content: string | null; caption: string | null }>
+    >(zhou, "get", `/api/chat/conversations/${direct.data.id}/messages`)
+    const receivedImage = received.data.find((item) => item.id === sent.data.id)
+    expect(receivedImage).toMatchObject({
+      type: "IMAGE",
+      content: imageDataUrl,
+    })
+    expect(received.data.find((item) => item.id === mixed.data.id)).toMatchObject({
+      type: "IMAGE", content: imageDataUrl, caption: "同一条图文消息",
+    })
+
+    // 会话列表不把 data URL 下发出去，折叠成 [图片]
+    const conversations = await call<
+      Array<{ id: string; lastMessage: { content: string | null } | null }>
+    >(liu, "get", "/api/chat/conversations")
+    expect(
+      conversations.data.find((item) => item.id === direct.data.id)?.lastMessage
+        ?.content,
+    ).toBe("[图片] 同一条图文消息")
+
+    // 撤回后与文本消息一致：不再下发内容
+    await call(liu, "post", `/api/chat/messages/${mixed.data.id}/recall`)
+    const recalled = await call<
+      Array<{ id: string; content: string | null; caption: string | null; recalledAt: string | null }>
+    >(zhou, "get", `/api/chat/conversations/${direct.data.id}/messages`)
+    expect(recalled.data.find((item) => item.id === mixed.data.id)).toMatchObject(
+      { content: null, caption: null, recalledAt: expect.any(String) },
+    )
+  } finally {
+    await Promise.all([liu.dispose(), zhou.dispose()])
+  }
+})
+
+test("聊天工作台可以发送并渲染图片消息", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "desktop-chrome", "图片上传仅需执行一次")
+  // 先确保存在一个群聊会话，避免工作面落在"先选一个会话"的空态上
+  const liu = await loginApi("rank_101_liu")
+  try {
+    await call(liu, "post", "/api/chat/conversations", { kind: "ROOM" })
+  } finally {
+    await liu.dispose()
+  }
+  await page.goto("/login")
+  await page.getByLabel("账号").fill("rank_101_liu")
+  await page.getByLabel("密码").fill("Demo12345")
+  await page.getByRole("button", { name: /登\s*录/ }).click()
+  await expect(page).toHaveURL("/my")
+  await page.goto("/my/chat")
+  await expect(page.getByRole("heading", { name: "监室通信" })).toBeVisible()
+
+  // 注意：「发起私聊」按钮文案里也含"私聊"，这里只按"群聊"定位会话，
+  // 否则会点开对话框、输入区被遮挡。
+  await page
+    .getByRole("button")
+    .filter({ hasText: "群聊" })
+    .first()
+    .click()
+
+  // 输入区必须已经渲染出来（选到会话才会有）
+  await expect(
+    page.getByPlaceholder("输入消息，Enter 发送，Shift+Enter 换行"),
+  ).toBeVisible()
+
+  // 通过真实的上传输入选择图片：浏览器压缩后以 data URL 发送
+  await page.getByLabel("选择图片").setInputFiles({
+    name: "chat-image.png",
+    mimeType: "image/png",
+    buffer: Buffer.from(tinyPngBase64, "base64"),
+  })
+  const sendImage = page.getByRole("button", { name: "发送图片" })
+  await expect(sendImage).toBeEnabled()
+  await sendImage.click()
+
+  // 发送成功后输入区复位，且消息气泡里渲染出图片本体
+  await expect(page.getByRole("button", { name: /^发送$/ })).toBeVisible()
+  await expect(page.locator('img[src^="data:image/"]').first()).toBeVisible()
+})

@@ -29,10 +29,12 @@ export async function requestApi<T>(
   return parsed.data
 }
 
+const dateFormatter = new Intl.DateTimeFormat("zh-CN", {
+  dateStyle: "medium",
+  timeStyle: "short",
+})
+
 export function formatDate(value: string | null | undefined) {
   if (!value) return "—"
-  return new Intl.DateTimeFormat("zh-CN", {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(new Date(value))
+  return dateFormatter.format(new Date(value))
 }

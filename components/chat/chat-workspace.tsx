@@ -10,6 +10,7 @@ import {
   Check,
   ChevronDown,
   Clock3,
+  ImagePlus,
   MessageCircle,
   MessageSquarePlus,
   RotateCcw,
@@ -18,6 +19,7 @@ import {
   Users,
   X,
 } from "lucide-react"
+import Image from "next/image"
 import { useEffect, useMemo, useRef, useState } from "react"
 import { io, type Socket } from "socket.io-client"
 import { z } from "zod"
@@ -49,6 +51,7 @@ import {
 import { Textarea } from "@/components/ui/textarea"
 import { toast } from "@/components/ui/toast"
 import type { SessionUser } from "@/lib/session"
+import { compressTaskImage } from "@/lib/task-image-client"
 
 const ConversationSchema = z.object({
   id: z.string(),
@@ -73,6 +76,7 @@ const MessageSchema = z.object({
   senderName: z.string().nullable(),
   type: z.string(),
   content: z.string().nullable(),
+  caption: z.string().nullable().optional(),
   recalledAt: z.string().nullable(),
   createdAt: z.string(),
   readCount: z.number(),
@@ -396,6 +400,9 @@ export function ChatWorkspace({ user }: { user: SessionUser }) {
   const client = useQueryClient()
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [draft, setDraft] = useState("")
+  /** 待发送的图片（data URL）；非空时发送图片消息，文本草稿保留、不同时发送。 */
+  const [pendingImage, setPendingImage] = useState<string | null>(null)
+  const [imageBusy, setImageBusy] = useState(false)
   const [now, setNow] = useState(() => Date.now())
   const messagesEndRef = useRef<HTMLDivElement | null>(null)
   const conversations = useQuery({
@@ -468,10 +475,22 @@ export function ChatWorkspace({ user }: { user: SessionUser }) {
       requestApi(
         `/api/chat/conversations/${selectedId}/messages`,
         MessageSchema,
-        { method: "POST", body: JSON.stringify({ content: draft }) },
+        {
+          method: "POST",
+          body: JSON.stringify(
+            pendingImage
+              ? { type: "IMAGE", content: pendingImage, caption: draft.trim() || undefined }
+              : { content: draft },
+          ),
+        },
       ),
-    onSuccess: () => {
-      setDraft("")
+    onSuccess: (result) => {
+      if (!pendingImage || !draft.trim() || result.caption === draft.trim()) {
+        setDraft("")
+      } else {
+        toast.error("图片已发送，但服务端未保存说明，请升级服务端后重试")
+      }
+      setPendingImage(null)
       client.invalidateQueries({ queryKey: ["chat-messages", selectedId] })
       client.invalidateQueries({ queryKey: ["chat-conversations"] })
     },
@@ -650,6 +669,28 @@ export function ChatWorkspace({ user }: { user: SessionUser }) {
                               >
                                 消息已撤回
                               </span>
+                            ) : message.type === "IMAGE" &&
+                              message.content ? (
+                              <div className="space-y-2">
+                                <a
+                                  href={message.content}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="block"
+                                >
+                                  <Image
+                                    src={message.content}
+                                    alt="聊天图片"
+                                    width={320}
+                                    height={240}
+                                    unoptimized
+                                    className="h-auto max-h-64 w-auto rounded-lg"
+                                  />
+                                </a>
+                                {message.caption ? (
+                                  <p className="break-words whitespace-pre-wrap">{message.caption}</p>
+                                ) : null}
+                              </div>
                             ) : (
                               <span className="break-words whitespace-pre-wrap">
                                 {message.content}
@@ -695,16 +736,39 @@ export function ChatWorkspace({ user }: { user: SessionUser }) {
                   className="border-border space-y-2 border-t p-3"
                   onSubmit={(event) => {
                     event.preventDefault()
-                    if (draft.trim()) send.mutate()
+                    if (draft.trim() || pendingImage) send.mutate()
                   }}
                 >
+                  {pendingImage ? (
+                    <div className="flex items-center gap-3">
+                      <Image
+                        src={pendingImage}
+                        alt="待发送图片"
+                        width={160}
+                        height={120}
+                        unoptimized
+                        className="border-border h-auto max-h-32 w-auto rounded-lg border"
+                      />
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        disabled={send.isPending}
+                        onClick={() => setPendingImage(null)}
+                      >
+                        <X />
+                        移除图片
+                      </Button>
+                    </div>
+                  ) : null}
                   <Textarea
                     value={draft}
                     onChange={(event) => setDraft(event.target.value)}
                     onKeyDown={(event) => {
                       if (event.key === "Enter" && !event.shiftKey) {
                         event.preventDefault()
-                        if (draft.trim() && !send.isPending) send.mutate()
+                        if ((draft.trim() || pendingImage) && !send.isPending)
+                          send.mutate()
                       }
                     }}
                     placeholder="输入消息，Enter 发送，Shift+Enter 换行"
@@ -712,16 +776,54 @@ export function ChatWorkspace({ user }: { user: SessionUser }) {
                     className="min-h-20 resize-none"
                   />
                   <div className="flex items-center justify-between gap-3">
-                    <p className="text-muted-foreground flex items-center gap-1 text-xs">
-                      <Clock3 className="size-3" />
-                      发送后5分钟内可撤回
-                    </p>
+                    <div className="flex items-center gap-3">
+                      <label
+                        className={`text-muted-foreground hover:text-foreground inline-flex cursor-pointer items-center gap-1 text-xs ${
+                          imageBusy || send.isPending
+                            ? "pointer-events-none opacity-60"
+                            : ""
+                        }`}
+                      >
+                        <ImagePlus className="size-3" />
+                        {imageBusy ? "压缩中…" : "图片"}
+                        <input
+                          type="file"
+                          accept="image/jpeg,image/png,image/webp"
+                          aria-label="选择图片"
+                          className="sr-only"
+                          disabled={imageBusy || send.isPending}
+                          onChange={async (event) => {
+                            const file = event.target.files?.[0]
+                            event.target.value = ""
+                            if (!file) return
+                            setImageBusy(true)
+                            try {
+                              setPendingImage(await compressTaskImage(file))
+                            } catch (error) {
+                              toast.error(
+                                error instanceof Error
+                                  ? error.message
+                                  : "图片处理失败",
+                              )
+                            } finally {
+                              setImageBusy(false)
+                            }
+                          }}
+                        />
+                      </label>
+                      <p className="text-muted-foreground flex items-center gap-1 text-xs">
+                        <Clock3 className="size-3" />
+                        发送后5分钟内可撤回
+                      </p>
+                    </div>
                     <Button
                       type="submit"
-                      disabled={!draft.trim() || send.isPending}
+                      disabled={
+                        (!draft.trim() && !pendingImage) || send.isPending
+                      }
                     >
                       <Send />
-                      发送
+                      {pendingImage && draft.trim() ? "发送图文" : pendingImage ? "发送图片" : "发送"}
                     </Button>
                   </div>
                 </form>

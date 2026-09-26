@@ -2,12 +2,21 @@ import { describe, expect, it } from "vitest"
 
 import {
   buildDirectConversationKey,
+  ChatMessageDraftSchema,
+  chatMessagePreview,
   canRecallChatMessage,
   hasCompleteChatScope,
   retentionCutoff,
 } from "@/lib/chat"
 
 describe("chat policy", () => {
+  it("accepts plain images and images with a caption as one message", () => {
+    const image = "data:image/png;base64,aGVsbG8="
+    expect(ChatMessageDraftSchema.safeParse({ type: "IMAGE", content: image }).success).toBe(true)
+    expect(ChatMessageDraftSchema.safeParse({ type: "IMAGE", content: image, caption: "说明" }).success).toBe(true)
+    expect(ChatMessageDraftSchema.safeParse({ type: "TEXT", content: "你好", caption: "多余" }).success).toBe(false)
+    expect(chatMessagePreview("IMAGE", image, "说明")).toBe("[图片] 说明")
+  })
   it("builds the same direct key regardless of participant order", () => {
     expect(buildDirectConversationKey("b", "a")).toBe("a:b")
     expect(buildDirectConversationKey("a", "b")).toBe("a:b")

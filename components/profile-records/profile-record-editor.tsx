@@ -27,21 +27,7 @@ import {
   hasComputedProfileAge,
 } from "@/lib/profile-age"
 
-export const ProfileFieldSchema = z.object({
-  id: z.string().optional(),
-  name: z.string(),
-  type: z.enum([
-    "TEXT",
-    "TEXTAREA",
-    "NUMBER",
-    "SELECT",
-    "DATE",
-    "COPYWRITE",
-    "IMAGE",
-  ]),
-  required: z.boolean(),
-  options: z.array(z.string()),
-})
+import { ProfileFieldSchema } from "@/lib/profile-field-schema"
 
 const SaveResult = z.object({ id: z.string(), status: z.string() })
 
@@ -162,7 +148,9 @@ export function ProfileRecordEditor({
       const canvas = document.createElement("canvas")
       canvas.width = Math.max(1, Math.round(bitmap.width * scale))
       canvas.height = Math.max(1, Math.round(bitmap.height * scale))
-      canvas.getContext("2d")?.drawImage(bitmap, 0, 0, canvas.width, canvas.height)
+      canvas
+        .getContext("2d")
+        ?.drawImage(bitmap, 0, 0, canvas.width, canvas.height)
       bitmap.close()
       const compressed = await new Promise<Blob | null>((resolve) =>
         canvas.toBlob(resolve, "image/jpeg", 0.82),

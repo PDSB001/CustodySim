@@ -6,6 +6,7 @@ import { writeAuditLog } from "@/lib/audit"
 import {
   buildDirectConversationKey,
   ChatCreateConversationSchema,
+  chatMessagePreview,
   retentionCutoff,
 } from "@/lib/chat"
 import {
@@ -68,7 +69,9 @@ async function serializeConversations(
         .selectDistinctOn([chatMessages.conversationId], {
           conversationId: chatMessages.conversationId,
           id: chatMessages.id,
+          type: chatMessages.type,
           content: chatMessages.content,
+          caption: chatMessages.caption,
           recalledAt: chatMessages.recalledAt,
           createdAt: chatMessages.createdAt,
         })
@@ -112,11 +115,11 @@ async function serializeConversations(
     string,
     Array<{ id: string; name: string }>
   >()
-  for (const member of memberRows)
-    membersByConversation.set(member.conversationId, [
-      ...(membersByConversation.get(member.conversationId) ?? []),
-      { id: member.id, name: member.name },
-    ])
+  for (const member of memberRows) {
+    const members = membersByConversation.get(member.conversationId) ?? []
+    members.push({ id: member.id, name: member.name })
+    membersByConversation.set(member.conversationId, members)
+  }
   const roomNames = new Map(roomRows.map((room) => [room.id, room.name]))
   const lastMessages = new Map(
     lastMessageRows.map((message) => [message.conversationId, message]),
@@ -142,7 +145,7 @@ async function serializeConversations(
             id: lastMessage.id,
             content: lastMessage.recalledAt
               ? "消息已撤回"
-              : lastMessage.content,
+              : chatMessagePreview(lastMessage.type, lastMessage.content, lastMessage.caption),
             createdAt: lastMessage.createdAt.toISOString(),
           }
         : null,

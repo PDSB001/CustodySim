@@ -50,12 +50,15 @@ export async function POST(request: NextRequest) {
       parsed.data.username,
       ip,
     )
-    if (retryAfterSeconds > 0)
-      return failure(
+    if (retryAfterSeconds > 0) {
+      const response = failure(
         "RATE_LIMITED",
         `登录尝试过于频繁，请在 ${retryAfterSeconds} 秒后重试`,
         429,
       )
+      response.headers.set("Retry-After", String(retryAfterSeconds))
+      return response
+    }
 
     const [user] = await db
       .select()
