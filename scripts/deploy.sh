@@ -60,6 +60,8 @@ upgrade_database() {
   node scripts/upgrade-web-performance.mjs "$1" "--database=$database_name"
   if [[ "$1" == "--apply" ]]; then
     node scripts/upgrade-chat-caption.mjs "--database=$database_name"
+    # 批阅快照列：缺了它 /api/reviews 与批阅写入都会 500（幂等，可重复执行）。
+    node scripts/upgrade-review-snapshot.mjs "--database=$database_name"
   fi
 }
 
@@ -87,7 +89,7 @@ mkdir -p .next/standalone/public .next/standalone/.next .logs
 cp -r public/. .next/standalone/public/
 cp -r .next/static/. .next/standalone/.next/static/
 
-echo "==> 5/7 数据库索引与聊天图片说明字段升级"
+echo "==> 5/7 数据库索引与字段升级（聊天图片说明、批阅快照）"
 upgrade_database --apply
 
 echo "==> 6/7 重启 pm2"

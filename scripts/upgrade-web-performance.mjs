@@ -23,6 +23,12 @@ export const performanceIndexes = [
     table: "checkin_records",
     keys: "user_id, checkin_at DESC, id DESC",
   },
+  // 批阅记录列表按 (createdAt, id) 降序游标翻页（/api/reviews）。
+  {
+    name: "report_reviews_created_idx",
+    table: "report_reviews",
+    keys: "created_at DESC, id DESC",
+  },
 ]
 
 /**
