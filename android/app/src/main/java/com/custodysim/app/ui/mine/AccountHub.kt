@@ -8,6 +8,9 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.border
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -30,11 +33,12 @@ import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.HorizontalDivider
 import top.yukonga.miuix.kmp.basic.TextButton
-import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.preference.OverlayDropdownPreference
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Promotions
+import top.yukonga.miuix.kmp.icon.extended.Notes
+import top.yukonga.miuix.kmp.icon.extended.Photos
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import androidx.compose.ui.res.stringResource
 import android.widget.Toast
@@ -49,6 +53,21 @@ private fun statusLabel(status: String): String = when (status) {
     "RETURNED" -> "已退回"
     "LOCKED" -> "已归档"
     else -> status.ifBlank { "未知状态" }
+}
+
+/** Unknown server-defined fields stay visible in their own section. */
+private fun profileSection(name: String): String = when (name) {
+    "姓名", "性别", "年龄", "出生年月", "出生日", "民族", "籍贯", "籍贯（到市即可）", "婚姻状况" -> "基本信息"
+    "罪名", "刑期起始日期", "刑期截止日期" -> "入监信息"
+    "健康状态", "健康状况", "技能", "职业", "文化程度" -> "健康与教育"
+    "身高（cm）", "体重（kg）", "身高", "体重", "肤色", "血型", "脸型", "发际", "眉形", "眼睛", "鼻形", "嘴形", "唇形", "牙齿", "下巴", "耳形" -> "体貌特征"
+    "胸围（cm）", "腰围（cm）", "臀围（cm）", "肩宽（cm）", "足长（cm）", "鞋码", "罩杯", "体态备注（纹身、疤痕或明显体征）" -> "体态与尺寸"
+    else -> when {
+        name.startsWith("刑期") -> "入监信息"
+        listOf("胸围", "腰围", "臀围", "肩宽", "足长", "体态备注").any { name.startsWith(it) } -> "体态与尺寸"
+        name.startsWith("身高") || name.startsWith("体重") -> "体貌特征"
+        else -> "其他信息"
+    }
 }
 
 @Composable
@@ -96,30 +115,44 @@ fun AccountHub(container: AppContainer, allowEditing: Boolean = true) {
         HubRow(stringResource(R.string.portal_archives)) { open(HubPanel.ARCHIVES) }
     }
 
-    OverlaySheet(show = panel != null, title = stringResource(panel?.title ?: R.string.portal_notices), onDismiss = { panel = null }) {
+    OverlaySheet(show = panel != null, title = stringResource(R.string.portal_archives), onDismiss = { panel = null },
+        // 加载态与列表共用同一块固定高度区域（0.82 屏高）：数据到达时弹层不再突然长高。
+        bodyFraction = 0.82f) {
         when {
             loading -> PageState(stringResource(R.string.loading), loading = true)
             error != null -> PageState(stringResource(R.string.load_failed), error)
             archives.isEmpty() -> PageState(stringResource(R.string.portal_empty_archives))
-            else -> LazyColumn(contentPadding = PaddingValues(AppSpace.page), verticalArrangement = Arrangement.spacedBy(AppSpace.medium)) {
-                items(archives) { item ->
+            else -> LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(AppSpace.page),
+                verticalArrangement = Arrangement.spacedBy(AppSpace.medium),
+            ) {
+                items(archives, key = { it.id }, contentType = { "archive" }) { item ->
                     SettingGroup {
                         // 用 Column 统一内边距与行间距，避免相邻的整宽按钮彼此紧贴。
                         Column(
                             Modifier.fillMaxWidth().padding(AppSpace.inset),
                             verticalArrangement = Arrangement.spacedBy(AppSpace.medium),
                         ) {
-                            Text(item.userName.ifBlank { "未填写" }, style = MiuixTheme.textStyles.body1)
-                            Text(item.formName, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-                            Text(
-                                buildString {
-                                    append(statusLabel(item.status))
-                                    item.code?.let { append(" · 编号 ").append(it) }
-                                    item.boxName?.let { append(" · 档案盒 ").append(it) }
-                                },
-                                color = if (item.status == "LOCKED") MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                            )
-                            item.lockedAt?.let { Text("归档于 $it", color = MiuixTheme.colorScheme.onSurfaceVariantSummary) }
+                            Row(verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(AppSpace.medium)) {
+                                Box(Modifier.size(44.dp).background(MiuixTheme.colorScheme.primary.copy(alpha = .10f), CircleShape),
+                                    contentAlignment = Alignment.Center) {
+                                    Icon(MiuixIcons.Notes, null, Modifier.size(22.dp), tint = MiuixTheme.colorScheme.primary)
+                                }
+                                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    Text(item.userName.ifBlank { "未填写" }, style = MiuixTheme.textStyles.body1)
+                                    Text(item.formName, style = MiuixTheme.textStyles.footnote1,
+                                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                                }
+                                StatusChip(statusLabel(item.status), if (item.status == "RETURNED")
+                                    MiuixTheme.colorScheme.error else MiuixTheme.colorScheme.primary)
+                            }
+                            if (item.code != null || item.boxName != null) Text(
+                                listOfNotNull(item.code?.let { "编号 $it" }, item.boxName?.let { "档案盒 $it" }).joinToString(" · "),
+                                style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                            item.lockedAt?.let { Text("归档于 $it", style = MiuixTheme.textStyles.footnote1,
+                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary) }
 
                             // 与 Web 端卷宗一致：证件照、电子签名、公章都要能看到图片本身
                             item.photoData?.let { ArchiveImage("证件照", it, ContentScale.Crop) }
@@ -139,9 +172,12 @@ fun AccountHub(container: AppContainer, allowEditing: Boolean = true) {
                                 else BasicComponent(title = label, summary = value,
                                     insideMargin = PaddingValues(vertical = AppSpace.small))
                             }
-                            SectionTitle("导出图片")
+                            HorizontalDivider(color = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = .10f))
+                            Text("导出图片", style = MiuixTheme.textStyles.footnote1,
+                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(AppSpace.medium)) {
                             TextButton(
-                                text = stringResource(R.string.archive_identity_image),
+                                text = "身份牌",
                                 enabled = !exporting,
                                 onClick = {
                                     scope.launch {
@@ -152,11 +188,11 @@ fun AccountHub(container: AppContainer, allowEditing: Boolean = true) {
                                         } finally { exporting = false }
                                     }
                                 },
-                                modifier = Modifier.fillMaxWidth().padding(top = AppSpace.small),
+                                modifier = Modifier.weight(1f),
                                 colors = ButtonDefaults.textButtonColorsPrimary(),
                             )
                             TextButton(
-                                text = stringResource(R.string.archive_export_image),
+                                text = "档案图片",
                                 enabled = !exporting,
                                 onClick = {
                                     scope.launch {
@@ -167,9 +203,10 @@ fun AccountHub(container: AppContainer, allowEditing: Boolean = true) {
                                         } finally { exporting = false }
                                     }
                                 },
-                                modifier = Modifier.fillMaxWidth().padding(top = AppSpace.small),
+                                modifier = Modifier.weight(1f),
                                 colors = ButtonDefaults.textButtonColors(textColor = MiuixTheme.colorScheme.primary),
                             )
+                            }
                         }
                     }
                 }
@@ -204,7 +241,7 @@ fun AccountHub(container: AppContainer, allowEditing: Boolean = true) {
 /** Notification sheet opened from the Home top app bar. */
 @Composable
 fun NoticeSheet(container: AppContainer, show: Boolean, onDismiss: () -> Unit) {
-    var loading by remember(show) { mutableStateOf(show) }
+    var loading by remember { mutableStateOf(show) }
     var error by remember { mutableStateOf<String?>(null) }
     var notices by remember { mutableStateOf<List<PortalNotice>>(emptyList()) }
     var markingId by remember { mutableStateOf<String?>(null) }
@@ -219,16 +256,21 @@ fun NoticeSheet(container: AppContainer, show: Boolean, onDismiss: () -> Unit) {
         }
         loading = false
     }
-    OverlaySheet(show = show, title = stringResource(R.string.portal_notices), onDismiss = onDismiss) {
+    OverlaySheet(show = show, title = stringResource(R.string.portal_notices), onDismiss = onDismiss,
+        // 与档案弹层一致：加载提示与公告列表共用固定高度（0.82 屏高），数据到达时弹层不突然长高。
+        bodyFraction = 0.82f) {
         when {
             loading -> PageState(stringResource(R.string.loading), loading = true)
             error != null -> PageState(stringResource(R.string.load_failed), error)
             notices.isEmpty() -> PageState(stringResource(R.string.portal_empty_notices))
             else -> LazyColumn(
+                // 高度由弹层内容区（bodyFraction）统一给出，列表在弹层内滚动。
+                modifier = Modifier.fillMaxSize(),
+                state = rememberAppListState(),
                 contentPadding = PaddingValues(horizontal = AppSpace.page, vertical = AppSpace.medium),
                 verticalArrangement = Arrangement.spacedBy(AppSpace.medium),
             ) {
-                items(notices) { item ->
+                items(notices, key = { it.id }, contentType = { "notice" }) { item ->
                     SettingGroup {
                         Column(Modifier.fillMaxWidth().padding(AppSpace.inset),
                             verticalArrangement = Arrangement.spacedBy(AppSpace.medium)) {
@@ -272,25 +314,55 @@ fun NoticeSheet(container: AppContainer, show: Boolean, onDismiss: () -> Unit) {
 @Composable
 private fun ProfileFormsSheet(container: AppContainer, show: Boolean, onDismiss: () -> Unit) {
     val context = LocalContext.current
-    var forms by remember(show) { mutableStateOf<List<ProfileForm>>(emptyList()) }
-    var records by remember(show) { mutableStateOf<List<ProfileRecord>>(emptyList()) }
-    var selectedIndex by remember(show) { mutableIntStateOf(0) }
+    var forms by remember { mutableStateOf<List<ProfileForm>>(emptyList()) }
+    var records by remember { mutableStateOf<List<ProfileRecord>>(emptyList()) }
+    var selectedIndex by remember { mutableIntStateOf(0) }
     var values by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
     var photo by remember { mutableStateOf<String?>(null) }
-    var loading by remember(show) { mutableStateOf(false) }
+    var signatureMode by remember { mutableStateOf("GENERATED") }
+    var handwrittenSignature by remember { mutableStateOf<String?>(null) }
+    var showSignatureEditor by remember { mutableStateOf(false) }
+    var loading by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
-    val photoPicker = rememberImagePicker(1) { urls -> photo = urls.firstOrNull() }
     val selectedForm = forms.getOrNull(selectedIndex)
     val selectedRecord = selectedForm?.let { form -> records.firstOrNull { it.formId == form.id } }
     val editable = selectedRecord == null || selectedRecord.status == "DRAFT" || selectedRecord.status == "RETURNED"
+    val draft = rememberFormDraft(container, "profile:${selectedForm?.id}:${selectedRecord?.updatedAt.orEmpty()}")
+    val snackbar = LocalAppSnackbar.current
+    fun persistDraft() {
+        draft.replace(values.mapKeys { "field:${it.key}" } + mapOf("photo" to photo,
+            "signatureMode" to signatureMode, "handwrittenSignature" to handwrittenSignature))
+    }
+    fun updateValues(next: Map<String, String>) { values = next; persistDraft() }
+    suspend fun saveProfileDraft() {
+        val form = selectedForm ?: return
+        busy = true; error = null
+        try {
+            val data = org.json.JSONObject().apply { values.forEach { (key, value) -> put(key, value) } }
+            when (val result = container.portalRepository.saveProfileRecord(form.id, data, photo,
+                signatureMode, handwrittenSignature)) {
+                is ApiResult.Ok -> {
+                    draft.clear()
+                    snackbar("草稿已保存到服务器")
+                    when (val refreshed = container.portalRepository.profileRecords()) {
+                        is ApiResult.Ok -> records = refreshed.data
+                        is ApiResult.Err -> error = "已保存，但预览刷新失败：${refreshed.message}"
+                    }
+                }
+                is ApiResult.Err -> error = result.message
+            }
+        } finally { busy = false }
+    }
+    val photoPicker = rememberImagePicker(1) { urls -> photo = urls.firstOrNull(); persistDraft() }
     // 「罩杯」只对女性适用（与 Web 端一致）。用 derivedStateOf 只订阅「性别」这一个键，
     // 这样输入其它字段时不会把这张表牵进来重组。
     val gender by remember { derivedStateOf { values["性别"].orEmpty() } }
     val visibleFields = remember(selectedForm, gender) {
         selectedForm?.fields?.filterNot { it.name == "罩杯" && gender != "女" } ?: emptyList()
     }
+    val fieldSections = remember(visibleFields) { visibleFields.groupBy { profileSection(it.name) } }
     LaunchedEffect(show) {
         if (!show) return@LaunchedEffect
         loading = true; error = null
@@ -300,34 +372,68 @@ private fun ProfileFormsSheet(container: AppContainer, show: Boolean, onDismiss:
         if (recordResult is ApiResult.Ok) records = recordResult.data else if (recordResult is ApiResult.Err) error = recordResult.message
         loading = false
     }
-    LaunchedEffect(show, selectedForm?.id, selectedRecord?.id) {
+    LaunchedEffect(show, selectedForm?.id, selectedRecord?.updatedAt, draft.ready, loading) {
+        if (!show || !draft.ready || loading) return@LaunchedEffect
         selectedForm?.let { form ->
-            values = form.fields.associate { field -> field.name to (selectedRecord?.data?.optString(field.name)?.takeIf { it != "null" } ?: "") }
-            photo = selectedRecord?.photoData
+            values = form.fields.associate { field -> field.name to (
+                (if (editable) draft.values["field:${field.name}"] as? String else null)
+                    ?: selectedRecord?.data?.optString(field.name)?.takeIf { it != "null" } ?: "") }
+            photo = if (editable && draft.values.containsKey("photo")) draft.values["photo"] as? String else selectedRecord?.photoData
+            signatureMode = (if (editable) draft.values["signatureMode"] as? String else null)
+                ?: selectedRecord?.signatureMode ?: "GENERATED"
+            handwrittenSignature = if (editable && draft.values.containsKey("handwrittenSignature")) {
+                draft.values["handwrittenSignature"] as? String
+            } else selectedRecord?.signatureData?.takeIf { selectedRecord.signatureMode == "HANDWRITTEN" }
         }
     }
+    if (show && showSignatureEditor && editable) SignatureEditor(
+        onDismiss = { showSignatureEditor = false },
+        onConfirm = {
+            handwrittenSignature = it
+            signatureMode = "HANDWRITTEN"
+            persistDraft()
+            showSignatureEditor = false
+        },
+    )
+    LaunchedEffect(show, selectedForm?.id) { showSignatureEditor = false }
     // 这个弹层字段最多：每个字段一张卡片或一个输入框，如实走 squircle 渲染滑动会掉帧，
     // 所以只在这里关掉（见 OverlaySheet 的 squircle 参数）。
-    OverlaySheet(show = show, title = "档案填写", onDismiss = onDismiss, busy = busy, squircle = false) {
+    OverlaySheet(show = show, title = "档案填写", onDismiss = onDismiss, busy = busy, squircle = false,
+        // 与「档案查看」一致：加载提示、草稿加载与表单共用固定高度（0.82 屏高）。
+        bodyFraction = 0.82f) {
         when {
             loading -> PageState(stringResource(R.string.loading), loading = true)
+            draft.error != null && !draft.ready -> PageState("草稿加载失败", draft.error)
+            !draft.ready -> PageState(stringResource(R.string.loading), loading = true)
             error != null && forms.isEmpty() -> PageState(stringResource(R.string.load_failed), error)
             forms.isEmpty() -> PageState("暂无可填写档案")
             selectedForm == null -> PageState("暂无可填写档案")
             else -> LazyColumn(
-                // Keep the sheet within the viewport so long forms can scroll.
-                modifier = Modifier.fillMaxWidth().fillMaxHeight(0.82f),
+                // 高度由弹层内容区（bodyFraction）统一给出：长表单仍能在弹层内滚动，
+                // 且加载态、切换分卷前后都用同一块区域。
+                state = rememberAppListState(),
+                modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(horizontal = AppSpace.page, vertical = AppSpace.medium),
-                verticalArrangement = Arrangement.spacedBy(AppSpace.medium),
+                verticalArrangement = Arrangement.Top,
             ) {
                 item {
-                    SettingGroup { OverlayDropdownPreference(
+                    SettingGroup(Modifier.padding(bottom = AppSpace.medium)) { OverlayDropdownPreference(
                         title = "档案分卷", items = forms.map { it.name }, selectedIndex = selectedIndex,
                         enabled = !busy, onSelectedIndexChange = { selectedIndex = it }, modifier = Modifier.fillMaxWidth(),
                     ) }
                 }
                 selectedForm.content?.takeIf { it.isNotBlank() }?.let { description ->
-                    item { NoticeBanner(description) }
+                    item {
+                        var expanded by remember(selectedForm.id) { mutableStateOf(false) }
+                        SettingGroup(Modifier.padding(bottom = AppSpace.medium)) {
+                            BasicComponent(title = "填写说明", summary = if (expanded) "收起说明" else "查看填写要求与签署说明",
+                                onClick = { expanded = !expanded },
+                                endActions = { Icon(MiuixIcons.Basic.ArrowRight, null) })
+                            if (expanded) Text(description, style = MiuixTheme.textStyles.footnote1,
+                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                                modifier = Modifier.padding(start = AppSpace.page, end = AppSpace.page, bottom = AppSpace.page))
+                        }
+                    }
                 }
                 if (selectedRecord != null && !editable) {
                     item {
@@ -339,96 +445,140 @@ private fun ProfileFormsSheet(container: AppContainer, show: Boolean, onDismiss:
                 }
                 // 证件照：导出身份牌 / 档案图片时会用到，与 Web 端一致
                 item {
-                    Column(verticalArrangement = Arrangement.spacedBy(AppSpace.small)) {
-                        ArchiveImage("证件照", photo, ContentScale.Crop)
+                    SettingGroup(Modifier.padding(bottom = AppSpace.medium)) {
+                    Row(Modifier.fillMaxWidth().padding(AppSpace.page), verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(AppSpace.page)) {
+                        val photoBitmap = rememberDataUrlImage(photo)
+                        Box(Modifier.size(72.dp, 92.dp).clip(RoundedCornerShape(12.dp))
+                            .background(MiuixTheme.colorScheme.surface), contentAlignment = Alignment.Center) {
+                            if (photoBitmap != null) Image(photoBitmap, "证件照", Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                            else Icon(MiuixIcons.Photos, null, tint = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                        }
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(AppSpace.small)) {
+                        Text("证件照", style = MiuixTheme.textStyles.body1)
+                        Text("用于身份牌与档案图片", style = MiuixTheme.textStyles.footnote1,
+                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                         if (editable) {
                             TextButton(
                                 text = stringResource(if (photo != null) R.string.change_photo else R.string.add_photo),
                                 enabled = !busy,
                                 onClick = photoPicker,
-                                modifier = Modifier.fillMaxWidth(),
-                                colors = ButtonDefaults.textButtonColorsPrimary(),
+                                colors = ButtonDefaults.textButtonColors(textColor = MiuixTheme.colorScheme.primary),
                             )
                             if (photo != null) TextButton(
                                 text = "移除照片",
                                 enabled = !busy,
-                                onClick = { photo = null },
-                                modifier = Modifier.fillMaxWidth(),
+                                onClick = { photo = null; persistDraft() },
                             )
                         }
+                        }
+                    }
                     }
                 }
                 item { NoticeBanner(stringResource(R.string.required_hint)) }
-                items(visibleFields, key = { it.name }) { field ->
+                item { draft.error?.let { NoticeBanner(it, error = true) } }
+                fieldSections.forEach { (section, fields) ->
+                item(key = "heading:$section") { SectionTitle(section) }
+                itemsIndexed(fields, key = { _, field -> "field:${field.name}" }, contentType = { _, field -> field.type }) { index, field ->
+                    GroupedListItem(first = index == 0, last = index == fields.lastIndex) {
                     // 键入任何字段都会整体替换 values，直接读它会让整张表单的所有字段跟着重组。
                     // derivedStateOf 把订阅收窄到本字段：值没变就不会重建这一行。
                     val value by remember(field.name) { derivedStateOf { values[field.name].orEmpty() } }
                     // 必填项标签带 *（与 Web 端一致），说明见上方提示。
                     val label = if (field.required) "${field.name} *" else field.name
                     when (field.type) {
-                        "SELECT" -> SettingGroup { OverlayDropdownPreference(
+                        "SELECT" -> OverlayDropdownPreference(
                             title = label, items = listOf("请选择") + field.options,
                             selectedIndex = (field.options.indexOf(value) + 1).coerceAtLeast(0), enabled = !busy && editable,
                             onSelectedIndexChange = { index ->
                                 val next = if (index == 0) "" else field.options[index - 1]
                                 // 性别改成非「女」时顺手清掉罩杯，避免留下不适用的数据。
-                                values = if (field.name == "性别" && next != "女") {
+                                updateValues(if (field.name == "性别" && next != "女") {
                                     values + (field.name to next) + ("罩杯" to "")
                                 } else {
                                     values + (field.name to next)
-                                }
+                                })
                             },
                             modifier = Modifier.fillMaxWidth(),
-                        ) }
+                        )
                         "DATE" -> DatePreference(label, value, enabled = !busy && editable,
-                            monthOnly = field.name == "出生年月") { values = values + (field.name to it) }
-                        else -> FramedTextField(value = value, onValueChange = { values = values + (field.name to it) }, label = label, enabled = !busy && editable, modifier = Modifier.fillMaxWidth())
+                            monthOnly = field.name == "出生年月", standalone = false) { updateValues(values + (field.name to it)) }
+                        else -> FramedTextField(value = value, onValueChange = { updateValues(values + (field.name to it)) }, label = label,
+                            enabled = !busy && editable, modifier = Modifier.fillMaxWidth().padding(horizontal = AppSpace.page, vertical = AppSpace.small))
+                    }
+                    if (index != fields.lastIndex) HorizontalDivider(Modifier.padding(horizontal = AppSpace.page),
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = .08f))
                     }
                 }
-                // 电子签名与公章：与 Web 端一样只做展示，公章由管理处加盖
+                item(key = "space:$section") { Spacer(Modifier.height(AppSpace.medium)) }
+                }
+                // Signature mode follows the Web/API contract; seals remain server-managed.
                 item {
-                    ArchiveImage(
-                        "电子签名",
-                        selectedRecord?.signatureData,
-                        ContentScale.Fit,
-                        emptyText = "保存后由系统生成",
-                    )
+                    SectionTitle("签署确认")
                 }
                 item {
-                    ArchiveImage(
+                    SettingGroup {
+                        Column(Modifier.fillMaxWidth().padding(AppSpace.page),
+                            verticalArrangement = Arrangement.spacedBy(AppSpace.medium)) {
+                            OverlayDropdownPreference(title = "电子签名", items = listOf("规范签名", "手写签名"),
+                                selectedIndex = if (signatureMode == "HANDWRITTEN") 1 else 0,
+                                enabled = editable && !busy,
+                                onSelectedIndexChange = { index ->
+                                    if (index == 0) {
+                                        signatureMode = "GENERATED"; handwrittenSignature = null; persistDraft()
+                                    } else showSignatureEditor = true
+                                })
+                            ArchiveImage("签名预览",
+                                if (signatureMode == "HANDWRITTEN") handwrittenSignature
+                                else selectedRecord?.signatureData?.takeIf { selectedRecord.signatureMode == "GENERATED" },
+                                ContentScale.Fit, emptyText = if (signatureMode == "HANDWRITTEN") "请签写后保存"
+                                    else "保存草稿时，服务器将按当前账户姓名生成规范签名。")
+                            if (signatureMode == "HANDWRITTEN" && editable) TextButton("重新签写",
+                                enabled = !busy, onClick = { showSignatureEditor = true },
+                                modifier = Modifier.fillMaxWidth())
+                            if (signatureMode == "GENERATED" && editable) TextButton("生成规范签名并保存草稿",
+                                enabled = !busy, onClick = { scope.launch { saveProfileDraft() } },
+                                colors = ButtonDefaults.textButtonColors(textColor = MiuixTheme.colorScheme.primary), modifier = Modifier.fillMaxWidth())
+                        }
+                    }
+                }
+                item {
+                    SettingGroup(Modifier.padding(top = AppSpace.medium, bottom = AppSpace.medium)) {
+                    Column(Modifier.padding(AppSpace.page)) { ArchiveImage(
                         "公章",
                         selectedRecord?.officialSealData,
                         ContentScale.Fit,
                         emptyText = "管理处最终审批后加盖公章",
-                    )
+                    ) }
+                    }
                 }
                 item {
                     // 一个 lazy item 里平铺多个根节点会互相重叠，按钮统一放进 Column 排列。
                     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(AppSpace.medium)) {
-                        PrimaryAction("保存草稿", enabled = !busy && editable, onClick = {
-                            scope.launch {
-                                busy = true; error = null
-                                val data = org.json.JSONObject().apply { values.forEach { (key, value) -> put(key, value) } }
-                                when (val result = container.portalRepository.saveProfileRecord(selectedForm.id, data, photo)) {
-                                    is ApiResult.Ok -> Toast.makeText(context, "草稿已保存", Toast.LENGTH_SHORT).show()
-                                    is ApiResult.Err -> error = result.message
-                                }
-                                busy = false
-                            }
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(AppSpace.medium)) {
+                        TextButton("保存草稿", enabled = !busy && editable, modifier = Modifier.weight(1f),
+                            colors = if (selectedRecord == null) ButtonDefaults.textButtonColorsPrimary()
+                                else ButtonDefaults.textButtonColors(textColor = MiuixTheme.colorScheme.primary), onClick = {
+                            scope.launch { saveProfileDraft() }
                         })
                         selectedRecord?.let { record ->
                             if (record.status == "DRAFT" || record.status == "RETURNED") TextButton(
                                 text = "提交会签", enabled = !busy, onClick = {
                                     scope.launch {
                                         busy = true
-                                        when (val result = container.portalRepository.submitProfileRecord(record.id)) {
-                                            is ApiResult.Ok -> { Toast.makeText(context, "档案已提交会签", Toast.LENGTH_SHORT).show(); onDismiss() }
+                                        val data = org.json.JSONObject().apply { values.forEach { (key, value) -> put(key, value) } }
+                                        val saved = container.portalRepository.saveProfileRecord(selectedForm.id, data, photo,
+                                            signatureMode, handwrittenSignature)
+                                        val result = if (saved is ApiResult.Err) saved else container.portalRepository.submitProfileRecord(record.id)
+                                        when (result) {
+                                            is ApiResult.Ok -> { draft.clear(); snackbar("档案已提交会签"); onDismiss() }
                                             is ApiResult.Err -> error = result.message
                                         }
                                         busy = false
                                     }
-                                }, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.textButtonColorsPrimary(),
+                                }, modifier = Modifier.weight(1f), colors = ButtonDefaults.textButtonColorsPrimary(),
                             )
+                        }
                         }
                         error?.let { Text(it, color = MiuixTheme.colorScheme.error) }
                     }
@@ -447,14 +597,20 @@ private fun ArchiveImage(
     emptyText: String = "未上传",
 ) {
     val bitmap = rememberDataUrlImage(dataUrl)
-    Column(verticalArrangement = Arrangement.spacedBy(AppSpace.tiny)) {
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(AppSpace.small)) {
         Text(label, style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
         when {
             bitmap != null -> Image(
                 bitmap = bitmap,
                 contentDescription = label,
-                modifier = Modifier.fillMaxWidth().height(if (contentScale == ContentScale.Crop) 200.dp else 140.dp)
-                    .clip(RoundedCornerShape(AppShape.thumbnail)).background(androidx.compose.ui.graphics.Color.White).padding(AppSpace.small),
+                modifier = Modifier.fillMaxWidth().height(when {
+                    contentScale == ContentScale.Crop -> 160.dp
+                    label == "公章" -> 104.dp
+                    else -> 88.dp
+                })
+                    .clip(RoundedCornerShape(12.dp)).background(androidx.compose.ui.graphics.Color.White)
+                    .border(1.dp, MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = .12f), RoundedCornerShape(12.dp))
+                    .padding(AppSpace.medium),
                 contentScale = ContentScale.Fit,
             )
             dataUrl == null -> Text(

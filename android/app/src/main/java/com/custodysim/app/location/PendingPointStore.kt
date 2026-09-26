@@ -1,6 +1,7 @@
 package com.custodysim.app.location
 
 import android.content.Context
+import android.util.AtomicFile
 import com.custodysim.app.data.location.PendingPoint
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
@@ -16,10 +17,17 @@ import java.time.Instant
  * 不引入数据库：服务端只接受 6 小时以内的点，队列天然有上限，
  * 这里按采集时间排序并丢弃超龄数据即可。
  */
-class PendingPointStore(context: Context) {
+class PendingPointStore(context: Context, namespace: String = "") {
 
-    private val file = File(context.filesDir, "pending_locations.json")
+    private val file = File(context.filesDir, if (namespace.isEmpty()) "pending_locations.json" else "pending_locations_$namespace.json")
+    private val atomicFile = AtomicFile(file)
     private val mutex = Mutex()
+    private var closed = false
+
+    suspend fun discardAndClose() = mutex.withLock {
+        closed = true
+        withContext(Dispatchers.IO) { atomicFile.delete() }
+    }
 
     /** 队列上限：按最小间隔跑满 6 小时也就 360 个点，留一倍余量。 */
     private val maxQueued = 720
@@ -27,6 +35,7 @@ class PendingPointStore(context: Context) {
     suspend fun append(points: List<PendingPoint>) {
         if (points.isEmpty()) return
         mutex.withLock {
+            if (closed) return@withLock
             val merged = (readAll() + points)
                 .distinctBy { it.capturedAt }
                 .sortedBy { it.instantOrEpoch() }
@@ -67,9 +76,8 @@ class PendingPointStore(context: Context) {
     suspend fun size(): Int = mutex.withLock { readAll().size }
 
     private suspend fun readAll(): List<PendingPoint> = withContext(Dispatchers.IO) {
-        if (!file.exists()) return@withContext emptyList()
         try {
-            val array = JSONArray(file.readText())
+            val array = JSONArray(atomicFile.openRead().bufferedReader().use { it.readText() })
             (0 until array.length()).mapNotNull { index ->
                 runCatching { PendingPoint.from(array.getJSONObject(index)) }.getOrNull()
             }
@@ -82,10 +90,13 @@ class PendingPointStore(context: Context) {
     private suspend fun writeAll(points: List<PendingPoint>) = withContext(Dispatchers.IO) {
         val array = JSONArray()
         points.forEach { array.put(it.toJson()) }
-        // 先写临时文件再改名：避免写到一半被杀导致文件损坏
-        val temp = File(file.parentFile, "${file.name}.tmp")
-        temp.writeText(array.toString())
-        if (file.exists()) file.delete()
-        temp.renameTo(file)
+        val stream = atomicFile.startWrite()
+        try {
+            stream.write(array.toString().toByteArray(Charsets.UTF_8))
+            atomicFile.finishWrite(stream)
+        } catch (error: Exception) {
+            atomicFile.failWrite(stream)
+            throw error
+        }
     }
 }

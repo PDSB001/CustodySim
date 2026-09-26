@@ -27,8 +27,19 @@ import java.util.concurrent.TimeUnit
  */
 class ApiClient(
     private val tokenStore: TokenStore,
+    private val baseUrl: String,
     private val onSessionLost: () -> Unit = {},
 ) {
+
+    @Volatile private var closed = false
+
+    fun close() {
+        closed = true
+        accessToken = null
+        client.dispatcher.cancelAll()
+        bareClient.dispatcher.cancelAll()
+        client.connectionPool.evictAll()
+    }
 
     private val jsonMediaType = "application/json; charset=utf-8".toMediaType()
 
@@ -40,6 +51,12 @@ class ApiClient(
 
     /** 裸客户端只用于刷新：不带鉴权拦截器，避免"刷新 401 → 又触发刷新"的递归。 */
     private val bareClient = OkHttpClient.Builder()
+        .followRedirects(false)
+        .followSslRedirects(false)
+        .addInterceptor { chain ->
+            if (closed) throw java.io.IOException("服务器连接已关闭")
+            chain.proceed(chain.request())
+        }
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(20, TimeUnit.SECONDS)
         .build()
@@ -49,7 +66,9 @@ class ApiClient(
         .addInterceptor { chain ->
             val builder = chain.request().newBuilder()
                 .header(AppConfig.NATIVE_CLIENT_HEADER, AppConfig.NATIVE_CLIENT_VALUE)
-            accessToken?.let { builder.header("Authorization", "Bearer $it") }
+            if (chain.request().url.encodedPath !in setOf(AppConfig.PATH_LOGIN, AppConfig.PATH_MFA_VERIFY)) {
+                accessToken?.let { builder.header("Authorization", "Bearer $it") }
+            }
             chain.proceed(builder.build())
         }
         .authenticator { _, response -> retryWithFreshToken(response) }
@@ -57,23 +76,28 @@ class ApiClient(
 
     /** 进程启动时用本地凭证回填内存缓存。 */
     fun setAccessToken(token: String?) {
-        accessToken = token
+        if (!closed) accessToken = token
+    }
+
+    /** Workers can start a process without AuthRepository.restoreSession / an Activity. */
+    suspend fun restoreAccessTokenIfNeeded() = refreshMutex.withLock {
+        if (!closed && accessToken == null) accessToken = tokenStore.accessToken()
     }
 
     suspend fun get(path: String): ApiResult<JSONObject> = withContext(Dispatchers.IO) {
-        execute(Request.Builder().url(AppConfig.baseUrl + path).get().build())
+        execute(Request.Builder().url(baseUrl + path).get().build())
     }
 
     /** 供 data 为数组的列表接口使用。 */
     suspend fun getArray(path: String): ApiResult<JSONArray> = withContext(Dispatchers.IO) {
-        executeList(Request.Builder().url(AppConfig.baseUrl + path).get().build())
+        executeList(Request.Builder().url(baseUrl + path).get().build())
     }
 
     suspend fun post(path: String, body: JSONObject? = null): ApiResult<JSONObject> =
         withContext(Dispatchers.IO) {
             execute(
                 Request.Builder()
-                    .url(AppConfig.baseUrl + path)
+                    .url(baseUrl + path)
                     .post((body?.toString() ?: "{}").toRequestBody(jsonMediaType))
                     .build(),
             )
@@ -83,7 +107,7 @@ class ApiClient(
         withContext(Dispatchers.IO) {
             execute(
                 Request.Builder()
-                    .url(AppConfig.baseUrl + path)
+                    .url(baseUrl + path)
                     .patch((body?.toString() ?: "{}").toRequestBody(jsonMediaType))
                     .build(),
             )
@@ -96,7 +120,7 @@ class ApiClient(
         trustedDevice: String?,
     ): ApiResult<JSONObject> = withContext(Dispatchers.IO) {
         val builder = Request.Builder()
-            .url(AppConfig.baseUrl + path)
+            .url(baseUrl + path)
             .post(body.toString().toRequestBody(jsonMediaType))
         if (!trustedDevice.isNullOrBlank()) {
             builder.header(AppConfig.TRUSTED_DEVICE_HEADER, trustedDevice)
@@ -106,7 +130,10 @@ class ApiClient(
 
     private fun execute(request: Request): ApiResult<JSONObject> = try {
         client.newCall(request).execute().use { response ->
-            parseEnvelope(response.body?.string().orEmpty(), response.code)
+            val result = parseEnvelope(response.body?.string().orEmpty(), response.code)
+            if (result is ApiResult.Err && response.code == 429) {
+                result.copy(retryAfterSeconds = retryAfterSeconds(response.header("Retry-After"), result.message))
+            } else result
         }
     } catch (error: Exception) {
         // 网络层失败：凭证保持不动，让用户重试；不要当成会话失效。
@@ -153,6 +180,7 @@ class ApiClient(
      * @return 可用的访问令牌；返回 null 表示本次未能恢复（调用方的请求会以原样失败）。
      */
     private suspend fun refresh(failedAuthHeader: String): String? = refreshMutex.withLock {
+        if (closed) return@withLock null
         val current = accessToken
         if (current != null && "Bearer $current" != failedAuthHeader) {
             // 已有别的线程刷新成功，直接用新令牌重试，避免重复消费轮换令牌
@@ -162,7 +190,7 @@ class ApiClient(
             ?: return@withLock null
 
         val request = Request.Builder()
-            .url(AppConfig.baseUrl + AppConfig.PATH_REFRESH)
+            .url(baseUrl + AppConfig.PATH_REFRESH)
             .post(
                 JSONObject().put("refreshToken", refreshToken).toString()
                     .toRequestBody(jsonMediaType),
@@ -178,6 +206,7 @@ class ApiClient(
             return@withLock null
         }
 
+        if (closed) return@withLock null
         when (result) {
             is ApiResult.Ok -> {
                 val newAccess = result.data.optString("token")

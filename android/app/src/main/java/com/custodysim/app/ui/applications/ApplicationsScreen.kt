@@ -19,7 +19,6 @@ import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.ScrollBehavior
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
-import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.preference.OverlayDropdownPreference
@@ -30,13 +29,16 @@ fun ApplicationsScreen(container: AppContainer, scrollBehavior: ScrollBehavior) 
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
     var showForm by remember { mutableStateOf(false) }
-    var formType by remember { mutableIntStateOf(0) }
-    var reason by remember { mutableStateOf("") }
-    var startAt by remember { mutableStateOf("") }
-    var endAt by remember { mutableStateOf("") }
+    val draft = rememberFormDraft(container, "application")
+    val formType = (draft.values["type"] as? Number)?.toInt()?.coerceIn(0, 2) ?: 0
+    val reason = draft.values["reason"] as? String ?: ""
+    val startAt = draft.values["start"] as? String ?: ""
+    val endAt = draft.values["end"] as? String ?: ""
     var submitBusy by remember { mutableStateOf(false) }
+    var clearAfterDismiss by remember { mutableStateOf(false) }
     var submitError by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
+    val snackbar = LocalAppSnackbar.current
     val typeLabels = listOf("一般事项申请", "请假申请", "临时离监申请")
     val typeValues = listOf("GENERAL", "LEAVE", "TEMPORARY_OUT_OF_CUSTODY")
 
@@ -54,8 +56,9 @@ fun ApplicationsScreen(container: AppContainer, scrollBehavior: ScrollBehavior) 
     LaunchedEffect(Unit) { refresh() }
 
     LazyColumn(
+        state = rememberAppListState(),
         modifier = Modifier.fillMaxSize().nestedScroll(scrollBehavior.nestedScrollConnection),
-        contentPadding = PaddingValues(AppSpace.page),
+        contentPadding = glassPagePadding(),
         verticalArrangement = Arrangement.spacedBy(AppSpace.medium),
     ) {
         item {
@@ -68,7 +71,7 @@ fun ApplicationsScreen(container: AppContainer, scrollBehavior: ScrollBehavior) 
             loading && applications.isEmpty() -> item { PageState(stringResource(R.string.loading), loading = true) }
             error != null && applications.isEmpty() -> item { PageState(stringResource(R.string.load_failed), error, onRetry = ::refresh) }
             applications.isEmpty() -> item { PageState(stringResource(R.string.portal_empty_applications)) }
-            else -> items(applications) { application ->
+            else -> items(applications, key = { it.id }, contentType = { "application" }) { application ->
                 SettingGroup(modifier = Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(AppSpace.inset), verticalArrangement = Arrangement.spacedBy(AppSpace.small)) {
                         Text(application.title, style = MiuixTheme.textStyles.body1)
@@ -86,30 +89,37 @@ fun ApplicationsScreen(container: AppContainer, scrollBehavior: ScrollBehavior) 
             }
         }
     }
-    OverlaySheet(show = showForm, title = stringResource(R.string.application_new), onDismiss = { if (!submitBusy) showForm = false }, busy = submitBusy) {
+    OverlaySheet(show = showForm, title = stringResource(R.string.application_new),
+        onDismiss = { if (!submitBusy) showForm = false }, busy = submitBusy,
+        onDismissFinished = {
+            if (clearAfterDismiss) {
+                draft.clear(); clearAfterDismiss = false
+            }
+        }) {
         Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(AppSpace.page), verticalArrangement = Arrangement.spacedBy(AppSpace.medium)) {
+            draft.error?.let { NoticeBanner(it, error = true) }
             SettingGroup { OverlayDropdownPreference(
                 title = stringResource(R.string.application_type),
                 items = typeLabels,
                 selectedIndex = formType,
-                enabled = !submitBusy,
-                onSelectedIndexChange = { formType = it },
+                enabled = !submitBusy && draft.ready,
+                onSelectedIndexChange = { draft.set("type", it) },
                 modifier = Modifier.fillMaxWidth(),
             ) }
-            FramedTextField(value = reason, onValueChange = { reason = it }, label = stringResource(R.string.application_reason), enabled = !submitBusy, modifier = Modifier.fillMaxWidth())
+            FramedTextField(value = reason, onValueChange = { draft.set("reason", it) }, label = stringResource(R.string.application_reason), enabled = !submitBusy && draft.ready, modifier = Modifier.fillMaxWidth())
             if (formType != 0) {
-                DatePreference(stringResource(R.string.application_start), startAt, !submitBusy, includeTime = true) { startAt = it }
-                DatePreference(stringResource(R.string.application_end), endAt, !submitBusy, includeTime = true) { endAt = it }
+                DatePreference(stringResource(R.string.application_start), startAt, !submitBusy && draft.ready, includeTime = true) { draft.set("start", it) }
+                DatePreference(stringResource(R.string.application_end), endAt, !submitBusy && draft.ready, includeTime = true) { draft.set("end", it) }
             }
             submitError?.let { Text(it, color = MiuixTheme.colorScheme.error) }
-            PrimaryAction(text = stringResource(if (submitBusy) R.string.submitting else R.string.application_submit), busy = submitBusy, onClick = {
+            PrimaryAction(text = stringResource(if (submitBusy) R.string.submitting else R.string.application_submit), busy = submitBusy, enabled = draft.ready, onClick = {
                 if (reason.isBlank()) { submitError = "请填写申请事由"; return@PrimaryAction }
                 scope.launch {
                     submitBusy = true
                     submitError = null
                     val result = container.portalRepository.submitApplication(typeValues[formType], reason, startAt.ifBlank { null }, endAt.ifBlank { null })
                     when (result) {
-                        is ApiResult.Ok -> { showForm = false; reason = ""; startAt = ""; endAt = ""; refresh() }
+                        is ApiResult.Ok -> { draft.submitted(); clearAfterDismiss = true; showForm = false; snackbar("申请已提交"); refresh() }
                         is ApiResult.Err -> submitError = result.message
                     }
                     submitBusy = false

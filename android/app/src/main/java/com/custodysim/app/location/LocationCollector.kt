@@ -7,6 +7,10 @@ import android.content.pm.PackageManager
 import android.location.Location
 import android.location.LocationManager
 import android.os.CancellationSignal
+import android.os.Build
+import android.os.SystemClock
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import androidx.core.content.ContextCompat
 import androidx.core.location.LocationManagerCompat
 import com.custodysim.app.data.location.PendingPoint
@@ -22,9 +26,11 @@ import kotlin.coroutines.resume
  * 而 Android 框架自带的 [LocationManager] 在所有设备上都可用。
  *
  * 策略：先取 5 分钟内的最近已知位置（Wi-Fi/基站定位的缓存通常就有），
- * 太旧或没有才等一次实时定位（15 秒超时），再不行退回缓存位置。
+ * 太旧或没有才等一次实时定位（总计 15 秒超时），网络定位失败后尝试 GPS。
+ * 不回退到过期缓存，避免把旧位置误报为本次采集。
  */
 class LocationCollector(private val context: Context) {
+    private val captureMutex = Mutex()
 
     private val locationManager =
         context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
@@ -36,22 +42,27 @@ class LocationCollector(private val context: Context) {
             PackageManager.PERMISSION_GRANTED
 
     fun hasBackgroundPermission(): Boolean =
+        if (Build.VERSION.SDK_INT < 29) hasForegroundPermission() else
         ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_BACKGROUND_LOCATION) ==
             PackageManager.PERMISSION_GRANTED
 
     /** @return 转换后的待上报点；无权限且无任何可用位置时返回 null。 */
     @SuppressLint("MissingPermission")
-    suspend fun collectOnce(): PendingPoint? {
-        if (!hasForegroundPermission()) return null
+    suspend fun collectOnce(allowCached: Boolean = true): PendingPoint? = captureMutex.withLock {
+        if (!hasForegroundPermission()) return@withLock null
 
-        val known = lastKnown()
+        val known = if (allowCached) lastKnown() else null
         val fix = withTimeoutOrNull(FIX_TIMEOUT_MS) {
-            known?.takeIf { isFresh(it) } ?: requestSingleFix()
-        } ?: known ?: return null
+            known?.takeIf { isFresh(it) } ?: providers().firstNotNullOfOrNull { provider ->
+                withTimeoutOrNull(if (provider == LocationManager.NETWORK_PROVIDER) 5_000L else 10_000L) {
+                    requestSingleFix(provider)?.takeIf { isFresh(it) }
+                }
+            }
+        } ?: return@withLock null
 
         // Android 给的是 WGS84；服务端与腾讯底图都按 GCJ02，必须转换
         val (latitude, longitude) = Gcj02.wgs84ToGcj02(fix.latitude, fix.longitude)
-        return PendingPoint.of(
+        PendingPoint.of(
             latitude = latitude,
             longitude = longitude,
             accuracyMeters = if (fix.hasAccuracy()) fix.accuracy.toDouble() else 0.0,
@@ -68,15 +79,22 @@ class LocationCollector(private val context: Context) {
     }
 
     private fun lastKnown(): Location? = providers()
-        .mapNotNull { runCatching { locationManager.getLastKnownLocation(it) }.getOrNull() }
+        .mapNotNull {
+            try { locationManager.getLastKnownLocation(it) }
+            catch (_: SecurityException) { null }
+            catch (_: IllegalArgumentException) { null }
+        }
         .maxByOrNull { it.time }
 
     private fun isFresh(location: Location): Boolean =
-        System.currentTimeMillis() - location.time < FRESH_WINDOW_MS
+        LocationTiming.isFresh(SystemClock.elapsedRealtimeNanos() / 1_000_000,
+            location.elapsedRealtimeNanos / 1_000_000, System.currentTimeMillis(), location.time) &&
+            location.latitude.isFinite() && location.latitude in -90.0..90.0 &&
+            location.longitude.isFinite() && location.longitude in -180.0..180.0 &&
+            (!location.hasAccuracy() || (location.accuracy.isFinite() && location.accuracy >= 0))
 
     @SuppressLint("MissingPermission")
-    private suspend fun requestSingleFix(): Location? {
-        val provider = providers().firstOrNull() ?: return null
+    private suspend fun requestSingleFix(provider: String): Location? {
         return suspendCancellableCoroutine { continuation ->
             val signal = CancellationSignal()
             continuation.invokeOnCancellation { signal.cancel() }
@@ -96,9 +114,6 @@ class LocationCollector(private val context: Context) {
     }
 
     private companion object {
-        /** 定位新鲜度阈值：5 分钟内的缓存位置直接可用。 */
-        const val FRESH_WINDOW_MS = 5 * 60 * 1000L
-
         /** 等一次实时定位的超时。 */
         const val FIX_TIMEOUT_MS = 15_000L
     }

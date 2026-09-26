@@ -13,6 +13,7 @@ export type SessionUser = {
   role: Role
   organizationId: string | null
   mustChangePassword: boolean
+  avatar?: string | null
 }
 
 /**
@@ -45,6 +46,7 @@ export async function getSessionUser(
       id: users.id,
       username: users.username,
       name: users.name,
+      avatar: users.avatar,
       role: users.role,
       organizationId: users.organizationId,
       mustChangePassword: users.mustChangePassword,
@@ -66,6 +68,7 @@ export async function getSessionUser(
     id: user.id,
     username: user.username,
     name: user.name,
+    avatar: user.avatar,
     role: user.role as Role,
     organizationId: user.organizationId,
     mustChangePassword: user.mustChangePassword,

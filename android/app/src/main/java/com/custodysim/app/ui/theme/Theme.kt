@@ -7,9 +7,10 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.background
 import androidx.compose.runtime.*
-import androidx.compose.animation.Crossfade
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
@@ -20,6 +21,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
 import androidx.core.content.edit
 import top.yukonga.miuix.kmp.theme.*
+import top.yukonga.miuix.kmp.squircle.LocalSquircleEnabled
 
 enum class Appearance { SYSTEM, LIGHT, DARK }
 
@@ -87,6 +89,7 @@ private val AppTypography = defaultTextStyles(
 @Composable
 fun CustodySimTheme(content: @Composable () -> Unit) {
     val context = LocalContext.current
+    val effects = rememberEffectsState()
     val appearance = remember {
         val preferences = context.getSharedPreferences("appearance", Context.MODE_PRIVATE)
         AppearanceState(
@@ -104,7 +107,11 @@ fun CustodySimTheme(content: @Composable () -> Unit) {
             lightColors = LightColors, darkColors = DarkColors)
     }
     val view = LocalView.current
-    SideEffect {
+    val surface = animateColorAsState(
+        targetValue = if (dark) DarkColors.surface else LightColors.surface,
+        animationSpec = tween(260), label = "theme-surface",
+    )
+    LaunchedEffect(view, dark) {
         (view.context as? Activity)?.window?.let { window ->
             WindowCompat.getInsetsController(window, view).apply {
                 isAppearanceLightStatusBars = !dark
@@ -112,11 +119,17 @@ fun CustodySimTheme(content: @Composable () -> Unit) {
             }
         }
     }
-    CompositionLocalProvider(LocalAppearance provides appearance, LocalDarkTheme provides dark) {
-        Crossfade(targetState = dark, animationSpec = tween(260), label = "theme-transition") {
-            MiuixTheme(controller = controller, textStyles = AppTypography) {
-                Box(Modifier.fillMaxSize().background(MiuixTheme.colorScheme.surface)) { content() }
-            }
+    CompositionLocalProvider(
+        LocalAppearance provides appearance,
+        LocalEffects provides effects,
+        LocalDarkTheme provides dark,
+        // Miuix's rounded fallback avoids a shader-mask offscreen layer per card/button.
+        LocalSquircleEnabled provides false,
+    ) {
+        // Keep one content tree: crossfading whole screens duplicates state and effects.
+        MiuixTheme(controller = controller, textStyles = AppTypography) {
+            // Read animation state during drawing, not composition of the entire app.
+            Box(Modifier.fillMaxSize().drawBehind { drawRect(surface.value) }) { content() }
         }
     }
 }

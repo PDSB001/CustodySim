@@ -3,10 +3,6 @@ package com.custodysim.app.ui.tasks
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -35,8 +31,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -54,12 +50,12 @@ import com.custodysim.app.ui.common.OverlaySheet
 import com.custodysim.app.ui.common.rememberImagePicker
 import com.custodysim.app.ui.common.statusColor
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.distinctUntilChanged
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.HorizontalDivider
 import top.yukonga.miuix.kmp.basic.ScrollBehavior
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
-import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.basic.DropdownItem
 import top.yukonga.miuix.kmp.preference.OverlaySpinnerPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -114,6 +110,8 @@ private const val TASKS_PAGE_SIZE = 20
 @Composable
 fun TasksScreen(container: AppContainer, scrollBehavior: ScrollBehavior) {
     val scope = rememberCoroutineScope()
+    val snackbar = LocalAppSnackbar.current
+    val listState = rememberAppListState()
     var category by remember { mutableStateOf(TaskCategory.PENDING) }
     var counts by remember { mutableStateOf<TaskCounts?>(null) }
     var tasks by remember { mutableStateOf<List<ReportTask>>(emptyList()) }
@@ -149,29 +147,30 @@ fun TasksScreen(container: AppContainer, scrollBehavior: ScrollBehavior) {
 
     /** 追加下一页；游标用最后一条的 (deadline, id)，与后端分类内的排序一致。 */
     suspend fun loadMore() {
-        if (loadingMore || reachedEnd) return
+        if (loading || loadingMore || reachedEnd) return
         val requested = category
+        val originalTasks = tasks
         val last = tasks.lastOrNull() ?: return
         loadingMore = true
-        val cursor = "${last.deadline}|${last.id}"
-        val result = container.taskRepository.fetchTasks(
-            limit = TASKS_PAGE_SIZE, cursor = cursor, category = requested,
-        )
-        if (category != requested) {
-            loadingMore = false
-            return
-        }
-        when (result) {
-            is ApiResult.Ok -> {
-                // 翻页期间可能有新任务插入头部，按 id 去重，避免重复项。
-                val known = tasks.mapTo(mutableSetOf()) { it.id }
-                tasks = tasks + result.data.filterNot { it.id in known }
-                reachedEnd = result.data.size < TASKS_PAGE_SIZE
-                notice = null
+        try {
+            val cursor = "${last.deadline}|${last.id}"
+            val result = container.taskRepository.fetchTasks(
+                limit = TASKS_PAGE_SIZE, cursor = cursor, category = requested,
+            )
+            if (category != requested || tasks !== originalTasks || loading) return
+            when (result) {
+                is ApiResult.Ok -> {
+                    val known = tasks.mapTo(mutableSetOf()) { it.id }
+                    val added = result.data.filter { known.add(it.id) }
+                    tasks = tasks + added
+                    reachedEnd = result.data.size < TASKS_PAGE_SIZE || added.isEmpty()
+                    notice = null
+                }
+                is ApiResult.Err -> notice = result.message
             }
-            is ApiResult.Err -> notice = result.message
+        } finally {
+            loadingMore = false
         }
-        loadingMore = false
     }
 
     // 首次进入与切换分类都走这里：清空上一个分类的内容再拉第一页。
@@ -179,12 +178,25 @@ fun TasksScreen(container: AppContainer, scrollBehavior: ScrollBehavior) {
         tasks = emptyList()
         reachedEnd = false
         notice = null
+        listState.scrollToItem(0)
         refresh()
     }
 
+    // Observe visible items, not prefetched composition: cache windows must not
+    // trigger a chain of network requests while the user remains at the top.
+    LaunchedEffect(category, tasks.size, loading, reachedEnd, notice) {
+        if (loading || reachedEnd || notice != null || tasks.isEmpty()) return@LaunchedEffect
+        snapshotFlow {
+            val layout = listState.layoutInfo
+            layout.visibleItemsInfo.isNotEmpty() &&
+                (layout.visibleItemsInfo.lastOrNull()?.index ?: -1) >= layout.totalItemsCount - 3
+        }.distinctUntilChanged().collect { nearEnd -> if (nearEnd) loadMore() }
+    }
+
     LazyColumn(
+        state = listState,
         modifier = Modifier.fillMaxSize().nestedScroll(scrollBehavior.nestedScrollConnection),
-        contentPadding = PaddingValues(AppSpace.page),
+        contentPadding = glassPagePadding(),
     ) {
         item {
             ListHeader(description = stringResource(R.string.tasks_hint),
@@ -203,23 +215,18 @@ fun TasksScreen(container: AppContainer, scrollBehavior: ScrollBehavior) {
                     stringResource(CATEGORY_EMPTY_HINT.getValue(category)),
                 )
             }
-            else -> itemsIndexed(tasks, key = { _, task -> task.id }) { index, task ->
-                AnimatedVisibility(visible = true,
-                    enter = fadeIn(tween(260, delayMillis = index * 35)) +
-                        slideInVertically(tween(260, delayMillis = index * 35)) { it / 10 }) {
+            else -> itemsIndexed(tasks, key = { _, task -> task.id }, contentType = { _, _ -> "task" }) { index, task ->
                     GroupedListItem(first = index == 0, last = index == tasks.lastIndex) {
                         TaskRow(task, onEdit = { editing = task; sheetVisible = true })
                         if (index < tasks.lastIndex) HorizontalDivider(
                             modifier = Modifier.padding(horizontal = AppSpace.inset),
                             color = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.12f))
                     }
-                }
             }
         }
-        // 触底加载：这一项进入组合即请求下一页；列表变长后它会滚出视口，不会重复触发。
+        // Loading footer has no composition-triggered network side effects.
         if (tasks.isNotEmpty() && !reachedEnd && notice == null) {
             item(key = "tasks-load-more") {
-                LaunchedEffect(tasks.size) { loadMore() }
                 PageState(stringResource(R.string.loading), loading = true)
             }
         }
@@ -235,6 +242,7 @@ fun TasksScreen(container: AppContainer, scrollBehavior: ScrollBehavior) {
             onDismissFinished = { editing = null },
             onDone = {
                 sheetVisible = false
+                snackbar("任务填报已提交")
                 scope.launch { refresh() }
             },
         )
@@ -352,7 +360,7 @@ private fun SubmitSheet(
     onDone: () -> Unit,
 ) {
     val scope = rememberCoroutineScope()
-    val values = remember(task.id) { mutableStateMapOf<String, Any?>() }
+    val draft = rememberFormDraft(container, "task:${task.id}")
     val resources = LocalResources.current
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -360,13 +368,15 @@ private fun SubmitSheet(
     OverlaySheet(show = show, title = task.title, onDismiss = onDismiss, busy = busy,
         onDismissFinished = onDismissFinished) {
         LazyColumn(
+            state = rememberAppListState(),
             modifier = Modifier.fillMaxWidth(),
             contentPadding = PaddingValues(AppSpace.page),
         ) {
             item { NoticeBanner(stringResource(R.string.required_hint)) }
-            items(task.fields, key = { it.name }) { field ->
+            item { draft.error?.let { NoticeBanner(it, error = true) } }
+            items(task.fields, key = { it.name }, contentType = { it.type }) { field ->
                 Column(verticalArrangement = Arrangement.spacedBy(AppSpace.small)) {
-                    FieldEditor(field, values, enabled = !busy)
+                    FieldEditor(field, draft, enabled = !busy && draft.ready)
                     Spacer(Modifier.height(AppSpace.small))
                 }
             }
@@ -378,7 +388,9 @@ private fun SubmitSheet(
                 PrimaryAction(
                     text = stringResource(if (busy) R.string.submitting else R.string.submit),
                     busy = busy,
+                    enabled = draft.ready,
                     onClick = {
+                        val values = draft.values.filterKeys { name -> task.fields.any { it.name == name } }
                         val missing = task.fields.any { field ->
                             if (!field.required || field.type == "COPYWRITE") false
                             else when (val value = values[field.name]) {
@@ -396,7 +408,7 @@ private fun SubmitSheet(
                             busy = true
                             error = null
                             when (val result = container.taskRepository.submit(task.id, values.toMap())) {
-                                is ApiResult.Ok -> onDone()
+                                is ApiResult.Ok -> { draft.submitted(); onDone() }
                                 is ApiResult.Err -> error = result.message
                             }
                             busy = false
@@ -410,11 +422,11 @@ private fun SubmitSheet(
 }
 
 @Composable
-private fun FieldEditor(field: TaskField, values: MutableMap<String, Any?>, enabled: Boolean) {
+private fun FieldEditor(field: TaskField, draft: FormDraft, enabled: Boolean) {
     val label = field.name + if (field.required) " *" else ""
     // 输入任一字段都会改写整个 values，直接读它会让同一表单里其它字段一起重组；
     // 这里把订阅收窄到本字段，只有本字段的值变了才重建这一行。
-    val value by remember(field.name) { derivedStateOf { values[field.name] } }
+    val value by remember(field.name, draft) { derivedStateOf { draft.values[field.name] } }
     when (field.type) {
         "COPYWRITE" -> {
             Text(label, style = MiuixTheme.textStyles.body1)
@@ -423,7 +435,7 @@ private fun FieldEditor(field: TaskField, values: MutableMap<String, Any?>, enab
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
             }
             val text = (value as? String) ?: ""
-            FramedTextField(value = text, onValueChange = { values[field.name] = it },
+            FramedTextField(value = text, onValueChange = { draft.set(field.name, it) },
                 label = stringResource(R.string.copywrite_input), enabled = enabled,
                 modifier = Modifier.fillMaxWidth())
         }
@@ -433,10 +445,10 @@ private fun FieldEditor(field: TaskField, values: MutableMap<String, Any?>, enab
             val images = (value as? List<*>)?.filterIsInstance<String>() ?: emptyList()
             if (images.isNotEmpty()) {
                 ImageThumbs(images, Modifier.padding(top = AppSpace.small), onRemove = if (enabled) { index ->
-                    values[field.name] = images.filterIndexed { i, _ -> i != index }
+                    draft.set(field.name, images.filterIndexed { i, _ -> i != index })
                 } else null)
             }
-            val picker = rememberImagePicker((3 - images.size).coerceAtLeast(1)) { urls -> values[field.name] = (images + urls).take(3) }
+            val picker = rememberImagePicker((3 - images.size).coerceAtLeast(1)) { urls -> draft.set(field.name, (images + urls).take(3)) }
             TextButton(
                 text = if (images.isEmpty()) stringResource(R.string.add_images) else stringResource(R.string.more_images, images.size),
                 enabled = enabled && images.size < 3,
@@ -455,26 +467,26 @@ private fun FieldEditor(field: TaskField, values: MutableMap<String, Any?>, enab
                 items = options.map { DropdownItem(text = it) },
                 selectedIndex = selectedOption.takeIf { it >= 0 }?.plus(1) ?: 0,
                 enabled = enabled,
-                onSelectedIndexChange = { index -> values[field.name] = field.options.getOrNull(index - 1) ?: "" },
+                onSelectedIndexChange = { index -> draft.set(field.name, field.options.getOrNull(index - 1) ?: "") },
                 modifier = Modifier.fillMaxWidth(),
             ) }
         }
 
         "TEXTAREA" -> {
             val text = (value as? String) ?: ""
-            FramedTextField(value = text, onValueChange = { values[field.name] = it },
+            FramedTextField(value = text, onValueChange = { draft.set(field.name, it) },
                 label = label, enabled = enabled, modifier = Modifier.fillMaxWidth())
         }
 
         "DATE" -> {
             val text = (value as? String) ?: ""
-            DatePreference(label, text, enabled) { values[field.name] = it }
+            DatePreference(label, text, enabled) { draft.set(field.name, it) }
         }
 
         else -> {
             val text = (value as? String) ?: ""
             FramedTextField(value = text,
-                onValueChange = { values[field.name] = it },
+                onValueChange = { draft.set(field.name, it) },
                 label = label,
                 enabled = enabled,
                 keyboardOptions = KeyboardOptions(keyboardType = if (field.type == "NUMBER") KeyboardType.Decimal else KeyboardType.Text),

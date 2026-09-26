@@ -115,31 +115,6 @@ class AuthRepository(
         }
     }
 
-    /**
-     * 修改密码。
-     *
-     * 成功后本地凭证必须全部清空（含可信设备）：服务端已递增 tokenVersion 并撤销信任设备，
-     * 而响应体里没有新令牌可用 —— 只能重新登录。
-     */
-    suspend fun changePassword(
-        currentPassword: String,
-        newPassword: String,
-        confirmPassword: String,
-    ): ApiResult<Unit> {
-        val body = JSONObject()
-            .put("currentPassword", currentPassword)
-            .put("newPassword", newPassword)
-            .put("confirmPassword", confirmPassword)
-        val result = apiClient.post(AppConfig.PATH_CHANGE_PASSWORD, body)
-        if (result is ApiResult.Ok) clearLocalTokens(keepTrustedDevice = false)
-        return when (result) {
-            is ApiResult.Ok -> ApiResult.Ok(Unit)
-            is ApiResult.Err -> result
-        }
-    }
-
-    suspend fun trustedDevice(): String? = tokenStore.trustedDevice()
-
     private suspend fun saveSessionTokens(data: JSONObject) {
         val access = data.optString("token")
         val refresh = data.optString("refreshToken")

@@ -10,6 +10,7 @@ data class SessionUser(
     val role: String,
     val organizationId: String?,
     val mustChangePassword: Boolean,
+    val avatar: String? = null,
 ) {
     val isSupervised: Boolean get() = role == "SUPERVISED"
 
@@ -21,6 +22,7 @@ data class SessionUser(
             role = json.optString("role"),
             organizationId = json.optString("organizationId").takeIf { it.isNotBlank() && it != "null" },
             mustChangePassword = json.optBoolean("mustChangePassword", false),
+            avatar = json.optString("avatar").takeIf { it.isNotBlank() && it != "null" },
         )
     }
 }

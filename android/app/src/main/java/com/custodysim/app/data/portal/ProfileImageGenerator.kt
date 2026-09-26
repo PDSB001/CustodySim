@@ -1,9 +1,10 @@
 package com.custodysim.app.data.portal
 
+import androidx.core.graphics.createBitmap
+import androidx.core.graphics.withSave
 import android.content.ContentValues
 import android.content.Context
 import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.Path
@@ -12,8 +13,6 @@ import android.graphics.Typeface
 import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
-import android.util.Base64
-import com.custodysim.app.data.media.ImagePipeline
 import org.json.JSONObject
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -40,7 +39,7 @@ object ProfileImageGenerator {
     fun saveIdentityPng(context: Context, record: ProfileRecord, summary: ProfileSummary?): Uri? {
         val width = 1200
         val height = 756
-        val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        val bitmap = createBitmap(width, height)
         val canvas = Canvas(bitmap)
         canvas.drawColor(0xfff7f9ff.toInt())
         fillRoundRect(canvas, 24f, 24f, 1176f, 732f, 28f, 0xffffffff.toInt())
@@ -116,7 +115,7 @@ object ProfileImageGenerator {
         val footerTextY = height - 76
         val signatureY = footerTextY - 140
         val sealY = footerTextY - 190
-        val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        val bitmap = createBitmap(width, height)
         val canvas = Canvas(bitmap)
         canvas.drawColor(0xfff5f6fa.toInt())
         fillRect(canvas, 48f, 48f, 1192f, (height - 48).toFloat(), 0xffffffff.toInt())
@@ -202,13 +201,13 @@ object ProfileImageGenerator {
      */
     private fun drawImageSliced(canvas: Canvas, bitmap: Bitmap, left: Float, top: Float, width: Float, height: Float, radius: Float) {
         val scale = maxOf(width / bitmap.width, height / bitmap.height)
-        val save = canvas.save()
+        canvas.withSave {
         if (radius > 0f) {
             val path = Path().apply { addRoundRect(RectF(left, top, left + width, top + height), radius, radius, Path.Direction.CW) }
             canvas.clipPath(path)
         }
         drawImageScaled(canvas, bitmap, left, top, width, height, scale)
-        canvas.restoreToCount(save)
+        }
     }
 
     /** 等比缩放到目标框内并居中（Web 端 `xMidYMid meet`，用于签名与公章）。 */
@@ -343,16 +342,6 @@ object ProfileImageGenerator {
     }
 
     private fun decodeImage(data: String?): Bitmap? {
-        if (data.isNullOrBlank()) return null
-        return try {
-            val encoded = data.substringAfter(',', data)
-            val bytes = Base64.decode(encoded, Base64.DEFAULT)
-            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-            BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
-            val options = BitmapFactory.Options().apply {
-                inSampleSize = ImagePipeline.sampleSizeFor(bounds.outWidth, bounds.outHeight, MAX_SOURCE_PX)
-            }
-            BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)
-        } catch (_: Exception) { null }
+        return com.custodysim.app.data.media.decodeDataUrlBitmap(data, MAX_SOURCE_PX)
     }
 }

@@ -45,9 +45,10 @@ fun FramedTextField(
         MiuixTextField(
             value = value,
             onValueChange = onValueChange,
-            modifier = modifier.border(
-                BorderStroke(if (focused) 0.dp else 1.dp,
-                    MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.38f)),
+            // A zero-width BorderStroke draws a hairline; omit it while Miuix draws focus.
+            modifier = if (focused) modifier else modifier.border(
+                BorderStroke(1.dp,
+                    MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = if (enabled) 0.28f else 0.12f)),
                 RoundedCornerShape(AppShape.field),
             ),
             label = label,

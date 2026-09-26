@@ -5,16 +5,28 @@ import com.custodysim.app.data.net.ApiClient
 import com.custodysim.app.data.net.ApiResult
 import org.json.JSONArray
 import org.json.JSONObject
+import android.os.SystemClock
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 /** 位置上报接口。策略与批量上报都在这里，队列与调度在 location 包。 */
 class LocationRepository(private val apiClient: ApiClient) {
+    private val policyMutex = Mutex()
+    private var cachedPolicy = LocationPolicy.FALLBACK
+    private var policyExpiresAt = 0L
 
     /** 拉取服务端策略；失败时返回 [LocationPolicy.FALLBACK]，不阻断上报。 */
-    suspend fun fetchPolicy(): LocationPolicy =
+    suspend fun fetchPolicy(): LocationPolicy = policyMutex.withLock {
+        if (SystemClock.elapsedRealtime() < policyExpiresAt) return@withLock cachedPolicy
         when (val result = apiClient.get(AppConfig.PATH_LOCATION_CONFIG)) {
-            is ApiResult.Ok -> LocationPolicy.from(result.data)
-            is ApiResult.Err -> LocationPolicy.FALLBACK
+            is ApiResult.Ok -> {
+                cachedPolicy = LocationPolicy.from(result.data)
+                policyExpiresAt = SystemClock.elapsedRealtime() + 3_600_000
+            }
+            is ApiResult.Err -> policyExpiresAt = SystemClock.elapsedRealtime() + 300_000
         }
+        cachedPolicy
+    }
 
     /**
      * 批量上报。调用方负责按 `maxPointsPerBatch` 分片。

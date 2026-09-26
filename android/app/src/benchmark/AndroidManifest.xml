@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  仅 benchmark 构建生效。
+
+  benchmark 是"开 R8 的真机冒烟包"，同样要连局域网上的明文开发服务器
+  （http://<局域网IP>:3000），但仓库只在 debug 源集放行明文，所以这里补一份。
+
+  内容必须与 src/debug/AndroidManifest.xml 及其 res/xml/network_security_config.xml
+  保持一致，改一处要同步改另一处。
+
+  release 不含这份清单：生产只走 HTTPS。
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.ACCESS_LOCAL_NETWORK" />
+    <application android:networkSecurityConfig="@xml/network_security_config" />
+</manifest>

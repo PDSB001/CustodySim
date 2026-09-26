@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <!-- benchmark（R8 + debug 签名的冒烟包）要访问 http://<局域网IP>:3000 的联调服务器 -->
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>

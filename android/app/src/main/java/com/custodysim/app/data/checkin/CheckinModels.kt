@@ -19,6 +19,8 @@ data class CheckinSlot(
     val makeupId: String?,
     val makeupStatus: String?,
     val makeupReason: String?,
+    val needLocation: Boolean = false,
+    val allowNoLocation: Boolean = true,
 ) {
     companion object {
         fun from(json: JSONObject) = CheckinSlot(
@@ -37,29 +39,8 @@ data class CheckinSlot(
             makeupId = json.optString("makeupId").takeIf { it.isNotBlank() && it != "null" },
             makeupStatus = json.optString("makeupStatus").takeIf { it.isNotBlank() && it != "null" },
             makeupReason = json.optString("makeupReason").takeIf { it.isNotBlank() && it != "null" },
-        )
-    }
-}
-
-/** 我的补卡申请记录。 */
-data class MakeupItem(
-    val id: String,
-    val taskId: String,
-    val ruleName: String,
-    val reason: String,
-    val status: String,
-    val reviewComment: String?,
-    val createdAt: String,
-) {
-    companion object {
-        fun from(json: JSONObject) = MakeupItem(
-            id = json.optString("id"),
-            taskId = json.optString("taskId"),
-            ruleName = json.optString("ruleName"),
-            reason = json.optString("reason"),
-            status = json.optString("status"),
-            reviewComment = json.optString("reviewComment").takeIf { it.isNotBlank() && it != "null" },
-            createdAt = json.optString("createdAt"),
+            needLocation = json.optBoolean("needLocation", false),
+            allowNoLocation = json.optBoolean("allowNoLocation", true),
         )
     }
 }

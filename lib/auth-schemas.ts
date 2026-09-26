@@ -9,6 +9,7 @@ export const SessionUserSchema = z.object({
   role: z.enum(ROLES),
   organizationId: z.string().uuid().nullable(),
   mustChangePassword: z.boolean(),
+  avatar: z.string().nullable().optional(),
 })
 
 export const LoginSchema = z.object({

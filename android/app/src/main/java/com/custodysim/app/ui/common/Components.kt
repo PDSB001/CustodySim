@@ -3,7 +3,6 @@ package com.custodysim.app.ui.common
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -46,7 +45,7 @@ fun SettingGroup(modifier: Modifier = Modifier, content: @Composable ColumnScope
 fun GroupedListItem(first: Boolean, last: Boolean, modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
     val top = if (first) AppShape.group else 0.dp
     val bottom = if (last) AppShape.group else 0.dp
-    Column(modifier.fillMaxWidth().animateContentSize().clip(RoundedCornerShape(top, top, bottom, bottom))
+    Column(modifier.fillMaxWidth().clip(RoundedCornerShape(top, top, bottom, bottom))
         .background(MiuixTheme.colorScheme.background), content = content)
 }
 

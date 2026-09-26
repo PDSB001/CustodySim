@@ -1,112 +1,58 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# CustodySim
 
-## 测试
+CustodySim 包含 Web 管理与业务端、Android 客户端和独立聊天实时服务，支持组织与人员管理、点名打卡、任务表单、申请审批、档案签名与图片导出、通知、聊天和位置上报。
 
-测试分为两层，单元测试不依赖数据库，端到端测试覆盖真实登录及角色工作台路由。
+当前版本：**1.5.2-test**。操作权限由服务端角色与组织范围控制。
 
-| 层级       | 覆盖内容                                                       | 命令                                |
-| ---------- | -------------------------------------------------------------- | ----------------------------------- |
-| 静态检查   | 所有受维护源码的 ESLint 零警告检查                             | `npx --yes pnpm@12.4.2 lint`       |
-| 类型检查   | 全项目 TypeScript 类型检查                                     | `npx --yes pnpm@12.4.2 typecheck`  |
-| 单元测试   | 组织层级、编号、密码、规则周期、表单载荷、档案及申请审批状态机 | `npx --yes pnpm@12.4.2 test`       |
-| 监听测试   | 修改领域规则时持续运行单元测试                                 | `npx --yes pnpm@12.4.2 test:watch` |
-| 端到端测试 | 三类角色登录、角色路由、申请入口及权限隔离                     | `npx --yes pnpm@12.4.2 test:e2e`   |
-| 全量验证   | 依次执行静态、类型、单元与端到端检查                           | `npx --yes pnpm@12.4.2 test:all`   |
+## 选择适合你的文档
 
-端到端测试默认使用独立的 `http://127.0.0.1:3100`，避免占用日常开发的 3000 端口；可通过 `E2E_BASE_URL` 覆盖。首次运行若提示缺少浏览器，请执行：
+**如果你是使用者**，不需要搭建服务器：使用管理员提供的网址或安装包，按[使用指南](docs/user-guide.md)登录并办理事项。遇到问题先看[常见问题](docs/faq.md)。
 
-```powershell
-npx playwright install chromium
-```
+**如果你是监管人员或管理员**，按[管理人员指南](docs/staff-guide.md)安排和审核业务。管理员账号与服务器维护是两种职责，业务操作不要求执行部署命令。
 
-端到端测试包含真实数据库写入。首次运行前执行 `pnpm db:setup-e2e`，它会在
-`DATABASE_URL` 所在 PostgreSQL 实例创建或复用 `custodysim_e2e`，同步表结构并初始化
-测试账号。本机 `.env.local` 需要显式配置 `E2E_DATABASE_NAME`，也可用
-`E2E_DATABASE_URL` 指向另一实例；
-测试配置会拒绝与业务库相同的地址，禁止把生产库地址直接用作测试库。
+**如果你负责开发或运维**，从下表进入技术指南。部署服务后，请把使用指南和正确的访问入口交给用户，而不是要求用户照着构建命令操作。
 
-## 电子围栏
+## 技术人员入口
 
-电子围栏通过腾讯地图 JavaScript API GL 展示与选点。请在 `.env.local` 配置
-`NEXT_PUBLIC_TENCENT_MAP_KEY`，并在腾讯位置服务控制台把该 Key 限制到实际部署域名。围栏坐标统一使用腾讯地图的 `GCJ-02` 坐标系。
+| 需要做什么                       | 文档                                            |
+| -------------------------------- | ----------------------------------------------- |
+| 本地启动 Web 和聊天服务          | [开发与测试](docs/development.md)               |
+| 首次部署、增量更新、Nginx 与排障 | [生产部署](docs/deployment.md)                  |
+| 数据库、密钥、实时服务与可选能力 | [配置参考](docs/configuration.md)               |
+| 构建、安装和联调 Android         | [Android 开发指南](docs/android-development.md) |
+| 原生鉴权、定位、图片和聊天协议   | [Android 接口与行为](docs/android-client.md)    |
+| 专题说明和历史验证记录           | [文档目录](docs/README.md)                      |
 
-当前版本在同一张 `electronic_fences` 表中保存围栏配置与移动端定位上报；网页端不采集位置。精确围栏位置上报与打卡 GPS 一样仅保留 72 小时，随后自动删除。移动端可调用
-`POST /api/mobile/geofence/evaluate` 提交 `latitude`、`longitude`、`accuracyMeters`、
-`capturedAt` 与 `coordinateSystem: "GCJ02"` 做即时判定；只有在押人员参与。越界会创建
-一条当天的原因说明任务。服务端会根据上一次和本次定位判定首次进入、离开或持续在围栏外。
+## 技术组成
 
-## 本地 IP 粗略定位
+| 模块           | 当前配置                                                 | 入口                    |
+| -------------- | -------------------------------------------------------- | ----------------------- |
+| Web / HTTP API | Next.js 16.3.3、React 19、TypeScript                     | app/、components/、lib/ |
+| 数据库         | PostgreSQL、Drizzle ORM、node-postgres                   | lib/db/schema.ts        |
+| 聊天实时服务   | Socket.IO，独立 Node 进程                                | realtime-server.mjs     |
+| Android        | Kotlin 2.4.0、Compose、Miuix 0.9.3                       | android/                |
+| Android 构建   | Gradle 9.8.0、AGP 9.4.1；min 26 / compile 37 / target 37 | android/gradle/         |
 
-打卡页关闭 GPS 时，系统通过本地 `geoip-lite` 数据库解析 IP，仅保存国家、省份、城市与时区，不保存 IP 库返回的经纬度范围，也不会把用户 IP 发给第三方定位接口。
+## 本地开发快速启动
 
-首次部署已可使用依赖内置数据。建议注册免费的 MaxMind GeoLite2 账户后，将 `MAXMIND_LICENSE_KEY` 写入 `.env.local`；也可以用 `MAXMIND_GEOIP_CONF` 指向包含 `LicenseKey` 的 MaxMind 配置文件。随后运行：
-
-```powershell
-npx --yes pnpm@12.4.2 geoip:update
-```
-
-生产部署脚本在检测到 `MAXMIND_LICENSE_KEY` 后会自动执行更新。
-
-## Getting Started
-
-First, run the development server:
+准备 Node.js（项目声明最低 20.9.0）、pnpm 12.4.2 和独立开发 PostgreSQL 数据库后：
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
+pnpm install --frozen-lockfile
+```
+
+将 [.env.example](.env.example) 复制为 `.env.local`，填写自己的数据库连接和独立随机密钥；默认密钥占位符不可直接运行。然后：
+
+```bash
+pnpm db:push
 pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+另开终端执行 `pnpm dev:realtime`，Web 默认使用 3000，实时服务使用 3001。管理员初始化、实时地址和测试库配置见[开发指南](docs/development.md)。生产环境按[部署指南](docs/deployment.md)操作。
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## 维护约定
 
-### 手机局域网访问
-
-开发服务会监听所有网卡。手机和电脑连接同一 Wi-Fi 后，使用终端显示的局域网地址访问，例如 `http://192.168.1.170:3000`。本地 `.env.local` 已配置 `AUTH_COOKIE_SECURE=false`，使 HTTP 局域网地址可以保存登录 Cookie。
-
-部署到带 HTTPS 的服务器时，请删除该项或设为 `AUTH_COOKIE_SECURE=true`，保持会话 Cookie 的 Secure 属性。
-
-### 生产初始化与安全配置
-
-生产部署不会创建演示账号。首次部署完成数据库结构同步后，使用部署系统的临时环境变量执行一次：
-
-```powershell
-$env:INITIAL_ADMIN_USERNAME = "你的管理员账号"
-$env:INITIAL_ADMIN_PASSWORD = "长度至少 8 位且包含字母和数字的随机密码"
-pnpm db:bootstrap-admin
-```
-
-初始管理员创建后应立即登录改密，并从部署环境移除 `INITIAL_ADMIN_PASSWORD`。生产环境还必须设置 `APP_ORIGIN=https://实际域名`，它用于校验所有写操作的来源；未设置时写操作会被拒绝。
-
-若 Web 服务只允许通过可信反向代理访问，可设置 `TRUST_PROXY=true`，同时确保代理覆盖
-`X-Real-IP`（例如 Nginx 使用 `proxy_set_header X-Real-IP $remote_addr`）。未满足该条件时不要启用，避免客户端伪造登录来源地址。
-
-启用双重验证前必须配置独立且至少 32 字符的 `MFA_ENCRYPTION_KEY`。该密钥用于加密验证器密钥以及保护恢复码和受信任设备令牌，轮换 `AUTH_SECRET` 时不要同时修改它；修改后，已有验证器、恢复码和受信任设备都会失效。
-
-聊天实时服务通过 `pnpm dev:realtime` 单独启动，默认监听 `3001` 端口。开发环境可配置 `NEXT_PUBLIC_CHAT_REALTIME_URL=http://localhost:3001`；生产环境应由反向代理把同源 `/socket.io` 转发至该端口。`ecosystem.config.cjs` 会同时启动 Web 与实时服务。消息读取对普通用户限制为14天、监管人员为28天；实时服务启动时及此后每6小时会自动硬删除超过28天的消息及其级联已读记录，`pnpm chat:cleanup` 仅用于运维时手动补偿执行。
-
-演示数据只能在非生产环境中、显式设置 `ALLOW_DEMO_SEED=true` 后通过 `pnpm db:seed` 创建，不能用于生产环境。
-
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
-
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## 部署
-
-生产环境通过 PM2 运行 Next.js standalone 产物，入口脚本为 `deploy.sh`：
-安装依赖、ESLint 与 TypeScript 检查、单元测试、构建，复制 `public` 与
-`.next/static` 到 standalone 目录，生成一次数据库备份后使用
-`drizzle-kit push` 同步结构，最后 `pm2 startOrReload ecosystem.config.cjs`。
-实时聊天由同一份 PM2 配置中的 `custodysim-chat-realtime` 进程提供。
+- package.json 和 Android 构建文件是版本、命令和依赖的依据，文档与对应代码一起更新。
+- .env.local、android/local.properties、凭据、签名密钥及数据库备份不提交仓库。
+- 集成测试和 E2E 会写数据库，必须使用独立测试库。
+- 历史截图与测试结果只代表记录时的版本，不代表当前生产已部署或所有设备已验证。

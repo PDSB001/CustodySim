@@ -20,6 +20,7 @@ sealed interface ApiResult<out T> {
         val code: ApiErrorCode,
         val message: String,
         val httpStatus: Int,
+        val retryAfterSeconds: Long? = null,
     ) : ApiResult<Nothing>
 }
 
@@ -51,7 +52,7 @@ val ApiResult.Err.isUnauthorized: Boolean
 
 /** 可退避重试：限流或服务端故障。 */
 val ApiResult.Err.isRetryable: Boolean
-    get() = code == ApiErrorCode.RATE_LIMITED || httpStatus >= 500
+    get() = httpStatus == 0 || code == ApiErrorCode.RATE_LIMITED || httpStatus >= 500
 
 /**
  * 解析统一响应包。

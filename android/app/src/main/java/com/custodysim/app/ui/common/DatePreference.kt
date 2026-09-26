@@ -26,6 +26,7 @@ fun DatePreference(
     enabled: Boolean = true,
     includeTime: Boolean = false,
     monthOnly: Boolean = false,
+    standalone: Boolean = true,
     onValueChange: (String) -> Unit,
 ) {
     var show by remember { mutableStateOf(false) }
@@ -45,11 +46,12 @@ fun DatePreference(
     var minute by remember(show) { mutableIntStateOf(initial.minute) }
     val lastDay = YearMonth.of(year, month).lengthOfMonth()
     LaunchedEffect(lastDay) { day = day.coerceAtMost(lastDay) }
-    SettingGroup {
+    val row: @Composable () -> Unit = {
         BasicComponent(title = label, summary = value.replace('T', ' ').ifBlank { "请选择" },
             enabled = enabled, onClick = { show = true },
             endActions = { Icon(MiuixIcons.Basic.ArrowRight, contentDescription = null) })
     }
+    if (standalone) SettingGroup { row() } else row()
     OverlayDialog(show = show, title = label, onDismissRequest = { show = false }) {
         Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(AppSpace.medium)) {
             Row(Modifier.fillMaxWidth()) {

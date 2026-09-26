@@ -50,6 +50,7 @@ async function serializeConversations(
           conversationId: chatConversationMembers.conversationId,
           id: users.id,
           name: users.name,
+          avatar: users.avatar,
         })
         .from(chatConversationMembers)
         .innerJoin(users, eq(users.id, chatConversationMembers.userId))
@@ -113,11 +114,11 @@ async function serializeConversations(
   )
   const membersByConversation = new Map<
     string,
-    Array<{ id: string; name: string }>
+    Array<{ id: string; name: string; avatar: string | null }>
   >()
   for (const member of memberRows) {
     const members = membersByConversation.get(member.conversationId) ?? []
-    members.push({ id: member.id, name: member.name })
+    members.push({ id: member.id, name: member.name, avatar: member.avatar })
     membersByConversation.set(member.conversationId, members)
   }
   const roomNames = new Map(roomRows.map((room) => [room.id, room.name]))
@@ -145,7 +146,11 @@ async function serializeConversations(
             id: lastMessage.id,
             content: lastMessage.recalledAt
               ? "消息已撤回"
-              : chatMessagePreview(lastMessage.type, lastMessage.content, lastMessage.caption),
+              : chatMessagePreview(
+                  lastMessage.type,
+                  lastMessage.content,
+                  lastMessage.caption,
+                ),
             createdAt: lastMessage.createdAt.toISOString(),
           }
         : null,

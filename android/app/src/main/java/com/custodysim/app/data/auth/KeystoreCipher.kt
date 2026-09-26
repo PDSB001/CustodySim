@@ -1,6 +1,7 @@
 package com.custodysim.app.data.auth
 
 import android.content.Context
+import android.annotation.SuppressLint
 import android.provider.Settings
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
@@ -138,13 +139,16 @@ internal object KeystoreCipher {
         null
     }
 
+    // Existing s: ciphertext derives its key from this ID. Changing it would lose stored credentials.
+    // Used locally for legacy encryption compatibility, never sent as a device identifier.
+    @SuppressLint("HardwareIds")
     private fun softwareKey(context: Context): SecretKey {
         val androidId = Settings.Secure.getString(
             context.contentResolver,
             Settings.Secure.ANDROID_ID,
         ) ?: "unknown"
         val raw = MessageDigest.getInstance("SHA-256")
-            .digest((SOFTWARE_SALT + ":" + androidId).toByteArray(Charsets.UTF_8))
+            .digest("$SOFTWARE_SALT:$androidId".toByteArray(Charsets.UTF_8))
         return SecretKeySpec(raw, "AES")
     }
 }

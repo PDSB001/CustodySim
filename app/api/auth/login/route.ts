@@ -91,6 +91,7 @@ export async function POST(request: NextRequest) {
       role: user.role,
       organizationId: user.organizationId,
       mustChangePassword: user.mustChangePassword,
+      avatar: user.avatar,
     })
     const [mfaFactor] = await db
       .select({ enabled: mfaFactors.enabled })
@@ -106,14 +107,12 @@ export async function POST(request: NextRequest) {
       : null
     if (mfaFactor?.enabled && !trustedDevice) {
       const challengeId = randomUUID()
-      await db
-        .insert(mfaLoginChallenges)
-        .values({
-          id: challengeId,
-          userId: user.id,
-          tokenVersion: user.tokenVersion,
-          expiresAt: new Date(Date.now() + 5 * 60_000),
-        })
+      await db.insert(mfaLoginChallenges).values({
+        id: challengeId,
+        userId: user.id,
+        tokenVersion: user.tokenVersion,
+        expiresAt: new Date(Date.now() + 5 * 60_000),
+      })
       const challengeToken = await signMfaChallenge(
         user.id,
         user.tokenVersion,

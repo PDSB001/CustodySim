@@ -58,6 +58,7 @@ export async function GET(
           id: chatMessages.id,
           senderId: chatMessages.senderId,
           senderName: users.name,
+          senderAvatar: users.avatar,
           type: chatMessages.type,
           content: chatMessages.content,
           caption: chatMessages.caption,
@@ -117,7 +118,8 @@ export async function POST(
   if (!parsed.success)
     return failure(
       "VALIDATION_ERROR",
-      parsed.error.issues[0]?.message ?? `消息不能为空且不能超过${CHAT_MESSAGE_MAX_LENGTH}字`,
+      parsed.error.issues[0]?.message ??
+        `消息不能为空且不能超过${CHAT_MESSAGE_MAX_LENGTH}字`,
       400,
     )
   const conversation = await getChatConversationAccess(actor, id.data)
@@ -149,7 +151,8 @@ export async function POST(
           senderId: actor.id,
           type: parsed.data.type,
           content: parsed.data.content,
-          caption: parsed.data.type === "IMAGE" ? parsed.data.caption ?? null : null,
+          caption:
+            parsed.data.type === "IMAGE" ? (parsed.data.caption ?? null) : null,
         })
         .returning()
       if (!created) throw new Error("发送消息失败")
@@ -172,6 +175,7 @@ export async function POST(
       {
         ...message,
         senderName: actor.name,
+        senderAvatar: actor.avatar ?? null,
         recalledAt: null,
         createdAt: message.createdAt.toISOString(),
         readCount: actor.role === "SUPERVISED" ? 1 : 0,

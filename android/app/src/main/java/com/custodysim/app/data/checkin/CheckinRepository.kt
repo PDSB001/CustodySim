@@ -21,7 +21,7 @@ class CheckinRepository(private val apiClient: ApiClient) {
         }
 
     /**
-     * 打卡。有定位权限时带 GPS 坐标（GCJ02），否则退化为 IP 定位。
+     * 打卡。调用方按用户选择传入 GPS 坐标；无坐标时明确使用 IP 定位。
      */
     suspend fun checkin(
         taskId: String,
@@ -29,7 +29,7 @@ class CheckinRepository(private val apiClient: ApiClient) {
         photo: String?,
         point: PendingPoint?,
     ): ApiResult<JSONObject> {
-        val body = JSONObject().put("taskId", taskId)
+        val body = JSONObject().put("taskId", taskId).put("locationSource", if (point == null) "IP" else "GPS")
         if (!remark.isNullOrBlank()) body.put("remark", remark)
         if (!photo.isNullOrBlank()) body.put("photo", photo)
         if (point != null) {
@@ -45,25 +45,13 @@ class CheckinRepository(private val apiClient: ApiClient) {
         return apiClient.post("/api/checkins", body)
     }
 
-    suspend fun fetchMakeups(): ApiResult<List<MakeupItem>> =
-        when (val result = apiClient.getArray("/api/makeups")) {
-            is ApiResult.Ok -> {
-                val list = mutableListOf<MakeupItem>()
-                for (i in 0 until result.data.length()) {
-                    list.add(MakeupItem.from(result.data.getJSONObject(i)))
-                }
-                ApiResult.Ok(list)
-            }
-            is ApiResult.Err -> result
-        }
-
     suspend fun createMakeup(
         taskId: String,
         reason: String,
         photo: String?,
         point: PendingPoint?,
     ): ApiResult<JSONObject> {
-        val body = JSONObject().put("taskId", taskId).put("reason", reason)
+        val body = JSONObject().put("taskId", taskId).put("reason", reason).put("locationSource", if (point == null) "IP" else "GPS")
         if (!photo.isNullOrBlank()) body.put("photo", photo)
         if (point != null) {
             body.put("locationSource", "GPS")

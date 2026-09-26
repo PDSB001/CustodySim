@@ -28,8 +28,10 @@ import androidx.compose.animation.animateContentSize
 /** Credentials are intentionally not persisted in saved instance state. */
 @Composable
 fun LoginScreen(
+    onServerSettings: () -> Unit,
     busy: Boolean, mfaRequired: Boolean, notice: String?,
     noticeIsError: Boolean,
+    retrySeconds: Long = 0,
     onSubmit: (username: String, password: String) -> Unit,
     onVerifyMfa: (code: String, trustDevice: Boolean) -> Unit,
     onCancelMfa: () -> Unit,
@@ -43,7 +45,7 @@ fun LoginScreen(
     val trustLabel = stringResource(R.string.trust_device)
     BackHandler(mfaRequired && !busy) { onCancelMfa() }
     LaunchedEffect(mfaRequired) { password = ""; code = ""; trustDevice = false }
-    val canSubmit = !busy && if (mfaRequired) code.trim().length >= 6
+    val canSubmit = !busy && retrySeconds == 0L && if (mfaRequired) code.trim().length >= 6
         else username.isNotBlank() && password.isNotBlank()
     val submit: () -> Unit = {
         if (canSubmit) {
@@ -96,7 +98,8 @@ fun LoginScreen(
                 }
             }
             notice?.let { NoticeBanner(it, error = noticeIsError) }
-            PrimaryAction(text = stringResource(
+            if (!busy) TextButton(text = "服务器设置", onClick = onServerSettings)
+            PrimaryAction(text = if (retrySeconds > 0) "${retrySeconds} 秒后重试" else stringResource(
                 if (mfaRequired) { if (busy) R.string.verifying else R.string.verify }
                 else { if (busy) R.string.logging_in else R.string.login }),
                 busy = busy, enabled = canSubmit, onClick = submit)

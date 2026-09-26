@@ -27,7 +27,7 @@ import { z } from "zod"
 import { formatDate, requestApi } from "@/components/shared/api-client"
 import { EmptyState } from "@/components/shared/empty-state"
 import { PageHeader } from "@/components/shared/page-header"
-import { Avatar, AvatarFallback } from "@/components/ui/avatar"
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
@@ -58,7 +58,13 @@ const ConversationSchema = z.object({
   type: z.string(),
   title: z.string(),
   roomOrganizationId: z.string().nullable(),
-  members: z.array(z.object({ id: z.string(), name: z.string() })),
+  members: z.array(
+    z.object({
+      id: z.string(),
+      name: z.string(),
+      avatar: z.string().nullable().optional(),
+    }),
+  ),
   lastMessage: z
     .object({
       id: z.string(),
@@ -74,6 +80,7 @@ const MessageSchema = z.object({
   id: z.string(),
   senderId: z.string().nullable(),
   senderName: z.string().nullable(),
+  senderAvatar: z.string().nullable().optional(),
   type: z.string(),
   content: z.string().nullable(),
   caption: z.string().nullable().optional(),
@@ -479,7 +486,11 @@ export function ChatWorkspace({ user }: { user: SessionUser }) {
           method: "POST",
           body: JSON.stringify(
             pendingImage
-              ? { type: "IMAGE", content: pendingImage, caption: draft.trim() || undefined }
+              ? {
+                  type: "IMAGE",
+                  content: pendingImage,
+                  caption: draft.trim() || undefined,
+                }
               : { content: draft },
           ),
         },
@@ -567,6 +578,16 @@ export function ChatWorkspace({ user }: { user: SessionUser }) {
                   onClick={() => setSelectedId(conversation.id)}
                 >
                   <Avatar className="mt-0.5 size-9">
+                    {conversation.type !== "ROOM" && (
+                      <AvatarImage
+                        src={
+                          conversation.members.find(
+                            (member) => member.id !== user.id,
+                          )?.avatar ?? undefined
+                        }
+                        alt="会话头像"
+                      />
+                    )}
                     <AvatarFallback>
                       {conversation.type === "ROOM"
                         ? "群"
@@ -641,6 +662,10 @@ export function ChatWorkspace({ user }: { user: SessionUser }) {
                         className={`flex gap-2 ${mine ? "flex-row-reverse" : ""}`}
                       >
                         <Avatar className="size-8 shrink-0">
+                          <AvatarImage
+                            src={message.senderAvatar ?? undefined}
+                            alt={message.senderName ?? "用户头像"}
+                          />
                           <AvatarFallback>
                             {initials(message.senderName ?? "系统")}
                           </AvatarFallback>
@@ -669,8 +694,7 @@ export function ChatWorkspace({ user }: { user: SessionUser }) {
                               >
                                 消息已撤回
                               </span>
-                            ) : message.type === "IMAGE" &&
-                              message.content ? (
+                            ) : message.type === "IMAGE" && message.content ? (
                               <div className="space-y-2">
                                 <a
                                   href={message.content}
@@ -688,7 +712,9 @@ export function ChatWorkspace({ user }: { user: SessionUser }) {
                                   />
                                 </a>
                                 {message.caption ? (
-                                  <p className="break-words whitespace-pre-wrap">{message.caption}</p>
+                                  <p className="break-words whitespace-pre-wrap">
+                                    {message.caption}
+                                  </p>
                                 ) : null}
                               </div>
                             ) : (
@@ -823,7 +849,11 @@ export function ChatWorkspace({ user }: { user: SessionUser }) {
                       }
                     >
                       <Send />
-                      {pendingImage && draft.trim() ? "发送图文" : pendingImage ? "发送图片" : "发送"}
+                      {pendingImage && draft.trim()
+                        ? "发送图文"
+                        : pendingImage
+                          ? "发送图片"
+                          : "发送"}
                     </Button>
                   </div>
                 </form>

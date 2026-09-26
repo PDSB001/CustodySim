@@ -1,5 +1,6 @@
 # Gradle
 .gradle/
+.kotlin/
 build/
 
 # Gradle 自动生成的守护进程 JVM 约束：与本机 JDK 绑定，不该跟着版本库走
@@ -20,3 +21,10 @@ app/release/
 # 签名材料绝不入库
 *.jks
 *.keystore
+
+# Private APKs must never enter the repository, including manually copied exports.
+*.apk
+*.aab
+app/production/
+app/development/
+app/benchmark/

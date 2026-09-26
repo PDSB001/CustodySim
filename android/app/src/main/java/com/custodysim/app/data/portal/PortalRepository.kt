@@ -6,7 +6,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 data class PortalNotice(val id: String, val title: String, val content: String, val read: Boolean)
-data class PortalApplication(val title: String, val status: String, val reason: String, val submittedAt: String?)
+data class PortalApplication(val id: String, val title: String, val status: String, val reason: String, val submittedAt: String?)
 data class PortalArchive(val code: String, val formName: String, val lockedAt: String?, val data: JSONObject?)
 data class ProfileField(
     val name: String,
@@ -31,6 +31,7 @@ data class ProfileRecord(
     val lockedAt: String?,
     val updatedAt: String,
     val fields: List<ProfileField>,
+    val signatureMode: String = "GENERATED",
 )
 
 /**
@@ -76,6 +77,7 @@ class PortalRepository(private val api: ApiClient) {
                 submittedAt = item.optString("submittedAt").takeIf { it.isNotBlank() && it != "null" },
                 lockedAt = item.optString("lockedAt").takeIf { it.isNotBlank() && it != "null" },
                 updatedAt = item.optString("updatedAt"), fields = parseFields(item.optJSONArray("fields")),
+                signatureMode = item.optString("signatureMode", "GENERATED"),
             )
         })
     }
@@ -97,11 +99,16 @@ class PortalRepository(private val api: ApiClient) {
      *
      * [photoData] 始终随请求发送：传 null 表示清除已上传的证件照（服务端 schema 允许 nullable）。
      */
-    suspend fun saveProfileRecord(formId: String, data: JSONObject, photoData: String? = null): ApiResult<JSONObject> {
+    suspend fun saveProfileRecord(formId: String, data: JSONObject, photoData: String? = null,
+        signatureMode: String = "GENERATED", handwrittenSignatureData: String? = null): ApiResult<JSONObject> {
+        if (signatureMode == "HANDWRITTEN" && handwrittenSignatureData.isNullOrBlank()) {
+            return ApiResult.Err(com.custodysim.app.data.net.ApiErrorCode.VALIDATION_ERROR, "请完成手写签名后再保存", 400)
+        }
         val body = JSONObject()
             .put("formId", formId)
             .put("data", data)
-            .put("signatureMode", "GENERATED")
+            .put("signatureMode", signatureMode)
+            .put("handwrittenSignatureData", if (signatureMode == "HANDWRITTEN") handwrittenSignatureData else JSONObject.NULL)
             .put("photoData", photoData ?: JSONObject.NULL)
         return api.post("/api/profile-records", body)
     }
@@ -135,7 +142,7 @@ class PortalRepository(private val api: ApiClient) {
         is ApiResult.Err -> result
         is ApiResult.Ok -> ApiResult.Ok((0 until result.data.length()).map { i ->
             val item = result.data.getJSONObject(i)
-            PortalApplication(item.optString("title"), item.optString("status"), item.optString("reason"), item.optString("submittedAt").takeIf { it.isNotBlank() && it != "null" })
+            PortalApplication(item.getString("id"), item.optString("title"), item.optString("status"), item.optString("reason"), item.optString("submittedAt").takeIf { it.isNotBlank() && it != "null" })
         })
     }
 

@@ -15,7 +15,7 @@ data class PendingPoint(
     val accuracyMeters: Double,
     val capturedAt: String,
 ) {
-    fun toJson() = JSONObject()
+    fun toJson(): JSONObject = JSONObject()
         .put("latitude", latitude)
         .put("longitude", longitude)
         .put("accuracyMeters", accuracyMeters)
