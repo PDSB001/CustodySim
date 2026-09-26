@@ -58,7 +58,7 @@ function get(url: string) {
 }
 
 /** 一条待提交的呈报任务；内容校验交给真实路由，这里只造最小骨架。 */
-async function task(supervisedId: string) {
+async function task(supervisedId: string, fields: unknown[] = []) {
   const now = new Date()
   const [row] = await db
     .insert(s.reportTasks)
@@ -68,7 +68,7 @@ async function task(supervisedId: string) {
       scheduleAt: now,
       deadline: new Date(now.getTime() + 3_600_000),
       status: "PENDING",
-      templateSnapshot: { fields: [] },
+      templateSnapshot: { fields },
     })
     .returning()
   return row!
@@ -88,7 +88,10 @@ type ReviewItems = {
     id: string
     automated: boolean
     snapshotMissing: boolean
-    submittedSnapshot: { data?: Record<string, unknown> } | null
+    submittedSnapshot: {
+      data?: Record<string, unknown>
+      templateSnapshot?: unknown
+    } | null
   }>
   nextCursor: string | null
 }
@@ -179,7 +182,11 @@ test("批阅时冻结当次提交内容：事后改动提交不影响历史记�
 test("早于批阅快照的历史记录：回退当前提交并标注 snapshotMissing", async () => {
   const user = await account("SUPERVISED")
   await as(user, "SUPERVISED")
-  const row = await task(user)
+  // 带一个真实字段：老记录兜底时字段定义也必须下发，否则界面只会显示
+  // "本项任务的填写内容尚未配置"，明明有数据却什么都看不到。
+  const row = await task(user, [
+    { name: "answer", type: "TEXT", required: true, options: [] },
+  ])
   const submissionId = await submitFor(row.id, { answer: "旧记录当前内容" })
 
   // 直接造一条"没有快照"的历史批阅（模拟 A5 上线前的数据）。
@@ -199,6 +206,11 @@ test("早于批阅快照的历史记录：回退当前提交并标注 snapshotMi
   // 回退到当前提交内容，界面上会同时给出"未必与当时一致"的提示。
   expect(listed.items[0]?.submittedSnapshot?.data).toMatchObject({
     answer: "旧记录当前内容",
+  })
+  // 字段定义也要一起兜底：只给 data 不给 templateSnapshot，渲染端会退化成
+  // "本项任务的填写内容尚未配置"，让有数据的记录看起来像空的。
+  expect(listed.items[0]?.submittedSnapshot?.templateSnapshot).toMatchObject({
+    fields: [{ name: "answer", type: "TEXT", required: true }],
   })
 })
 

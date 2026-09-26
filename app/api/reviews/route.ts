@@ -103,6 +103,10 @@ export async function GET(request: NextRequest) {
         submittedSnapshot: reportReviews.submittedSnapshot,
         submissionData: reportSubmissions.data,
         submissionContent: reportSubmissions.content,
+        // 任务侧模板快照：老记录没有批阅快照时用它兜底补出"当时该填哪些字段"。
+        // 少了它，兜底数据（data）有内容、字段定义却是空的，界面只会显示
+        // "本项任务的填写内容尚未配置" —— 看着像没数据，其实是字段没给。
+        taskTemplateSnapshot: reportTasks.templateSnapshot,
       })
       .from(reportReviews)
       .innerJoin(
@@ -144,11 +148,14 @@ export async function GET(request: NextRequest) {
       submittedSnapshot: row.submittedSnapshot ?? {
         data: row.submissionData,
         content: row.submissionContent,
-        templateSnapshot: null,
+        // 老记录只能拿任务当前的模板定义兜底：与上面的 data 一样"未必与当时一致"，
+        // 界面已经用 snapshotMissing 明确提示过这一点。
+        templateSnapshot: row.taskTemplateSnapshot,
         submissionUpdatedAt: null,
       },
       submissionData: undefined,
       submissionContent: undefined,
+      taskTemplateSnapshot: undefined,
     }))
     const last = items.at(-1)
 
