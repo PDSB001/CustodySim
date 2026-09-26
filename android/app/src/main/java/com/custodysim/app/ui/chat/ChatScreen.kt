@@ -7,9 +7,17 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import android.util.Log
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -59,6 +67,7 @@ import com.custodysim.app.data.chat.*
 import com.custodysim.app.data.net.ApiResult
 import com.custodysim.app.ui.common.*
 import com.custodysim.app.ui.theme.*
+import java.time.Instant
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Mutex
@@ -123,7 +132,15 @@ private fun ChatBubble(
         else -> MiuixTheme.colorScheme.background
     }
     val recallable = own && item.canRecall(item.senderId.orEmpty())
-    Row(Modifier.fillMaxWidth(),
+    // 乐观发送中先弱化显示，服务端确认后平滑恢复原样 —— 确认那一刻的气泡"落定"
+    // 正好接在入场动画之后，服务器往返的等待被这段过渡吃掉。
+    val bubbleAlpha by animateFloatAsState(
+        targetValue = if (item.pending) 0.72f else 1f,
+        animationSpec = if (LocalEffects.current.reduceMotion) snap() else spring(
+            dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMediumLow),
+        label = "bubble-confirm",
+    )
+    Row(Modifier.fillMaxWidth().graphicsLayer { alpha = bubbleAlpha },
         horizontalArrangement = if (own) Arrangement.End else Arrangement.Start,
         verticalAlignment = Alignment.Bottom) {
         if (!own) {
@@ -224,7 +241,12 @@ fun ChatScreen(container: AppContainer, session: SessionUser, scrollBehavior: Sc
     val focusManager = LocalFocusManager.current
     val keyboardController = LocalSoftwareKeyboardController.current
     val density = LocalDensity.current
-    val imeVisible = WindowInsets.ime.getBottom(density) > 0
+    // 组合期只取 WindowInsets 实例（本身稳定），**不要**在组合里读它的数值：
+    // IME inset 在键盘收起动画期间逐帧变化，读它会订阅并让整个聊天页每帧重组 ——
+    // 恰好在"收起键盘 + 唤起系统选图器"同一时刻，表现就是那一下顿挫。
+    // 数值改为点击时按需求值：组合外读快照状态不会触发重组。
+    val imeInsets = WindowInsets.ime
+    val isImeVisible = { imeInsets.getBottom(density) > 0 }
     val snackbar = LocalAppSnackbar.current
     val scope = rememberCoroutineScope()
     val messageListState = key(selectedId) { rememberAppListState() }
@@ -299,7 +321,10 @@ fun ChatScreen(container: AppContainer, session: SessionUser, scrollBehavior: Sc
         when (val result = container.chatRepository.messages(id)) {
             is ApiResult.Ok -> {
                 if (selectedId != id) return@withLock
-                messages = result.data
+                // 保留仍在发送中的本地占位：实时事件驱动的刷新常常早于发送回包到达，
+                // 直接整体覆盖会让刚点出来的气泡"闪一下又消失"。
+                val stillPending = messages.filter { it.pending }
+                messages = result.data + stillPending
                 error = null
                 result.data.lastOrNull()?.let { last ->
                     if (readThrough[id] != last.id &&
@@ -490,14 +515,47 @@ fun ChatScreen(container: AppContainer, session: SessionUser, scrollBehavior: Sc
                     }
                 }
                 items(messages, key = { it.id }, contentType = { if (it.recalled) "recalled" else if (it.isImage) "image" else "text" }) { item ->
-                    ChatBubble(
-                        item = item,
-                        own = item.senderId == session.id,
-                        supervised = session.isSupervised,
-                        maxWidth = bubbleMaxWidth,
-                        onPreview = { previewImage = it; previewVisible = true },
-                        onRecall = { recalling = it; recallVisible = true },
-                    )
+                    // 两层动画：
+                    // 1) animateItem —— 插入时的淡入 + 让位（否则新消息是"瞬间出现 + 下方瞬时位移"）；
+                    // 2) justSent —— 本机刚发出的那条从右下小幅滑入，"发送成功"这件事才看得见。
+                    // 历史消息不带位移，避免进入会话时整屏抖一下。reduceMotion 时两者都退化为瞬时。
+                    // 只有乐观发送的占位气泡播入场动效：它出现的那一刻就是"用户点下发送"，
+                    // 动画跑在服务器往返之前，正好把延迟遮住。服务端确认后是同位置的静态替换。
+                    val justSent = item.pending
+                    val entrance = remember(item.id) {
+                        Animatable(if (justSent && !reduceMotion) 0f else 1f)
+                    }
+                    LaunchedEffect(item.id, justSent) {
+                        if (justSent && !reduceMotion) {
+                            // spring 带轻微过冲：气泡是"落"进列表的，不是匀速平移到位。
+                            entrance.animateTo(1f, spring(
+                                dampingRatio = Spring.DampingRatioLowBouncy,
+                                stiffness = Spring.StiffnessMediumLow,
+                            ))
+                        }
+                    }
+                    Box(Modifier
+                        .animateItem(
+                            fadeInSpec = tween(if (reduceMotion) 0 else 200, easing = FastOutSlowInEasing),
+                            placementSpec = tween(if (reduceMotion) 0 else 260, easing = FastOutSlowInEasing),
+                        )
+                        .graphicsLayer {
+                            alpha = entrance.value.coerceIn(0f, 1f)
+                            if (justSent) {
+                                // 24dp / 10dp 的位移在项目动效规范的"1/8 屏宽"以内。
+                                translationX = (1f - entrance.value) * 24.dp.toPx()
+                                translationY = (1f - entrance.value) * 10.dp.toPx()
+                            }
+                        }) {
+                        ChatBubble(
+                            item = item,
+                            own = item.senderId == session.id,
+                            supervised = session.isSupervised,
+                            maxWidth = bubbleMaxWidth,
+                            onPreview = { previewImage = it; previewVisible = true },
+                            onRecall = { recalling = it; recallVisible = true },
+                        )
+                    }
                 }
             }
             // 滚到顶部就继续往前翻页；条目带 key，插入头部不会改变视觉位置。
@@ -548,19 +606,98 @@ fun ChatScreen(container: AppContainer, session: SessionUser, scrollBehavior: Sc
                     keyboardController?.hide()
                     scope.launch {
                         // Let the pressed icon and IME settle before Android starts the system picker transition.
-                        delay(if (imeVisible) 180 else 90)
+                        delay(if (isImeVisible()) 180 else 90)
                         if (selectedId == target) pickImage()
                     }
                 }) {
                     Icon(MiuixIcons.Photos, contentDescription = stringResource(R.string.chat_image),
                         tint = MiuixTheme.colorScheme.primary)
                 }
+                // 发送按钮的"变形"：空输入是小一圈的弱色圆，有内容时平滑长到 48dp 并填主色，
+                // 发送瞬间先压到 0.88 再弹回 —— 让"发出去了"有手感（reduceMotion 时全部瞬时）。
+                val canSend = message.isNotBlank() || pendingImage != null
+                // "灵动"来自 spring 的轻微过冲：线性 tween 只会匀速到位，没有生气。
+                // reduceMotion 时统一切到 snap()，不做任何动画。
+                val sendSize by animateDpAsState(
+                    targetValue = if (canSend) 48.dp else 40.dp,
+                    animationSpec = if (reduceMotion) snap() else spring(
+                        dampingRatio = Spring.DampingRatioMediumBouncy,
+                        stiffness = Spring.StiffnessMediumLow,
+                    ),
+                    label = "send-size",
+                )
+                val iconScale by animateFloatAsState(
+                    targetValue = if (canSend) 1f else 0.82f,
+                    animationSpec = if (reduceMotion) snap() else spring(
+                        dampingRatio = Spring.DampingRatioMediumBouncy,
+                        stiffness = Spring.StiffnessMediumLow,
+                    ),
+                    label = "send-icon-scale",
+                )
+                // 按下即时反馈：手指一按下就压下去，松开弹回，而不是等整次点击完成。
+                var sendPressed by remember { mutableStateOf(false) }
+                val pressScale by animateFloatAsState(
+                    targetValue = if (sendPressed) 0.90f else 1f,
+                    animationSpec = if (reduceMotion) snap() else spring(
+                        dampingRatio = Spring.DampingRatioMediumBouncy,
+                        stiffness = Spring.StiffnessHigh,
+                    ),
+                    label = "send-press",
+                )
+                val sendBackground by animateColorAsState(
+                    targetValue = if (canSend || sending) MiuixTheme.colorScheme.primary
+                    else MiuixTheme.colorScheme.primary.copy(alpha = 0.10f),
+                    animationSpec = tween(if (reduceMotion) 0 else 180, easing = FastOutSlowInEasing),
+                    label = "send-background",
+                )
+                val sendTint by animateColorAsState(
+                    targetValue = if (canSend || sending) MiuixTheme.colorScheme.onPrimary
+                    else MiuixTheme.colorScheme.primary,
+                    animationSpec = tween(if (reduceMotion) 0 else 180, easing = FastOutSlowInEasing),
+                    label = "send-tint",
+                )
+                val sendPop = remember { Animatable(1f) }
+                LaunchedEffect(sending) {
+                    if (sending && !reduceMotion) {
+                        sendPop.snapTo(0.88f)
+                        sendPop.animateTo(1f, spring(dampingRatio = Spring.DampingRatioMediumBouncy,
+                            stiffness = Spring.StiffnessMediumLow))
+                    }
+                }
+                // 外层只监听指针、不消费事件：按钮自身的点击照常生效，同时我们能拿到"按下"状态。
+                Box(Modifier.pointerInput(Unit) {
+                    awaitPointerEventScope {
+                        while (true) {
+                            awaitFirstDown(requireUnconsumed = false)
+                            sendPressed = true
+                            waitForUpOrCancellation()
+                            sendPressed = false
+                        }
+                    }
+                }) {
                 IconButton(onClick = {
                     val id = selectedId ?: return@IconButton
                     val image = pendingImage
                     val text = message.trim()
                     // 图片与说明一次提交为同一条消息；纯图片同样可发送。
                     if (sending || (image == null && text.isBlank())) return@IconButton
+                    // 乐观发送：先把气泡放进列表（带入场动画），再去请求服务端。
+                    // 服务器远、往返慢，这一步让"已经发出去了"立刻可见，延迟被动画吃掉。
+                    val local = ChatMessage(
+                        id = "local-${System.nanoTime()}",
+                        senderId = session.id,
+                        senderName = session.name,
+                        type = if (image != null) ChatMessage.TYPE_IMAGE else ChatMessage.TYPE_TEXT,
+                        content = image ?: text,
+                        caption = if (image != null) text.takeIf { it.isNotBlank() } else null,
+                        recalled = false,
+                        createdAt = Instant.now().toString(),
+                        readCount = 0,
+                        pending = true,
+                    )
+                    messages = messages + local
+                    message = ""
+                    pendingImage = null
                     sending = true
                     scope.launch {
                         try {
@@ -572,31 +709,48 @@ fun ChatScreen(container: AppContainer, session: SessionUser, scrollBehavior: Sc
                                 )) {
                                     is ApiResult.Ok -> {
                                         if (selectedId == id) {
-                                            messages = (messages + result.data).distinctBy { it.id }
-                                            if (image == null || text.isBlank() || result.data.caption == text) {
-                                                message = ""
-                                            } else {
+                                            // 同位置替换为服务端正式消息：内容一致，只有 pending 消失
+                                            // （气泡透明度平滑恢复）。
+                                            messages = messages
+                                                .map { if (it.id == local.id) result.data else it }
+                                                .distinctBy { it.id }
+                                            if (image != null && text.isNotBlank() &&
+                                                result.data.caption != text) {
                                                 snackbar("图片已发送，但服务端未保存说明，请升级服务端后重试")
                                             }
-                                            pendingImage = null
                                             error = null
                                         }
                                         loadConversations()
                                     }
-                                    is ApiResult.Err -> if (selectedId == id) snackbar(result.message)
+                                    is ApiResult.Err -> if (selectedId == id) {
+                                        // 失败回滚干净：撤掉占位，把草稿还回输入框，别让用户白打一遍。
+                                        messages = messages.filterNot { it.id == local.id }
+                                        message = text
+                                        pendingImage = image
+                                        snackbar(result.message)
+                                    }
                                 }
                             }
                         } finally {
                             sending = false
                         }
                     }
-                }, enabled = message.isNotBlank() || pendingImage != null,
-                    minWidth = 48.dp, minHeight = 48.dp,
-                    backgroundColor = if (message.isNotBlank() || pendingImage != null || sending)
-                        MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.primary.copy(alpha = 0.10f)) {
+                }, enabled = canSend,
+                    modifier = Modifier.graphicsLayer {
+                        // 按下压、发送弹、尺寸形变都在这一个图层里，避免多次重排。
+                        val scale = sendPop.value * pressScale
+                        scaleX = scale; scaleY = scale
+                    },
+                    minWidth = sendSize, minHeight = sendSize,
+                    backgroundColor = sendBackground) {
                     Icon(MiuixIcons.Send, contentDescription = stringResource(R.string.chat_send),
-                        tint = if (message.isNotBlank() || pendingImage != null || sending)
-                            MiuixTheme.colorScheme.onPrimary else MiuixTheme.colorScheme.primary)
+                        modifier = Modifier.graphicsLayer {
+                            scaleX = iconScale; scaleY = iconScale
+                            // 图标"长出来"时带一点旋转，比纯缩放更有生气。
+                            rotationZ = (1f - iconScale) * -18f
+                        },
+                        tint = sendTint)
+                }
                 }
             }
             }

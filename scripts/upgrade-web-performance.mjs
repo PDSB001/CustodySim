@@ -16,7 +16,26 @@ export const performanceIndexes = [
     table: "chat_messages",
     keys: "sender_id, created_at",
   },
+  // 每人打卡明细按 (checkinAt, id) 降序游标翻页（/api/supervision/checkins/records）。
+  // 原有 checkin_records_user_created_idx 是 (user_id, created_at)，顺序对不上用不了。
+  {
+    name: "checkin_records_user_checkin_idx",
+    table: "checkin_records",
+    keys: "user_id, checkin_at DESC, id DESC",
+  },
 ]
+
+/**
+ * 归一化索引定义后再比较。
+ *
+ * `pg_get_indexdef` 会保留显式的 NULLS 子句：drizzle-kit 的 `db:push` 生成的是
+ * `... DESC NULLS LAST`，而本脚本的 SQL 写的是裸 `... DESC`（等价 `NULLS FIRST`）。
+ * 这些索引列都是 NOT NULL，两种写法语义完全一致 —— 不归一化就会把同一个索引
+ * 判成 conflict，把升级挡在预检那一步（线上和 e2e 库都会中招）。
+ */
+function normalizeIndexDefinition(value) {
+  return value.replace(/\s+NULLS\s+(?:FIRST|LAST)/g, "").replace(/\s+ASC\b/g, "")
+}
 
 export async function inspectPerformanceIndexes(client) {
   const result = await client.query(
@@ -32,12 +51,15 @@ export async function inspectPerformanceIndexes(client) {
   )
   return performanceIndexes.map((expected) => {
     const actual = result.rows.find((row) => row.name === expected.name)
+    const expectedDefinition = normalizeIndexDefinition(
+      ` USING btree (${expected.keys})`,
+    )
     return {
       name: expected.name,
       status: !actual
         ? "missing"
         : actual.table !== expected.table ||
-            !actual.definition.endsWith(` USING btree (${expected.keys})`)
+            !normalizeIndexDefinition(actual.definition).endsWith(expectedDefinition)
           ? "conflict"
           : !actual.valid || !actual.ready
             ? "invalid"

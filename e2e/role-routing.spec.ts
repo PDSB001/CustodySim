@@ -32,11 +32,11 @@ async function openNavigationOnMobile(page: import("@playwright/test").Page) {
 test("管理员进入管理控制台", async ({ page }) => {
   await login(page, "admin", "admin123")
   await expect(page).toHaveURL("/")
+  // 首页「快捷管理」区改成短标签后，这里断言分类标题 + 其中的组织架构入口，
+  // 比钉死某个"标题 说明"长串更稳（说明文案仍可能调整）。
+  await expect(page.getByRole("heading", { name: "快捷管理" })).toBeVisible()
   await expect(
-    page.getByRole("link", {
-      name: "维护组织架构 设置监管机构、监区与监室层级",
-      exact: true,
-    }),
+    page.getByRole("link", { name: "组织架构", exact: true }),
   ).toBeVisible()
 })
 
@@ -180,6 +180,58 @@ test("监管者可以查看辖区日常打卡", async ({ page }) => {
   await picker.click()
   await expect(page.locator(".app-date-picker__popper")).toBeVisible()
   await expect(page.locator('input[type="date"]')).toHaveCount(0)
+})
+
+test("监管侧可以从汇总下钻查看某人的打卡明细", async ({ page }) => {
+  await login(page, "admin", "admin123")
+  // 管理侧支持 ?date= 直达；未选日期时汇总表不渲染（`enabled: Boolean(date)`），也就没有下钻入口。
+  const today = new Date().toLocaleDateString("en-CA")
+  await page.goto(`/supervision/checkins?date=${today}`)
+  await expect(
+    page.getByRole("heading", { name: "历史打卡记录" }),
+  ).toBeVisible()
+
+  const drill = page.getByRole("button", { name: /打卡记录/ }).first()
+  // 造数不同（该日期可能没有在押人员）时跳过，避免把种子数据差异当成回归。
+  if ((await drill.count()) === 0)
+    test.skip(true, "该日期下没有可下钻的人员")
+
+  await drill.click()
+  await expect(page.getByRole("heading", { name: /的打卡记录$/ })).toBeVisible()
+  // 明细弹层内的日期控件仍是私有日历控件（项目约定：不出现原生 input[type=date]）。
+  await expect(page.getByLabel("明细起始日期")).toBeVisible()
+  await expect(page.locator('input[type="date"]')).toHaveCount(0)
+})
+
+test("监管者可在任务页切换待审队列与批阅记录", async ({ page }) => {
+  await login(page, "supervisor", "supervisor123")
+  await page.goto("/supervisor/tasks")
+  await page.getByText("批阅记录", { exact: true }).first().click()
+  await expect(page.getByRole("heading", { name: "批阅记录" })).toBeVisible()
+  // 筛选器与数据无关，是这段 UI 的确定性断言（批阅人 + 日期范围）。
+  await expect(page.getByLabel("批阅人筛选")).toBeVisible()
+  await expect(page.getByLabel("批阅起始日期")).toBeVisible()
+})
+
+test("批阅记录可展开查看当次提交内容", async ({ page }) => {
+  await login(page, "supervisor", "supervisor123")
+  await page.goto("/supervisor/tasks")
+  await page.getByText("批阅记录", { exact: true }).first().click()
+  // 「查看当次提交内容」要有历史记录才在；种子里没有就跳过，别把造数差异当回归。
+  const expand = page.getByRole("button", { name: "查看当次提交内容" }).first()
+  if ((await expand.count()) === 0)
+    test.skip(true, "种子数据中没有批阅记录可供展开")
+
+  await expand.click()
+  await expect(page.getByRole("button", { name: "收起提交内容" })).toBeVisible()
+})
+
+test("补点核准默认仍是待审队列，并提供审核状态筛选", async ({ page }) => {
+  await login(page, "admin", "admin123")
+  await page.goto("/supervision/makeups")
+  await expect(page.getByRole("heading", { name: "补点核准" })).toBeVisible()
+  // 默认值与接口默认一致（PENDING）：既有观感不变，另给已审回看的入口。
+  await expect(page.getByLabel("补卡审核状态筛选")).toBeVisible()
 })
 
 test("监管者可以进入申请审核页", async ({ page }) => {

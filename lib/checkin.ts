@@ -564,6 +564,11 @@ export async function getSupervisionCheckinHistory(
         status: checkinTasks.status,
         deadline: checkinTasks.deadline,
         checkinAt: checkinRecords.checkinAt,
+        // 逐时段下发（计划时间 + 时段序号）：汇总行的「时段分布」直接用这份数据，
+        // 与下面的 completed/exception 计数同源同口径，不会出现"计数说漏了 4 次、
+        // 分布却是空的"这种对不上的情况。
+        slotIndex: checkinTasks.slotIndex,
+        scheduleAt: checkinTasks.scheduleAt,
       })
       .from(checkinTasks)
       .leftJoin(checkinRecords, eq(checkinRecords.taskId, checkinTasks.id))
@@ -588,6 +593,11 @@ export async function getSupervisionCheckinHistory(
         exceptionCount: 0,
         pendingCount: 0,
         latestCheckinAt: null as Date | null,
+        slots: [] as Array<{
+          slotIndex: number
+          scheduleAt: Date
+          status: string
+        }>,
       },
     ]),
   )
@@ -597,6 +607,11 @@ export async function getSupervisionCheckinHistory(
     if (!summary) continue
     summary.scheduledCount += 1
     const status = getCheckinTaskStatus(task.status, task.deadline, now)
+    summary.slots.push({
+      slotIndex: task.slotIndex,
+      scheduleAt: task.scheduleAt,
+      status,
+    })
     if (
       ["COMPLETED", "LATE", "MAKEUP_APPROVED", "SYSTEM_MAKEUP"].includes(status)
     ) {
@@ -963,7 +978,17 @@ export async function reviewCheckinMakeup({
   })
 }
 
-export async function getCheckinReviewQueue(actor: SessionUser) {
+/**
+ * 补卡审核队列。
+ *
+ * 默认只取 `PENDING`，与既有「待审队列」语义完全一致（不传参数的调用方不受影响）；
+ * 监管侧回看历史时传 `APPROVED` / `REJECTED`，或传 `ALL` 取全部。
+ * 已审记录会带上审批意见与审批时间 —— 这两列本来就在表里，之前没有查询入口。
+ */
+export async function getCheckinReviewQueue(
+  actor: SessionUser,
+  status: "PENDING" | "APPROVED" | "REJECTED" | "ALL" = "PENDING",
+) {
   const ids = [...(await getSupervisedUserIdsForActor(actor))]
   if (!ids.length) return []
   return db
@@ -979,6 +1004,8 @@ export async function getCheckinReviewQueue(actor: SessionUser) {
       date: checkinMakeups.date,
       slotIndex: checkinMakeups.slotIndex,
       createdAt: checkinMakeups.createdAt,
+      reviewComment: checkinMakeups.reviewComment,
+      reviewedAt: checkinMakeups.reviewedAt,
     })
     .from(checkinMakeups)
     .innerJoin(users, eq(users.id, checkinMakeups.userId))
@@ -986,7 +1013,7 @@ export async function getCheckinReviewQueue(actor: SessionUser) {
     .where(
       and(
         inArray(checkinMakeups.userId, ids),
-        eq(checkinMakeups.status, "PENDING"),
+        status === "ALL" ? undefined : eq(checkinMakeups.status, status),
       ),
     )
     .orderBy(desc(checkinMakeups.createdAt))

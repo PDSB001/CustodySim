@@ -181,6 +181,15 @@ export async function applyTaskReview(
           ...parsed.data,
           reviewerId: automated ? null : actor.id,
           submissionId: parsed.data.submissionId,
+          // 批阅快照：把这一次被审的提交内容与当时的模板快照一并冻结。
+          // 提交表对 taskId 唯一且是 upsert 覆盖，退回后重提会覆盖答案；
+          // 有了它，监管侧回看历史批阅时看到的才是"当时审的原文"。
+          submittedSnapshot: {
+            data: lockedSubmission.data,
+            content: lockedSubmission.content,
+            templateSnapshot: lockedTask.templateSnapshot,
+            submissionUpdatedAt: lockedSubmission.updatedAt.toISOString(),
+          },
         })
         .returning()
       if (!createdReview) throw new Error("审核记录创建失败")

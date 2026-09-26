@@ -1,4 +1,15 @@
-import { and, desc, eq, inArray, lt, or, sql } from "drizzle-orm"
+import {
+  and,
+  desc,
+  eq,
+  gte,
+  inArray,
+  isNotNull,
+  isNull,
+  lt,
+  or,
+  sql,
+} from "drizzle-orm"
 import { NextRequest } from "next/server"
 import { z } from "zod"
 import { failure, success } from "@/lib/api-response"
@@ -54,6 +65,18 @@ export async function GET(request: NextRequest) {
     !Number.isNaN(cursorDate.getTime()) &&
     UUID_PATTERN.test(cursorId ?? "")
 
+  // 筛选：按人（supervisedId）、按时间范围（createdAt，from 含 / to 不含）、按是否自动审核。
+  const requestedUser = params.get("userId") ?? ""
+  const userFilter = UUID_PATTERN.test(requestedUser) ? requestedUser : null
+  const parseDate = (value: string | null) => {
+    if (!value) return null
+    const parsed = new Date(value)
+    return Number.isNaN(parsed.getTime()) ? null : parsed
+  }
+  const fromFilter = parseDate(params.get("from"))
+  const toFilter = parseDate(params.get("to"))
+  const automatedFilter = params.get("automated")
+
   try {
     const ids = [...(await getSupervisedUserIdsForActor(actor))]
     if (!ids.length) return success({ items: [], nextCursor: null })
@@ -70,9 +93,16 @@ export async function GET(request: NextRequest) {
         automated: sql<boolean>`${reportReviews.reviewerId} is null`,
         taskId: reportTasks.id,
         taskTitle: reportTasks.title,
+        supervisedId: reportTasks.supervisedId,
         supervisedName: sql<
           string | null
         >`(select ${users.name} from ${users} where ${users.id} = ${reportTasks.supervisedId})`,
+        // 当次被审的提交内容：优先用审核时冻结的快照（A5 起写入），
+        // 老记录没有快照时回退到当前提交，并在响应里用 snapshotMissing 标注，
+        // 由界面提示"该记录早于快照上线，显示的是最新提交版本"。
+        submittedSnapshot: reportReviews.submittedSnapshot,
+        submissionData: reportSubmissions.data,
+        submissionContent: reportSubmissions.content,
       })
       .from(reportReviews)
       .innerJoin(
@@ -82,24 +112,44 @@ export async function GET(request: NextRequest) {
       .innerJoin(reportTasks, eq(reportTasks.id, reportSubmissions.taskId))
       .leftJoin(users, eq(users.id, reportReviews.reviewerId))
       .where(
-        hasCursor
-          ? and(
-              inArray(reportTasks.supervisedId, ids),
-              or(
+        and(
+          inArray(reportTasks.supervisedId, ids),
+          userFilter ? eq(reportTasks.supervisedId, userFilter) : undefined,
+          fromFilter ? gte(reportReviews.createdAt, fromFilter) : undefined,
+          toFilter ? lt(reportReviews.createdAt, toFilter) : undefined,
+          automatedFilter === "1"
+            ? isNull(reportReviews.reviewerId)
+            : automatedFilter === "0"
+              ? isNotNull(reportReviews.reviewerId)
+              : undefined,
+          hasCursor
+            ? or(
                 lt(reportReviews.createdAt, cursorDate),
                 and(
                   eq(reportReviews.createdAt, cursorDate),
                   lt(reportReviews.id, sql`${cursorId}::uuid`),
                 ),
-              ),
-            )
-          : inArray(reportTasks.supervisedId, ids),
+              )
+            : undefined,
+        ),
       )
       .orderBy(desc(reportReviews.createdAt), desc(reportReviews.id))
       .limit(limit + 1)
 
     const hasMore = rows.length > limit
-    const items = hasMore ? rows.slice(0, limit) : rows
+    const items = (hasMore ? rows.slice(0, limit) : rows).map((row) => ({
+      ...row,
+      // 快照缺失（A5 之前的历史记录）时，界面上要如实标注，别让人以为是当时原文。
+      snapshotMissing: row.submittedSnapshot === null,
+      submittedSnapshot: row.submittedSnapshot ?? {
+        data: row.submissionData,
+        content: row.submissionContent,
+        templateSnapshot: null,
+        submissionUpdatedAt: null,
+      },
+      submissionData: undefined,
+      submissionContent: undefined,
+    }))
     const last = items.at(-1)
 
     return success({

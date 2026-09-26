@@ -30,12 +30,25 @@ const MakeupSchema = z.object({
   locationSource: z.enum(["GPS", "IP"]).default("IP"),
 })
 
-export async function GET() {
+/**
+ * 补卡队列。
+ *
+ * `request` 声明为可选：业务 e2e 会直接调用这个处理器（`GET()`）而不是走 HTTP，
+ * 声明成必填会把那条用例的调用点判成类型错误；Next 侧始终会传入 request，行为不变。
+ */
+export async function GET(request?: NextRequest) {
   const actor = await getSessionUser()
   if (!actor) return failure("UNAUTHORIZED", "请先登录", 401)
+  // 默认 PENDING：既有「待审队列」语义与所有不传参的调用方完全不变。
+  // 监管侧回看历史时传 APPROVED / REJECTED（或 ALL 取全部）。
+  const requested = (request?.nextUrl.searchParams.get("status") ?? "").toUpperCase()
+  const status =
+    (["PENDING", "APPROVED", "REJECTED", "ALL"] as const).find(
+      (value) => value === requested,
+    ) ?? "PENDING"
   try {
     if (actor.role !== "SUPERVISED")
-      return success(await getCheckinReviewQueue(actor))
+      return success(await getCheckinReviewQueue(actor, status))
     const rows = await db
       .select({
         id: checkinMakeups.id,

@@ -5,6 +5,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.runtime.*
+import androidx.navigationevent.NavigationEventInfo
+import androidx.navigationevent.compose.NavigationBackHandler
+import androidx.navigationevent.compose.rememberNavigationEventState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import com.custodysim.app.config.ServerEndpoint
@@ -23,6 +26,12 @@ fun ServerSettingsSheet(show: Boolean, current: String, onDismiss: () -> Unit, o
     var message by remember { mutableStateOf<String?>(null) }
     var error by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
+    val backState = rememberNavigationEventState(currentInfo = NavigationEventInfo.None)
+    NavigationBackHandler(
+        state = backState,
+        isBackEnabled = show,
+        onBackCompleted = { if (!busy) onDismiss() },
+    )
     LaunchedEffect(show, current) {
         if (show) { address = current; verified = null; message = null; error = false }
     }

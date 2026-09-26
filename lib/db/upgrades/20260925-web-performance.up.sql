@@ -5,3 +5,5 @@ CREATE INDEX CONCURRENTLY IF NOT EXISTS chat_messages_conversation_cursor_idx
   ON public.chat_messages USING btree (conversation_id, created_at DESC, id DESC);
 CREATE INDEX CONCURRENTLY IF NOT EXISTS chat_messages_sender_created_idx
   ON public.chat_messages USING btree (sender_id, created_at);
+CREATE INDEX CONCURRENTLY IF NOT EXISTS checkin_records_user_checkin_idx
+  ON public.checkin_records USING btree (user_id, checkin_at DESC, id DESC);

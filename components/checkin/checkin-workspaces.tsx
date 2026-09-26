@@ -31,6 +31,13 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { toast } from "@/components/ui/toast"
 import { PRISONER_CUSTODY_STATUS_LABELS } from "@/lib/constants"
 import { CustodyProfileSchema } from "@/lib/custody-profile-schema"
@@ -48,6 +55,15 @@ const DatePicker = dynamic(
   () =>
     import("@/components/ui/date-picker").then((module) => module.DatePicker),
   { loading: () => <span role="status">正在加载日期筛选…</span> },
+)
+
+// 按人下钻的明细弹层懒加载：它自带日期/状态筛选与照片渲染，不进监管打卡页首屏包。
+const CheckinRecordsDialog = dynamic(
+  () =>
+    import("./checkin-records-dialog").then(
+      (module) => module.CheckinRecordsDialog,
+    ),
+  { loading: () => <span role="status">正在加载打卡明细…</span> },
 )
 
 const Makeup = z.object({
@@ -72,6 +88,16 @@ const SupervisionCheckinHistory = z.array(
     scheduledCount: z.number(),
     completedCount: z.number(),
     exceptionCount: z.number(),
+    /** 逐时段分布；老响应没有这个字段时按空数组处理，界面显示"—"。 */
+    slots: z
+      .array(
+        z.object({
+          slotIndex: z.number(),
+          scheduleAt: z.string(),
+          status: z.string(),
+        }),
+      )
+      .optional(),
     pendingCount: z.number(),
     latestCheckinAt: z.string().nullable(),
   }),
@@ -299,9 +325,12 @@ function MakeupReviewCard({ makeup }: { makeup: z.infer<typeof Makeup> }) {
 }
 
 export function MakeupReview() {
+  // 默认只看待审（接口默认值也是 PENDING）；切到已审即可回看历史结论与审批意见。
+  const [status, setStatus] = useState<string>("PENDING")
   const makeups = useQuery({
-    queryKey: ["makeup-review"],
-    queryFn: () => requestApi("/api/makeups", Makeups),
+    queryKey: ["makeup-review", status],
+    queryFn: () =>
+      requestApi(`/api/makeups?status=${encodeURIComponent(status)}`, Makeups),
   })
   return (
     <div className="workspace-stack mx-auto max-w-5xl">
@@ -310,6 +339,22 @@ export function MakeupReview() {
         title="补点核准"
         description="核实所辖人员的漏点原因与补卡凭据，作出审核决定并留存意见。"
       />
+      <div className="w-full px-1 sm:w-52">
+        <Label>审核状态</Label>
+        <div className="mt-2">
+          <Select value={status} onValueChange={setStatus}>
+            <SelectTrigger aria-label="补卡审核状态筛选">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="PENDING">待审核</SelectItem>
+              <SelectItem value="APPROVED">已批准</SelectItem>
+              <SelectItem value="REJECTED">已拒绝</SelectItem>
+              <SelectItem value="ALL">全部</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
       <QueryStateView
         isLoading={makeups.isLoading}
         error={makeups.error}
@@ -320,8 +365,14 @@ export function MakeupReview() {
           <div className="surface-panel motion-item">
             <EmptyState
               icon={TimerReset}
-              title="暂无待审核补卡申请"
-              description="新的补卡申请会按提交时间出现在这里。"
+              title={
+                status === "PENDING" ? "暂无待审核补卡申请" : "该状态下没有补卡记录"
+              }
+              description={
+                status === "PENDING"
+                  ? "新的补卡申请会按提交时间出现在这里。"
+                  : "换一个审核状态再试。"
+              }
             />
           </div>
         }
@@ -350,6 +401,10 @@ export function DailyCheckins({ initialDate }: { initialDate?: string }) {
 function CheckinHistory({ initialDate }: { initialDate?: string }) {
   // 支持从首页「今日执行」带 ?date= 直达，否则默认让用户自己选日期
   const [date, setDate] = useState(() => normalizeDateKey(initialDate))
+  // 按人下钻的明细弹层目标；null 即关闭。汇总行只给入口，明细逐条由接口下发。
+  const [recordTarget, setRecordTarget] = useState<
+    z.infer<typeof SupervisionCheckinHistory>[number] | null
+  >(null)
   const history = useQuery({
     queryKey: ["supervision-checkins-history", date],
     queryFn: () =>
@@ -412,17 +467,33 @@ function CheckinHistory({ initialDate }: { initialDate?: string }) {
                   {item.latestCheckinAt ? timeText(item.latestCheckinAt) : "—"}
                 </span>
               </div>
+              {/* 窄屏也把时段分布摊开，避免只能看到一个"异常 4"。 */}
+              <div className="mt-2.5">
+                <SlotDistribution item={item} />
+              </div>
+              {/* 移动端也要有下钻入口，否则 <640px 只能看汇总。 */}
+              <Button
+                variant="ghost"
+                size="sm"
+                className="-ml-2 mt-2"
+                aria-label={`查看${item.supervisedName}的打卡记录`}
+                onClick={() => setRecordTarget(item)}
+              >
+                打卡记录
+              </Button>
             </div>
           ))}
         </div>
         <div className="hidden overflow-x-auto sm:block">
-          <table className="w-full min-w-[580px] text-sm">
+          <table className="w-full min-w-[860px] text-sm">
             <thead className="bg-muted/60 text-muted-foreground text-left text-xs">
               <tr>
                 <th className="px-5 py-3">在押人员</th>
                 <th className="px-5 py-3">打卡完成</th>
                 <th className="px-5 py-3">状态</th>
+                <th className="px-5 py-3">时段分布</th>
                 <th className="px-5 py-3">最近打卡</th>
+                <th className="px-5 py-3 text-right">操作</th>
               </tr>
             </thead>
             <tbody className="divide-border/60 divide-y">
@@ -437,10 +508,23 @@ function CheckinHistory({ initialDate }: { initialDate?: string }) {
                   <td className="px-5 py-4">
                     <HistoryStatus item={item} />
                   </td>
+                  <td className="px-5 py-4">
+                    <SlotDistribution item={item} />
+                  </td>
                   <td className="font-numeric text-muted-foreground px-5 py-4">
                     {item.latestCheckinAt
                       ? timeText(item.latestCheckinAt)
                       : "—"}
+                  </td>
+                  <td className="px-5 py-4 text-right">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      aria-label={`查看${item.supervisedName}的打卡记录`}
+                      onClick={() => setRecordTarget(item)}
+                    >
+                      打卡记录
+                    </Button>
                   </td>
                 </tr>
               ))}
@@ -477,6 +561,26 @@ function CheckinHistory({ initialDate }: { initialDate?: string }) {
       <Card className="page-enter">
         <CardContent className="p-3 sm:p-0">{content}</CardContent>
       </Card>
+      {/* 受控弹层：关闭即清空目标，下次打开重新取第一页（筛选状态也随组件卸载重置）。 */}
+      {recordTarget ? (
+        <CheckinRecordsDialog
+          person={{
+            id: recordTarget.supervisedId,
+            name: recordTarget.supervisedName,
+          }}
+          // 汇总行的计数只用来把空态说清楚：这个人为什么一条记录都没有。
+          summary={{
+            scheduledCount: recordTarget.scheduledCount,
+            completedCount: recordTarget.completedCount,
+            exceptionCount: recordTarget.exceptionCount,
+          }}
+          dateKey={date}
+          open
+          onOpenChange={(nextOpen) => {
+            if (!nextOpen) setRecordTarget(null)
+          }}
+        />
+      ) : null}
     </section>
   )
 }
@@ -493,4 +597,58 @@ function HistoryStatus({
   if (item.pendingCount > 0)
     return <StatusPill tone="warning">待处理 {item.pendingCount}</StatusPill>
   return <StatusPill tone="success">已完成</StatusPill>
+}
+
+/** `getCheckinTaskStatus` 的取值域 → 中文文案。 */
+const SLOT_LABEL: Record<string, string> = {
+  COMPLETED: "已打卡",
+  LATE: "迟到",
+  MISSED: "漏点",
+  PENDING: "待打卡",
+  MAKEUP_PENDING: "补卡待审",
+  MAKEUP_APPROVED: "补卡通过",
+  MAKEUP_REJECTED: "补卡被拒",
+  SYSTEM_MAKEUP: "系统补卡",
+}
+
+const SLOT_TONE: Record<string, string> = {
+  COMPLETED: "bg-emerald-50 text-emerald-700",
+  SYSTEM_MAKEUP: "bg-emerald-50 text-emerald-700",
+  MAKEUP_APPROVED: "bg-emerald-50 text-emerald-700",
+  LATE: "bg-amber-50 text-amber-800",
+  MAKEUP_PENDING: "bg-amber-50 text-amber-800",
+  MISSED: "bg-red-50 text-red-700",
+  MAKEUP_REJECTED: "bg-red-50 text-red-700",
+  PENDING: "bg-muted text-muted-foreground",
+}
+
+/**
+ * 时段分布：把当天的每个打卡时段按时序排开（如「08:00 漏点 · 12:00 漏点 …」）。
+ *
+ * 数据来自接口下发的 `slots`，与同行 completed/exception 计数同源同口径 ——
+ * 所以"异常 4"时这里必定是 4 个异常时段，不会再出现"只看得到漏了几次、看不到漏在哪"。
+ */
+function SlotDistribution({
+  item,
+}: {
+  item: z.infer<typeof SupervisionCheckinHistory>[number]
+}) {
+  const slots = item.slots ?? []
+  if (!slots.length)
+    return <span className="text-muted-foreground text-xs">—</span>
+  return (
+    <div className="flex flex-wrap gap-1">
+      {slots.map((slot) => (
+        <span
+          key={`${slot.slotIndex}-${slot.scheduleAt}`}
+          className={`rounded px-1.5 py-0.5 text-xs ${
+            SLOT_TONE[slot.status] ?? "bg-muted text-muted-foreground"
+          }`}
+        >
+          {timeText(slot.scheduleAt).slice(11)}{" "}
+          {SLOT_LABEL[slot.status] ?? slot.status}
+        </span>
+      ))}
+    </div>
+  )
 }

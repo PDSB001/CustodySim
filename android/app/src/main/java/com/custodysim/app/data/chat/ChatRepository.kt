@@ -27,6 +27,11 @@ data class ChatMessage(
     val createdAt: String,
     val readCount: Int,
     val senderAvatar: String? = null,
+    /**
+     * 乐观发送的本地占位消息（id 形如 `local-*`，只存在于内存）。
+     * 服务端确认后会被正式消息替换；失败则移除，并把草稿还回输入框。
+     */
+    val pending: Boolean = false,
 ) {
     /** 图片消息的 [content] 是 data URL（单张，≤ 1 MB）。 */
     val isImage: Boolean get() = type == TYPE_IMAGE
@@ -38,7 +43,8 @@ data class ChatMessage(
      * 本地时钟偏差导致的越界由服务端拒绝后刷新列表兜底。
      */
     fun canRecall(selfUserId: String, nowMillis: Long = System.currentTimeMillis()): Boolean {
-        if (recalled || senderId != selfUserId) return false
+        // 还没被服务端确认的占位消息没有正式 id，不能撤回。
+        if (pending || recalled || senderId != selfUserId) return false
         val sentAtMillis =
             runCatching { Instant.parse(createdAt).toEpochMilli() }.getOrNull() ?: return false
         return nowMillis - sentAtMillis <= RECALL_WINDOW_MILLIS

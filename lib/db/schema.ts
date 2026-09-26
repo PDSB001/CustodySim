@@ -772,6 +772,19 @@ export const reportReviews = pgTable(
     result: varchar("result", { length: 20 }).notNull(),
     grade: integer("grade"),
     comment: text("comment"),
+    /**
+     * 批阅快照：审核时把「当次被审的提交内容」一并存下来。
+     *
+     * `report_submissions` 对 taskId 唯一、提交走 upsert 覆盖，退回→重提会覆盖上一次的答案；
+     * 有快照后，历史批阅才能还原"当时审的是什么"。仅对快照上线后的新审核生效，
+     * 历史记录此列为 null（读取端需回退到当前提交并标注）。
+     */
+    submittedSnapshot: jsonb("submitted_snapshot").$type<{
+      data: unknown
+      content: string | null
+      templateSnapshot: unknown
+      submissionUpdatedAt: string
+    }>(),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -782,6 +795,11 @@ export const reportReviews = pgTable(
     index("report_reviews_submission_created_idx").on(
       table.submissionId,
       table.createdAt.desc(),
+    ),
+    // 批阅记录列表按时间倒序分页（/api/reviews 游标 createdAt|id）
+    index("report_reviews_created_idx").on(
+      table.createdAt.desc(),
+      table.id.desc(),
     ),
   ],
 )
@@ -895,6 +913,13 @@ export const checkinRecords = pgTable(
     uniqueIndex("checkin_records_task_unique").on(table.taskId),
     index("checkin_records_user_created_idx").on(table.userId, table.createdAt),
     index("checkin_records_gps_expiry_idx").on(table.gpsExpiresAt),
+    // /api/supervision/checkins/records 按 (checkinAt, id) 降序游标翻页，
+    // 原有索引是 (userId, createdAt)，顺序不同用不上，会退化成扫描该人全部记录。
+    index("checkin_records_user_checkin_idx").on(
+      table.userId,
+      table.checkinAt.desc(),
+      table.id.desc(),
+    ),
   ],
 )
 
