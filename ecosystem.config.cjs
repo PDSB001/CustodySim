@@ -48,7 +48,13 @@ module.exports = {
         PORT: 3000,
         ...loadEnvLocal(),
       },
-      max_memory_restart: "300M",
+      // 这台机器总内存 1.9G，而 Node 默认的旧生代上限是按机器内存推算的（1G 量级），
+      // 于是 V8 迟迟不做激进 GC，pm2 却按 RSS 到 300M 就把进程杀掉 —— 表现就是
+      // restarts 一路涨、uptime 只有几分钟，每次被杀还会掐断正在处理的请求。
+      // 两个值一起调：先让 V8 在 384M 堆时主动 GC，再给 pm2 留出足够余量
+      // （堆 384M + 运行时开销 ≈ 500M，600M 的 RSS 上限留了缓冲）。
+      node_args: "--max-old-space-size=384",
+      max_memory_restart: "600M",
       kill_timeout: 30000,
       log_date_format: "YYYY-MM-DD HH:mm:ss",
       error_file: path.join(logDirectory, "error.log"),
