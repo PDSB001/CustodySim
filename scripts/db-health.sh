@@ -118,11 +118,14 @@ q "select relname as 表, seq_scan as 顺序扫描, seq_tup_read as 扫过的行
    order by seq_tup_read desc limit 15;"
 
 section "6. 索引使用情况与未使用索引"
-q "select s.relname as 索引, t.relname as 表, s.idx_scan as 使用次数,
-          pg_size_pretty(pg_relation_size(s.oid)) as 大小
-   from pg_stat_user_indexes s join pg_class t on t.oid = s.relid
+q "select s.relname as 索引, t.relname as 表, i.indisunique as 唯一约束,
+          s.idx_scan as 使用次数,
+          pg_size_pretty(pg_relation_size(s.indexrelid)) as 大小
+   from pg_stat_user_indexes s
+   join pg_class t on t.oid = s.relid
+   join pg_index i on i.indexrelid = s.indexrelid
    where s.idx_scan = 0
-   order by pg_relation_size(s.oid) desc limit 20;"
+   order by pg_relation_size(s.indexrelid) desc limit 20;"
 echo "（注意：唯一索引/主键即使 idx_scan=0 也承担约束职责，不能因为「没被扫过」就删。）"
 
 section "7. 死元组与自动清理健康度"
@@ -147,6 +150,8 @@ q "select count(*) as 连接数, (select setting::int from pg_settings where nam
 
 section "9. 慢查询统计（需要 pg_stat_statements）"
 HAS_STATS="$("${PSQL[@]}" -tA -c "select count(*) from pg_extension where extname = 'pg_stat_statements'")"
+echo "（若结果里出现 <insufficient privilege>：当前连接角色看不到应用角色执行的语句；"
+echo "  换成应用角色或超级用户重跑本脚本，才能看到应用侧的完整排行。）"
 if [[ "$HAS_STATS" == "1" ]]; then
   echo "-- 按平均耗时排序"
   q "select calls as 次数, round(total_exec_time::numeric, 1) as 总毫秒,
