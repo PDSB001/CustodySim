@@ -22,6 +22,16 @@ const fallbackSecurityHeaders = [
 const nextConfig: NextConfig = {
   output: "standalone",
   poweredByHeader: false,
+  /**
+   * 关闭内置图片优化器（含它的磁盘缓存）。
+   *
+   * 站内所有 <Image> 都传了 `unoptimized`（图片本身是 data URL，优化器无从下手），
+   * 但只要优化器还在，任何漏传的地方都会走 `/_next/image` 并把结果写进
+   * `.next/cache/images` —— 那份缓存**没有过期策略**，只会随时间无限增长。
+   * 全局置为 unoptimized 后：不再有 `/_next/image` 端点，也不再写这份磁盘缓存，
+   * 对现有渲染没有任何影响（本来就是直接输出 data URL）。
+   */
+  images: { unoptimized: true },
   allowedDevOrigins: ["127.0.0.1", "localhost", ...localNetworkHosts],
   serverExternalPackages: ["geoip-lite"],
   outputFileTracingIncludes: {
