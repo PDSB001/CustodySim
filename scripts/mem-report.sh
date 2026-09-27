@@ -48,8 +48,10 @@ echo "（PSS 各组合计可直接相加；总和应当略小于 free 的 used�
 
 report_group postgres -x postgres
 report_group nginx -x nginx
-# pm2 的应用在进程名上不一定叫 node（取决于启动方式），按命令行匹配更稳。
-report_group "pm2 应用（按命令行匹配）" -f "standalone/server.js|realtime-server.mjs"
+# pm2 的应用进程名就是 node（comm 取的是可执行文件名）。上一版按命令行匹配只命中了
+# realtime-server.mjs，漏掉了 Next —— pm2 在 fork 模式下可能用 ProcessContainerFork.js
+# 启动，命令行里不带原始脚本名，所以按进程名匹配才稳。
+report_group "pm2 应用（node 进程）" -x node
 
 echo
 echo "=== pm2 自报数据（RSS，比 PSS 略高，含共享库） ==="
