@@ -57,6 +57,8 @@ const port = new URL(baseURL).port || "3000"
 
 export default defineConfig({
   testDir: "./e2e",
+  // 每次 e2e 开始前按阈值清理 .next（webServer 直接调 next dev，绕过了 predev 钩子）。
+  globalSetup: "./e2e/global-setup.ts",
   testIgnore: [
     "**/scoring/**/*.test.ts",
     "**/business/**/*.test.ts",

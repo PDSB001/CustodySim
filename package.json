@@ -6,8 +6,11 @@
     "node": ">=20.9.0"
   },
   "scripts": {
+    "predev": "node scripts/clean.mjs --guard",
     "dev": "next dev --hostname 0.0.0.0",
     "dev:realtime": "node --env-file=.env.local realtime-server.mjs",
+    "clean": "node scripts/clean.mjs",
+    "clean:apply": "node scripts/clean.mjs --apply",
     "build": "next build",
     "start": "next start",
     "lint": "eslint app components e2e lib scripts instrumentation.ts proxy.ts realtime-server.mjs drizzle.config.ts eslint.config.mjs next.config.ts playwright.config.ts playwright.scoring.config.ts vitest.scoring-e2e.config.mts vitest.business-e2e.config.mts postcss.config.mjs prettier.config.mjs ecosystem.config.cjs --max-warnings 0",
