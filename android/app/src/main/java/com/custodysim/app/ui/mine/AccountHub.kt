@@ -12,11 +12,17 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.border
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.custodysim.app.AppContainer
 import com.custodysim.app.R
@@ -28,13 +34,14 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import top.yukonga.miuix.kmp.basic.BasicComponent
-import top.yukonga.miuix.kmp.icon.basic.ArrowRight
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.HorizontalDivider
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.preference.OverlayDropdownPreference
+import top.yukonga.miuix.kmp.preference.ArrowPreference
+import top.yukonga.miuix.kmp.preference.SwitchPreference
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Promotions
 import top.yukonga.miuix.kmp.icon.extended.Notes
@@ -56,7 +63,7 @@ private fun statusLabel(status: String): String = when (status) {
 }
 
 /** Unknown server-defined fields stay visible in their own section. */
-private fun profileSection(name: String): String = when (name) {
+internal fun profileSection(name: String): String = when (name) {
     "姓名", "性别", "年龄", "出生年月", "出生日", "民族", "籍贯", "籍贯（到市即可）", "婚姻状况" -> "基本信息"
     "罪名", "刑期起始日期", "刑期截止日期" -> "入监信息"
     "健康状态", "健康状况", "技能", "职业", "文化程度" -> "健康与教育"
@@ -120,7 +127,8 @@ fun AccountHub(container: AppContainer, allowEditing: Boolean = true) {
         bodyFraction = 0.82f) {
         when {
             loading -> PageState(stringResource(R.string.loading), loading = true)
-            error != null -> PageState(stringResource(R.string.load_failed), error)
+            error != null -> PageState(stringResource(R.string.load_failed), error,
+                onRetry = { open(HubPanel.ARCHIVES) })
             archives.isEmpty() -> PageState(stringResource(R.string.portal_empty_archives))
             else -> LazyColumn(
                 modifier = Modifier.fillMaxSize(),
@@ -245,23 +253,27 @@ fun NoticeSheet(container: AppContainer, show: Boolean, onDismiss: () -> Unit) {
     var error by remember { mutableStateOf<String?>(null) }
     var notices by remember { mutableStateOf<List<PortalNotice>>(emptyList()) }
     var markingId by remember { mutableStateOf<String?>(null) }
+    var revision by remember { mutableIntStateOf(0) }
     val scope = rememberCoroutineScope()
-    LaunchedEffect(show) {
+    val snackbar = LocalAppSnackbar.current
+    LaunchedEffect(show, revision) {
         if (!show) return@LaunchedEffect
         loading = true
         error = null
-        when (val result = container.portalRepository.notices()) {
-            is ApiResult.Ok -> notices = result.data
-            is ApiResult.Err -> error = result.message
-        }
-        loading = false
+        try {
+            when (val result = container.portalRepository.notices()) {
+                is ApiResult.Ok -> notices = result.data
+                is ApiResult.Err -> error = result.message
+            }
+        } finally { loading = false }
     }
     OverlaySheet(show = show, title = stringResource(R.string.portal_notices), onDismiss = onDismiss,
         // 与档案弹层一致：加载提示与公告列表共用固定高度（0.82 屏高），数据到达时弹层不突然长高。
         bodyFraction = 0.82f) {
         when {
             loading -> PageState(stringResource(R.string.loading), loading = true)
-            error != null -> PageState(stringResource(R.string.load_failed), error)
+            error != null -> PageState(stringResource(R.string.load_failed), error,
+                onRetry = { revision++ })
             notices.isEmpty() -> PageState(stringResource(R.string.portal_empty_notices))
             else -> LazyColumn(
                 // 高度由弹层内容区（bodyFraction）统一给出，列表在弹层内滚动。
@@ -287,16 +299,21 @@ fun NoticeSheet(container: AppContainer, show: Boolean, onDismiss: () -> Unit) {
                                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                                 if (!item.read) {
                                     TextButton(
-                                        text = stringResource(R.string.portal_mark_read),
+                                        text = if (markingId == item.id) "标记中…" else stringResource(R.string.portal_mark_read),
                                         enabled = markingId == null,
                                         onClick = {
+                                            if (markingId != null) return@TextButton
                                             markingId = item.id
                                             scope.launch {
-                                                when (container.portalRepository.markNoticeRead(item.id)) {
-                                                    is ApiResult.Ok -> notices = notices.map { notice -> if (notice.id == item.id) notice.copy(read = true) else notice }
-                                                    is ApiResult.Err -> Unit
-                                                }
-                                                markingId = null
+                                                try {
+                                                    when (val result = container.portalRepository.markNoticeRead(item.id)) {
+                                                        is ApiResult.Ok -> {
+                                                            notices = notices.map { notice -> if (notice.id == item.id) notice.copy(read = true) else notice }
+                                                            snackbar("公告已标记为已读")
+                                                        }
+                                                        is ApiResult.Err -> snackbar(result.message)
+                                                    }
+                                                } finally { markingId = null }
                                             }
                                         },
                                         modifier = Modifier.fillMaxWidth(),
@@ -314,6 +331,7 @@ fun NoticeSheet(container: AppContainer, show: Boolean, onDismiss: () -> Unit) {
 @Composable
 private fun ProfileFormsSheet(container: AppContainer, show: Boolean, onDismiss: () -> Unit) {
     val context = LocalContext.current
+    val focus = LocalFocusManager.current
     var forms by remember { mutableStateOf<List<ProfileForm>>(emptyList()) }
     var records by remember { mutableStateOf<List<ProfileRecord>>(emptyList()) }
     var selectedIndex by remember { mutableIntStateOf(0) }
@@ -321,10 +339,15 @@ private fun ProfileFormsSheet(container: AppContainer, show: Boolean, onDismiss:
     var photo by remember { mutableStateOf<String?>(null) }
     var signatureMode by remember { mutableStateOf("GENERATED") }
     var handwrittenSignature by remember { mutableStateOf<String?>(null) }
+    var communityShare by remember { mutableStateOf(false) }
+    var shareFields by remember { mutableStateOf<Set<String>>(emptySet()) }
     var showSignatureEditor by remember { mutableStateOf(false) }
     var loading by remember { mutableStateOf(false) }
-    var busy by remember { mutableStateOf(false) }
+    var busyAction by remember { mutableStateOf<String?>(null) }
+    val busy = busyAction != null
     var error by remember { mutableStateOf<String?>(null) }
+    var loadError by remember { mutableStateOf<String?>(null) }
+    var revision by remember { mutableIntStateOf(0) }
     val scope = rememberCoroutineScope()
     val selectedForm = forms.getOrNull(selectedIndex)
     val selectedRecord = selectedForm?.let { form -> records.firstOrNull { it.formId == form.id } }
@@ -333,16 +356,25 @@ private fun ProfileFormsSheet(container: AppContainer, show: Boolean, onDismiss:
     val snackbar = LocalAppSnackbar.current
     fun persistDraft() {
         draft.replace(values.mapKeys { "field:${it.key}" } + mapOf("photo" to photo,
-            "signatureMode" to signatureMode, "handwrittenSignature" to handwrittenSignature))
+            "signatureMode" to signatureMode, "handwrittenSignature" to handwrittenSignature,
+            "communityShare" to communityShare, "communityShareFields" to shareFields.toList()))
     }
-    fun updateValues(next: Map<String, String>) { values = next; persistDraft() }
-    suspend fun saveProfileDraft() {
+    fun updateValues(next: Map<String, String>) {
+        values = next
+        // Clearing a chosen value also clears its sharing choice; later typing
+        // must not silently add that value to the public snapshot again.
+        shareFields = shareFields.filter { !next[it].isNullOrBlank() }.toSet()
+        persistDraft()
+    }
+    suspend fun saveProfileDraft(action: String = "save") {
         val form = selectedForm ?: return
-        busy = true; error = null
+        if (busyAction != null) return
+        focus.clearFocus()
+        busyAction = action; error = null
         try {
             val data = org.json.JSONObject().apply { values.forEach { (key, value) -> put(key, value) } }
             when (val result = container.portalRepository.saveProfileRecord(form.id, data, photo,
-                signatureMode, handwrittenSignature)) {
+                signatureMode, handwrittenSignature, communityShare, shareFields.toList())) {
                 is ApiResult.Ok -> {
                     draft.clear()
                     snackbar("草稿已保存到服务器")
@@ -353,7 +385,7 @@ private fun ProfileFormsSheet(container: AppContainer, show: Boolean, onDismiss:
                 }
                 is ApiResult.Err -> error = result.message
             }
-        } finally { busy = false }
+        } finally { busyAction = null }
     }
     val photoPicker = rememberImagePicker(1) { urls -> photo = urls.firstOrNull(); persistDraft() }
     // 「罩杯」只对女性适用（与 Web 端一致）。用 derivedStateOf 只订阅「性别」这一个键，
@@ -363,14 +395,21 @@ private fun ProfileFormsSheet(container: AppContainer, show: Boolean, onDismiss:
         selectedForm?.fields?.filterNot { it.name == "罩杯" && gender != "女" } ?: emptyList()
     }
     val fieldSections = remember(visibleFields) { visibleFields.groupBy { profileSection(it.name) } }
-    LaunchedEffect(show) {
+    LaunchedEffect(show, revision) {
         if (!show) return@LaunchedEffect
-        loading = true; error = null
-        val formResult = container.portalRepository.profileForms()
-        val recordResult = container.portalRepository.profileRecords()
-        if (formResult is ApiResult.Ok) forms = formResult.data else if (formResult is ApiResult.Err) error = formResult.message
-        if (recordResult is ApiResult.Ok) records = recordResult.data else if (recordResult is ApiResult.Err) error = recordResult.message
-        loading = false
+        loading = true; error = null; loadError = null
+        try {
+            val formResult = container.portalRepository.profileForms()
+            val recordResult = container.portalRepository.profileRecords()
+            when {
+                formResult is ApiResult.Err -> loadError = formResult.message
+                recordResult is ApiResult.Err -> loadError = recordResult.message
+                formResult is ApiResult.Ok && recordResult is ApiResult.Ok -> {
+                    forms = formResult.data
+                    records = recordResult.data
+                }
+            }
+        } finally { loading = false }
     }
     LaunchedEffect(show, selectedForm?.id, selectedRecord?.updatedAt, draft.ready, loading) {
         if (!show || !draft.ready || loading) return@LaunchedEffect
@@ -384,6 +423,14 @@ private fun ProfileFormsSheet(container: AppContainer, show: Boolean, onDismiss:
             handwrittenSignature = if (editable && draft.values.containsKey("handwrittenSignature")) {
                 draft.values["handwrittenSignature"] as? String
             } else selectedRecord?.signatureData?.takeIf { selectedRecord.signatureMode == "HANDWRITTEN" }
+            communityShare = (if (editable) draft.values["communityShare"] as? Boolean else null)
+                ?: selectedRecord?.communityShare ?: false
+            val eligibleNames = form.fields.filter { it.type in com.custodysim.app.data.community.communityProfileFieldTypes }
+                .filterNot { it.name == "罩杯" && values["性别"] != "女" }
+                .map { it.name }.toSet()
+            shareFields = ((if (editable) draft.values["communityShareFields"] as? List<*> else null)
+                ?.filterIsInstance<String>() ?: selectedRecord?.communityShareFields ?: emptyList())
+                .filter { it in eligibleNames && !values[it].isNullOrBlank() }.toSet()
         }
     }
     if (show && showSignatureEditor && editable) SignatureEditor(
@@ -403,9 +450,10 @@ private fun ProfileFormsSheet(container: AppContainer, show: Boolean, onDismiss:
         bodyFraction = 0.82f) {
         when {
             loading -> PageState(stringResource(R.string.loading), loading = true)
+            loadError != null -> PageState(stringResource(R.string.load_failed), loadError,
+                onRetry = { revision++ })
             draft.error != null && !draft.ready -> PageState("草稿加载失败", draft.error)
             !draft.ready -> PageState(stringResource(R.string.loading), loading = true)
-            error != null && forms.isEmpty() -> PageState(stringResource(R.string.load_failed), error)
             forms.isEmpty() -> PageState("暂无可填写档案")
             selectedForm == null -> PageState("暂无可填写档案")
             else -> LazyColumn(
@@ -426,9 +474,8 @@ private fun ProfileFormsSheet(container: AppContainer, show: Boolean, onDismiss:
                     item {
                         var expanded by remember(selectedForm.id) { mutableStateOf(false) }
                         SettingGroup(Modifier.padding(bottom = AppSpace.medium)) {
-                            BasicComponent(title = "填写说明", summary = if (expanded) "收起说明" else "查看填写要求与签署说明",
-                                onClick = { expanded = !expanded },
-                                endActions = { Icon(MiuixIcons.Basic.ArrowRight, null) })
+                            ArrowPreference(title = "填写说明", summary = if (expanded) "收起说明" else "查看填写要求与签署说明",
+                                enabled = !busy, onClick = { expanded = !expanded })
                             if (expanded) Text(description, style = MiuixTheme.textStyles.footnote1,
                                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                                 modifier = Modifier.padding(start = AppSpace.page, end = AppSpace.page, bottom = AppSpace.page))
@@ -504,7 +551,14 @@ private fun ProfileFormsSheet(container: AppContainer, show: Boolean, onDismiss:
                         "DATE" -> DatePreference(label, value, enabled = !busy && editable,
                             monthOnly = field.name == "出生年月", standalone = false) { updateValues(values + (field.name to it)) }
                         else -> FramedTextField(value = value, onValueChange = { updateValues(values + (field.name to it)) }, label = label,
-                            enabled = !busy && editable, modifier = Modifier.fillMaxWidth().padding(horizontal = AppSpace.page, vertical = AppSpace.small))
+                            enabled = !busy && editable,
+                            singleLine = field.type != "TEXTAREA",
+                            keyboardOptions = KeyboardOptions(
+                                keyboardType = if (field.type == "NUMBER") KeyboardType.Decimal else KeyboardType.Text,
+                                imeAction = if (field.type == "TEXTAREA") ImeAction.Default else ImeAction.Next,
+                            ),
+                            keyboardActions = KeyboardActions(onNext = { focus.moveFocus(FocusDirection.Down) }),
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = AppSpace.page, vertical = AppSpace.small))
                     }
                     if (index != fields.lastIndex) HorizontalDivider(Modifier.padding(horizontal = AppSpace.page),
                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = .08f))
@@ -518,10 +572,12 @@ private fun ProfileFormsSheet(container: AppContainer, show: Boolean, onDismiss:
                 }
                 item {
                     SettingGroup {
-                        Column(Modifier.fillMaxWidth().padding(AppSpace.page),
+                        Column(Modifier.fillMaxWidth().padding(AppSpace.inset),
                             verticalArrangement = Arrangement.spacedBy(AppSpace.medium)) {
                             OverlayDropdownPreference(title = "电子签名", items = listOf("规范签名", "手写签名"),
                                 selectedIndex = if (signatureMode == "HANDWRITTEN") 1 else 0,
+                                modifier = Modifier.fillMaxWidth(),
+                                insideMargin = PaddingValues(horizontal = 0.dp, vertical = AppSpace.small),
                                 enabled = editable && !busy,
                                 onSelectedIndexChange = { index ->
                                     if (index == 0) {
@@ -536,15 +592,16 @@ private fun ProfileFormsSheet(container: AppContainer, show: Boolean, onDismiss:
                             if (signatureMode == "HANDWRITTEN" && editable) TextButton("重新签写",
                                 enabled = !busy, onClick = { showSignatureEditor = true },
                                 modifier = Modifier.fillMaxWidth())
-                            if (signatureMode == "GENERATED" && editable) TextButton("生成规范签名并保存草稿",
-                                enabled = !busy, onClick = { scope.launch { saveProfileDraft() } },
+                            if (signatureMode == "GENERATED" && editable) TextButton(
+                                if (busyAction == "signature") "生成并保存中…" else "生成规范签名并保存草稿",
+                                enabled = !busy, onClick = { scope.launch { saveProfileDraft("signature") } },
                                 colors = ButtonDefaults.textButtonColors(textColor = MiuixTheme.colorScheme.primary), modifier = Modifier.fillMaxWidth())
                         }
                     }
                 }
                 item {
                     SettingGroup(Modifier.padding(top = AppSpace.medium, bottom = AppSpace.medium)) {
-                    Column(Modifier.padding(AppSpace.page)) { ArchiveImage(
+                    Column(Modifier.fillMaxWidth().padding(AppSpace.inset)) { ArchiveImage(
                         "公章",
                         selectedRecord?.officialSealData,
                         ContentScale.Fit,
@@ -553,28 +610,39 @@ private fun ProfileFormsSheet(container: AppContainer, show: Boolean, onDismiss:
                     }
                 }
                 item {
-                    // 一个 lazy item 里平铺多个根节点会互相重叠，按钮统一放进 Column 排列。
+                    ProfileCommunitySharing(
+                        formId = selectedForm.id, fields = visibleFields, values = values,
+                        sharing = communityShare, selected = shareFields, enabled = editable && !busy,
+                        modifier = Modifier.padding(bottom = AppSpace.page),
+                        onSharingChange = { communityShare = it; if (!it) shareFields = emptySet(); persistDraft() },
+                        onSelectionChange = { shareFields = it; persistDraft() },
+                    )
+                }
+                item {
                     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(AppSpace.medium)) {
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(AppSpace.medium)) {
-                        TextButton("保存草稿", enabled = !busy && editable, modifier = Modifier.weight(1f),
+                        TextButton(if (busyAction == "save") "保存中…" else "保存草稿", enabled = !busy && editable, modifier = Modifier.weight(1f),
                             colors = if (selectedRecord == null) ButtonDefaults.textButtonColorsPrimary()
                                 else ButtonDefaults.textButtonColors(textColor = MiuixTheme.colorScheme.primary), onClick = {
                             scope.launch { saveProfileDraft() }
                         })
                         selectedRecord?.let { record ->
                             if (record.status == "DRAFT" || record.status == "RETURNED") TextButton(
-                                text = "提交会签", enabled = !busy, onClick = {
+                                text = if (busyAction == "submit") "提交中…" else "提交会签", enabled = !busy, onClick = {
                                     scope.launch {
-                                        busy = true
-                                        val data = org.json.JSONObject().apply { values.forEach { (key, value) -> put(key, value) } }
-                                        val saved = container.portalRepository.saveProfileRecord(selectedForm.id, data, photo,
-                                            signatureMode, handwrittenSignature)
-                                        val result = if (saved is ApiResult.Err) saved else container.portalRepository.submitProfileRecord(record.id)
-                                        when (result) {
-                                            is ApiResult.Ok -> { draft.clear(); snackbar("档案已提交会签"); onDismiss() }
-                                            is ApiResult.Err -> error = result.message
-                                        }
-                                        busy = false
+                                        if (busyAction != null) return@launch
+                                        focus.clearFocus()
+                                        busyAction = "submit"; error = null
+                                        try {
+                                            val data = org.json.JSONObject().apply { values.forEach { (key, value) -> put(key, value) } }
+                                            val saved = container.portalRepository.saveProfileRecord(selectedForm.id, data, photo,
+                                                signatureMode, handwrittenSignature, communityShare, shareFields.toList())
+                                            val result = if (saved is ApiResult.Err) saved else container.portalRepository.submitProfileRecord(record.id)
+                                            when (result) {
+                                                is ApiResult.Ok -> { draft.clear(); snackbar("档案已提交会签"); onDismiss() }
+                                                is ApiResult.Err -> error = result.message
+                                            }
+                                        } finally { busyAction = null }
                                     }
                                 }, modifier = Modifier.weight(1f), colors = ButtonDefaults.textButtonColorsPrimary(),
                             )
@@ -629,6 +697,5 @@ private fun ArchiveImage(
 
 @Composable
 private fun HubRow(label: String, onClick: () -> Unit) {
-    BasicComponent(title = label, onClick = onClick,
-        endActions = { Icon(MiuixIcons.Basic.ArrowRight, contentDescription = null) })
+    ArrowPreference(title = label, onClick = onClick)
 }

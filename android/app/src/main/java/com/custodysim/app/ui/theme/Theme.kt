@@ -55,21 +55,25 @@ object AppShape {
 }
 
 object AppColors {
-    val success: Color @Composable get() = if (LocalDarkTheme.current) Color(0xFF79D69C) else Color(0xFF18733B)
+    // Blue-leaning emerald stays distinct from the rose error palette.
+    val success: Color @Composable get() = if (LocalDarkTheme.current) Color(0xFF45E0B2) else Color(0xFF007A5A)
+    val successContainer: Color @Composable get() = if (LocalDarkTheme.current) Color(0xFF103B30) else Color(0xFFDDF5EB)
     val warning: Color @Composable get() = if (LocalDarkTheme.current) Color(0xFFFFCA80) else Color(0xFF925300)
 }
 
 private val LightColors = lightColorScheme(
     primary = Color(0xFF3478F6), surface = Color(0xFFF6F7FA), background = Color.White,
     onSurfaceVariantSummary = Color(0xFF666870), onBackgroundVariant = Color(0xFF707789),
-    error = Color(0xFFBC342B),
+    error = Color(0xFFC81E3A), onError = Color.White,
+    errorContainer = Color(0xFFFFE3E8), onErrorContainer = Color(0xFFC81E3A),
 )
 private val DarkColors = darkColorScheme(
     primary = Color(0xFF82AEFF), onPrimary = Color(0xFF09254D),
     surface = Color(0xFF101113), background = Color(0xFF202125),
     surfaceVariant = Color(0xFF202125), surfaceContainer = Color(0xFF202125),
     onSurfaceVariantSummary = Color(0xFFB2B3BC), onBackgroundVariant = Color(0xFFA1A6B8),
-    error = Color(0xFFFF938A),
+    error = Color(0xFFFF7D8C), onError = Color(0xFF380713),
+    errorContainer = Color(0xFF4D1C29), onErrorContainer = Color(0xFFFF7D8C),
 )
 private val AppTypography = defaultTextStyles(
     title1 = TextStyle(fontSize = 34.sp, lineHeight = 42.sp, fontWeight = FontWeight.Medium),

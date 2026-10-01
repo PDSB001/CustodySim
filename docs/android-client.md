@@ -218,7 +218,10 @@ data:image/(jpeg|png|webp);base64,<...>
 **聊天图片消息**复用同一套格式与体积约定，但**一条消息只带一张图**（正文即 data URL）：
 
 - 发消息：`POST /api/chat/conversations/{id}/messages`，请求体 `{ "type": "IMAGE", "content": "data:image/jpeg;base64,...", "caption": "可选图片说明" }`；`type` 缺省为 `TEXT`（此时 `content` 为纯文本，≤ 4000 字）。
-- 拉消息：`GET /api/chat/conversations/{id}/messages` 每条记录都带 `type`；`type=IMAGE` 时 `content` 就是图片 data URL，图片的 `caption` 为可选说明，**已撤回的消息 `content` 与 `caption` 均为 `null`**（与文本消息一致）。
+- 拉消息：`GET /api/chat/conversations/{id}/messages` 每条记录都带 `type`、`hasImage` 与 `imageUrl`；图片的 `caption` 为可选说明，**已撤回的消息 `content` 与 `caption` 均为 `null`**（与文本消息一致），此时 `hasImage=false`、`imageUrl=null`。
+- **图片取法（当前代际）**：`type=IMAGE` 且未撤回时 `hasImage=true`，`content` 为 `null`，`imageUrl` 形如 `/api/chat/messages/{消息 UUID}/image`。该端点返回**原始图片字节**（`Content-Type: image/jpeg|png|webp`），带 `Cache-Control: private, max-age=31536000, immutable` 与 `Vary: Cookie, Authorization` —— 内容按消息 ID 不可变，**同一张图只应下载一次**，客户端请自行缓存，不要每次进入会话重取（单张约 1 MB，重取会直接吃掉流量）。鉴权与消息列表同源：未登录 → 401；消息不存在 / 不是图片 / 已撤回 / 超出本人留存期一律 → **404**（不区分原因）。
+- **代际兼容（升级必读）**：服务端按 `X-CustodySim-Client` 的代际决定下发形态。**代际 1**（`android-app/1`，图片功能首发版本）仍收到**内联的 `content` data URL**、`imageUrl=null`；**代际 ≥ 2** 只给 `imageUrl`。因此升到代际 2 时必须同步改为按 `imageUrl` 取图，否则会看不到图片。反向兼容：若 `imageUrl` 缺失而 `content` 是 data URL（连的是旧服务端），按 data URL 直接渲染。
+- **增量拉取（轮询与降级通道必须用它）**：`GET /api/chat/conversations/{id}/messages?after=<消息 UUID>` 只返回**比该消息更新**的消息（游标本身严格排除），按时间正序、最多 50 条；客户端把游标推进到本页最后一条继续取，直到返回空数组。**不要**用"每次重取最新 50 条"代替：代际 1 会因此反复搬运内联图片（单张约 1.4 MB），代际 ≥ 2 也会重复传输整段历史。`before` 与 `after` 互斥（同时传 → 400），游标非法 → 400，游标不属于该会话 → 空数组而不是报错。
 - 会话列表：`GET /api/chat/conversations` 的 `lastMessage.content` 对图片消息折叠为 **`[图片]`**，有说明时附带截断后的说明，不会把 data URL 下发到列表。
 - 范围校验、频率限制与文本消息完全相同；服务端用与打卡照片相同的规则复核格式与体积，超限返回 `VALIDATION_ERROR` 与中文原因（如「压缩后的图片不能超过 1 MB」）。
 - 图片可以不带文字单独发送；图文同发使用一条 IMAGE 消息的 caption，不拆成两个气泡。caption 最长 4000 字，TEXT 消息不能附带非空 caption。多张图片请连发多条消息，客户端按需解码缩略图。
@@ -238,6 +241,15 @@ data:image/(jpeg|png|webp);base64,<...>
 
 ## 7. 其它可用接口
 
+### 首页信息概览（2026-10-01）
+
+- App 首页把定位概览与指标卡合并成一组左右横划的整宽浅色卡（与「定位上报」同形态）：第 1 页是定位状态，其后每页并排 2 项指标（今日点名、待完成任务、申请会签/退回进度、未读公告），页点指示是一个独立活动条，位置与宽度都由 pager 连续偏移在绘制阶段算出（随手指滑动；过渡中宽度用 `sin` 拉伸到能同时包住相邻两点、落位即收回，避免固定宽度的小棍在两点之间各盖住半个点），点指标块直接进入对应页面。定位概览页与指标块采用同一结构与同一组文字样式（小标签 + 大值 + 固定两行说明位），因此各页等高，横划时卡片高度不跳；定位概览只读、整块不可点；卡片、页点与「立即上报一次」按钮同处一个列表项并单独控距（卡片→页点 8dp、页点→按钮 12dp），不被列表统一的 item 间距撑开。待完善档案与匿名社区不再重复占位（分别在「我的」页与顶部工具栏/「我的」页）；定位权限、队列与上报间隔设置仍在下方独立模块，「前台定位 / 后台定位」未授权时胶囊改用主题 error 色（`StatusChip` 仅在 success/error 时带图标，这样未授权才会显示 ✕，已授权仍是带勾的绿色）。
+- `GET /api/my/overview` 仅使用当前会话身份，不接受他人 ID。返回 `checkins`（total/completed/pending/missed）、`tasks`（pending/review）、`applications`（review/returned）、`profiles`（draft/returned/review/locked）和 `unreadNotices`。除被监管人外，其它角色只收到本人的未读公告计数，其余对象为 null；不返回档案正文、图片或管理范围统计。
+- 今日点名包含未开始的有效待点名时段；迟到签到以及有签到记录的补卡待审/驳回仍算已完成。任务待执行包含退回重填；申请会签状态为 PENDING_REVIEW。公告计数涵盖全部当前有效、面向本人角色且未读的公告，不受列表 50 条分页限制。
+- 首页进入/恢复前台时更新，当前可见且在前台时每分钟更新，也可手动刷新。打开公告/社区或离开首页暂停概览轮询，返回后重新读取。刷新保留已有数据与固定进度条空间；失败显示上次数据提示，首次失败显示未知值并允许重试，不把网络错误显示成零。
+- 新 App 需要同时运行含此接口的服务端；旧服务端返回 404 时首页会显示可重试的读取失败状态。此轮未安装 App，最新画面的真机布局尚未核验。
+- 管理员/监管员的 App 导航显示首页、任务浏览、聊天和我的；个人点名和申请入口仅对被监管账号显示，避免进入服务端明确拒绝的个人页面。任务浏览保持读取监管范围，但只允许被监管账号填写本人任务；管理端完整业务仍通过 Web 使用。
+
 站内接口对 App 全部可用，用同一枚 Bearer 调用即可，不需要"移动端专用"版本。常用入口：
 
 | 路径                | 用途                |
@@ -253,7 +265,7 @@ data:image/(jpeg|png|webp);base64,<...>
 ## 8. 尚未提供（别等，按现状设计）
 
 - **推送**：没有 FCM/厂商推送通道。越界告警、任务提醒目前只能靠客户端轮询。
-- **增量同步**：没有跨模块统一离线同步接口；聊天历史支持 `before=<消息 UUID>` 分页，各页面按自身接口拉取。
+- **增量同步**：没有跨模块统一离线同步接口；聊天历史支持 `before=<消息 UUID>` 前翻分页，以及 `after=<消息 UUID>` 增量拉取（轮询/降级通道用后者），各页面按自身接口拉取。
 - **版本协商**：`android-app/N` 只是客户端标识，服务端没有强制升级接口。
 
 ## 9. 联调与维护

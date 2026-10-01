@@ -1,6 +1,7 @@
 package com.custodysim.app.ui.common
 
 import android.util.LruCache
+import com.custodysim.app.data.media.RemoteImageLoader
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
@@ -37,11 +38,34 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 
+data class RemoteImageState(val bitmap: ImageBitmap? = null, val loading: Boolean = true)
+
+/** Stable keys prevent recomposition requests; leaving/re-entering retries transient failures. */
+@Composable
+fun rememberRemoteImageState(loader: RemoteImageLoader, url: String?, maxSize: Int): RemoteImageState =
+    key(loader, url, maxSize) {
+        val state by produceState(RemoteImageState()) {
+            val bitmap = withContext(Dispatchers.IO) {
+                url?.let { loader.fetchRemoteImage(it, maxSize)?.asImageBitmap() }
+            }
+            value = RemoteImageState(bitmap, loading = false)
+        }
+        state
+    }
+
+@Composable
+fun rememberRemoteImage(loader: RemoteImageLoader, url: String?, maxSize: Int = 512): ImageBitmap? =
+    rememberRemoteImageState(loader, url, maxSize).bitmap
+
+@Composable
+fun rememberFullRemoteImage(loader: RemoteImageLoader, url: String?): ImageBitmap? =
+    rememberRemoteImage(loader, url, 2048)
+
 /** 把 data URL 解码成 ImageBitmap（异步、可空）。 */
 @Composable
 fun rememberDataUrlImage(dataUrl: String?): ImageBitmap? {
     return key(dataUrl) {
-        val image by produceState<ImageBitmap?>(null) {
+        val image by produceState<ImageBitmap?>(dataUrl?.let { thumbnailCache.get(it) }) {
             value = withContext(Dispatchers.Default) { dataUrl?.let { decodeDataUrl(it) } }
         }
         image

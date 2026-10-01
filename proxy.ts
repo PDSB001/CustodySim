@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 
+import { isChatImagePath } from "@/lib/chat-image-path"
 import { isTencentMapPath } from "@/lib/map-paths"
 import { isSameOriginMutation } from "@/lib/request-origin"
 
@@ -70,7 +71,12 @@ function applySecurityHeaders(
       "Strict-Transport-Security",
       "max-age=63072000; includeSubDomains",
     )
-  if (request.nextUrl.pathname.startsWith("/api/"))
+  // API 响应默认禁止缓存。唯一的例外是聊天图片端点：它由路由自己声明强缓存
+  // （内容按消息 ID 不可变），不豁免的话每次渲染都要重新下载整张图（单张约 1.4 MB）。
+  if (
+    request.nextUrl.pathname.startsWith("/api/") &&
+    !isChatImagePath(request.nextUrl.pathname)
+  )
     response.headers.set("Cache-Control", "private, no-store")
   return response
 }

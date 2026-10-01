@@ -27,11 +27,17 @@ fun decodeDataUrlBitmap(data: String?, maxSize: Int): Bitmap? = runCatching {
             svg.renderToCanvas(Canvas(it))
         }
     } else {
-        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
-        val options = BitmapFactory.Options().apply {
-            inSampleSize = ImagePipeline.sampleSizeFor(bounds.outWidth, bounds.outHeight, maxSize)
-        }
-        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)
+        decodeImageBytes(bytes, maxSize)
     }
 }.getOrNull()
+
+internal fun decodeImageBytes(bytes: ByteArray, maxSize: Int): Bitmap? {
+    require(maxSize > 0)
+    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+    if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+    val options = BitmapFactory.Options().apply {
+        inSampleSize = ImagePipeline.sampleSizeFor(bounds.outWidth, bounds.outHeight, maxSize)
+    }
+    return BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)
+}

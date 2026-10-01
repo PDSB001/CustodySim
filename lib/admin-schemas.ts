@@ -211,7 +211,15 @@ export const ReportTemplateSchema = z.object({
 
 const ProfileFieldSchema = z.object({
   name: z.string().trim().min(1).max(100),
-  type: z.enum(["TEXT", "TEXTAREA", "NUMBER", "SELECT", "DATE", "COPYWRITE", "IMAGE"]),
+  type: z.enum([
+    "TEXT",
+    "TEXTAREA",
+    "NUMBER",
+    "SELECT",
+    "DATE",
+    "COPYWRITE",
+    "IMAGE",
+  ]),
   required: z.boolean().default(false),
   options: z.array(z.string().trim().min(1).max(2000)).default([]),
 })
@@ -226,6 +234,8 @@ export const ProfileFormSchema = z.object({
 
 export const ProfileRecordDraftSchema = z.object({
   formId: z.string().uuid(),
+  communityShare: z.boolean().default(false),
+  communityShareFields: z.array(z.string().max(100)).default([]),
   data: z.record(z.string(), z.unknown()),
   photoData: z
     .string()
@@ -257,8 +267,16 @@ export const ApplicationDraftSchema = z
     reason: z.string().trim().min(1, "请填写申请事由").max(2000),
     leaveStartAt: z.string().regex(DATETIME_LOCAL_REGEX).nullable().optional(),
     leaveEndAt: z.string().regex(DATETIME_LOCAL_REGEX).nullable().optional(),
-    temporaryReleaseStartAt: z.string().regex(DATETIME_LOCAL_REGEX).nullable().optional(),
-    temporaryReleaseEndAt: z.string().regex(DATETIME_LOCAL_REGEX).nullable().optional(),
+    temporaryReleaseStartAt: z
+      .string()
+      .regex(DATETIME_LOCAL_REGEX)
+      .nullable()
+      .optional(),
+    temporaryReleaseEndAt: z
+      .string()
+      .regex(DATETIME_LOCAL_REGEX)
+      .nullable()
+      .optional(),
     archiveRecordId: z.string().uuid().nullable().optional(),
     /** 申请附件：data URL 字符串数组。张数、格式与大小由 lib/task-image.ts 统一校验。 */
     attachments: z.array(z.string()).optional(),
@@ -271,14 +289,19 @@ export const ApplicationDraftSchema = z
           : null,
       )
       const endAt = parseIso(
-        typeof value.leaveEndAt === "string" ? `${value.leaveEndAt}+08:00` : null,
+        typeof value.leaveEndAt === "string"
+          ? `${value.leaveEndAt}+08:00`
+          : null,
       )
       if (!value.leaveStartAt || !value.leaveEndAt) {
         context.addIssue({ code: "custom", message: "请填写请假起止时间" })
       } else if (!startAt || !endAt) {
         context.addIssue({ code: "custom", message: "请假时间格式不正确" })
       } else if (endAt.getTime() <= startAt.getTime()) {
-        context.addIssue({ code: "custom", message: "请假结束时间必须晚于开始时间" })
+        context.addIssue({
+          code: "custom",
+          message: "请假结束时间必须晚于开始时间",
+        })
       }
     }
     if (value.type === "TEMPORARY_OUT_OF_CUSTODY") {
@@ -297,11 +320,17 @@ export const ApplicationDraftSchema = z
       } else if (!startAt || !endAt) {
         context.addIssue({ code: "custom", message: "离监时间格式不正确" })
       } else if (endAt.getTime() <= startAt.getTime()) {
-        context.addIssue({ code: "custom", message: "离监结束时间必须晚于开始时间" })
+        context.addIssue({
+          code: "custom",
+          message: "离监结束时间必须晚于开始时间",
+        })
       }
     }
     if (value.type === "SENTENCE_REDUCTION" && !value.archiveRecordId)
-      context.addIssue({ code: "custom", message: "减刑申请必须关联已归档档案" })
+      context.addIssue({
+        code: "custom",
+        message: "减刑申请必须关联已归档档案",
+      })
   })
 
 export const ElectronicFenceSchema = z.object({
@@ -309,10 +338,15 @@ export const ElectronicFenceSchema = z.object({
   latitude: z.coerce.number().min(-90).max(90),
   longitude: z.coerce.number().min(-180).max(180),
   radiusMeters: z.coerce.number().int().min(50).max(50_000),
-  boundaryPoints: z.array(z.object({
-    latitude: z.coerce.number().min(-90).max(90),
-    longitude: z.coerce.number().min(-180).max(180),
-  })).max(20).default([]),
+  boundaryPoints: z
+    .array(
+      z.object({
+        latitude: z.coerce.number().min(-90).max(90),
+        longitude: z.coerce.number().min(-180).max(180),
+      }),
+    )
+    .max(20)
+    .default([]),
   enabled: z.boolean().default(true),
 })
 

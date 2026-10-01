@@ -1,15 +1,10 @@
 package com.custodysim.app.ui.tasks
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -27,17 +22,16 @@ import com.custodysim.app.ui.theme.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.nestedscroll.nestedScroll
-import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import com.custodysim.app.AppContainer
 import com.custodysim.app.data.net.ApiResult
@@ -50,12 +44,14 @@ import com.custodysim.app.ui.common.OverlaySheet
 import com.custodysim.app.ui.common.rememberImagePicker
 import com.custodysim.app.ui.common.statusColor
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.distinctUntilChanged
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.HorizontalDivider
 import top.yukonga.miuix.kmp.basic.ScrollBehavior
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
+import top.yukonga.miuix.kmp.basic.TabRowWithContour
 import top.yukonga.miuix.kmp.basic.DropdownItem
 import top.yukonga.miuix.kmp.preference.OverlaySpinnerPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -108,7 +104,7 @@ private const val TASKS_PAGE_SIZE = 20
 
 /** 服刑任务页：分类列表 + 动态表单提交。分类与 Web 端「服刑任务」一致。 */
 @Composable
-fun TasksScreen(container: AppContainer, scrollBehavior: ScrollBehavior) {
+fun TasksScreen(container: AppContainer, scrollBehavior: ScrollBehavior, allowSubmission: Boolean = true) {
     val scope = rememberCoroutineScope()
     val snackbar = LocalAppSnackbar.current
     val listState = rememberAppListState()
@@ -119,6 +115,7 @@ fun TasksScreen(container: AppContainer, scrollBehavior: ScrollBehavior) {
     var loadingMore by remember { mutableStateOf(false) }
     var reachedEnd by remember { mutableStateOf(false) }
     var notice by remember { mutableStateOf<String?>(null) }
+    var paginationError by remember { mutableStateOf<String?>(null) }
     var editing by remember { mutableStateOf<ReportTask?>(null) }
     var sheetVisible by remember { mutableStateOf(false) }
 
@@ -126,18 +123,22 @@ fun TasksScreen(container: AppContainer, scrollBehavior: ScrollBehavior) {
     suspend fun refresh() {
         val requested = category
         loading = true
-        val result = container.taskRepository.fetchTasks(limit = TASKS_PAGE_SIZE, category = requested)
-        // 期间已切到别的分类，这批数据作废（分类切换会重新拉取）。
-        if (category != requested) return
-        when (result) {
-            is ApiResult.Ok -> {
-                tasks = result.data
-                reachedEnd = result.data.size < TASKS_PAGE_SIZE
-                notice = null
+        paginationError = null
+        try {
+            val result = container.taskRepository.fetchTasks(limit = TASKS_PAGE_SIZE, category = requested)
+            // 期间已切到别的分类，这批数据作废（分类切换会重新拉取）。
+            if (category != requested) return
+            when (result) {
+                is ApiResult.Ok -> {
+                    tasks = result.data
+                    reachedEnd = result.data.size < TASKS_PAGE_SIZE
+                    notice = null
+                }
+                is ApiResult.Err -> notice = result.message
             }
-            is ApiResult.Err -> notice = result.message
-        }
-        loading = false
+        } catch (cancelled: CancellationException) { throw cancelled }
+        catch (_: Exception) { if (category == requested) notice = "无法加载任务，请稍后重试" }
+        finally { if (category == requested) loading = false }
         // 分类数字取不到不影响列表展示。
         when (val countsResult = container.taskRepository.fetchTaskCounts()) {
             is ApiResult.Ok -> counts = countsResult.data
@@ -152,6 +153,7 @@ fun TasksScreen(container: AppContainer, scrollBehavior: ScrollBehavior) {
         val originalTasks = tasks
         val last = tasks.lastOrNull() ?: return
         loadingMore = true
+        paginationError = null
         try {
             val cursor = "${last.deadline}|${last.id}"
             val result = container.taskRepository.fetchTasks(
@@ -164,10 +166,13 @@ fun TasksScreen(container: AppContainer, scrollBehavior: ScrollBehavior) {
                     val added = result.data.filter { known.add(it.id) }
                     tasks = tasks + added
                     reachedEnd = result.data.size < TASKS_PAGE_SIZE || added.isEmpty()
-                    notice = null
+                    paginationError = null
                 }
-                is ApiResult.Err -> notice = result.message
+                is ApiResult.Err -> paginationError = result.message
             }
+        } catch (cancelled: CancellationException) { throw cancelled }
+        catch (_: Exception) {
+            if (category == requested && tasks === originalTasks) paginationError = "无法加载更多任务，请重试"
         } finally {
             loadingMore = false
         }
@@ -178,14 +183,15 @@ fun TasksScreen(container: AppContainer, scrollBehavior: ScrollBehavior) {
         tasks = emptyList()
         reachedEnd = false
         notice = null
+        paginationError = null
         listState.scrollToItem(0)
         refresh()
     }
 
     // Observe visible items, not prefetched composition: cache windows must not
     // trigger a chain of network requests while the user remains at the top.
-    LaunchedEffect(category, tasks.size, loading, reachedEnd, notice) {
-        if (loading || reachedEnd || notice != null || tasks.isEmpty()) return@LaunchedEffect
+    LaunchedEffect(category, tasks.size, loading, reachedEnd, notice, paginationError) {
+        if (loading || reachedEnd || notice != null || paginationError != null || tasks.isEmpty()) return@LaunchedEffect
         snapshotFlow {
             val layout = listState.layoutInfo
             layout.visibleItemsInfo.isNotEmpty() &&
@@ -199,7 +205,7 @@ fun TasksScreen(container: AppContainer, scrollBehavior: ScrollBehavior) {
         contentPadding = glassPagePadding(),
     ) {
         item {
-            ListHeader(description = stringResource(R.string.tasks_hint),
+            ListHeader(description = if (allowSubmission) stringResource(R.string.tasks_hint) else "查看监管范围内的任务与执行记录",
                 title = stringResource(R.string.task_list), loading = loading,
                 onRefresh = { scope.launch { refresh() } })
         }
@@ -212,28 +218,34 @@ fun TasksScreen(container: AppContainer, scrollBehavior: ScrollBehavior) {
             tasks.isEmpty() -> item {
                 PageState(
                     stringResource(CATEGORY_EMPTY_TITLE.getValue(category)),
-                    stringResource(CATEGORY_EMPTY_HINT.getValue(category)),
+                    if (allowSubmission) stringResource(CATEGORY_EMPTY_HINT.getValue(category)) else "当前监管范围内暂无此类任务",
                 )
             }
             else -> itemsIndexed(tasks, key = { _, task -> task.id }, contentType = { _, _ -> "task" }) { index, task ->
                     GroupedListItem(first = index == 0, last = index == tasks.lastIndex) {
-                        TaskRow(task, onEdit = { editing = task; sheetVisible = true })
+                        TaskRow(task, allowSubmission, onEdit = { editing = task; sheetVisible = true })
                         if (index < tasks.lastIndex) HorizontalDivider(
                             modifier = Modifier.padding(horizontal = AppSpace.inset),
                             color = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.12f))
                     }
             }
         }
-        // Loading footer has no composition-triggered network side effects.
         if (tasks.isNotEmpty() && !reachedEnd && notice == null) {
             item(key = "tasks-load-more") {
-                PageState(stringResource(R.string.loading), loading = true)
+                when {
+                    paginationError != null -> PageState("更多任务加载失败", paginationError,
+                        onRetry = { scope.launch { loadMore() } })
+                    loadingMore -> PageState(stringResource(R.string.loading), loading = true)
+                    !loading -> TextButton(text = "加载更多", onClick = { scope.launch { loadMore() } },
+                        modifier = Modifier.fillMaxWidth().padding(top = AppSpace.medium),
+                        colors = ButtonDefaults.textButtonColorsPrimary())
+                }
             }
         }
         if (tasks.isNotEmpty()) notice?.let { item { NoticeBanner(it, error = true) } }
     }
 
-    editing?.let { task ->
+    if (allowSubmission) editing?.let { task ->
         SubmitSheet(
             task = task,
             show = sheetVisible,
@@ -249,58 +261,34 @@ fun TasksScreen(container: AppContainer, scrollBehavior: ScrollBehavior) {
     }
 }
 
-/**
- * 分类切换：严格单行 —— 三等分宽度 + 小字号（footnote1）+ 单行省略兜底。
- *
- * 不能用 Miuix 的 TextButton 按内容取宽：它字号大、内边距宽，「执行记录 · 15」会比三分之一
- * 宽度还宽，之前就是因此把文字画到了胶囊外面。这里自绘分段控件，选中态是主色实心，
- * 未选中态带描边（对应 Web 端筛选按钮的 default / outline 两种变体）；底部留出间距，
- * 免得和下面的任务卡片贴在一起。
- */
+/** Native Miuix tabs own selection, motion, scrolling and accessibility semantics. */
 @Composable
 private fun CategoryTabs(selected: TaskCategory, counts: TaskCounts?, onSelect: (TaskCategory) -> Unit) {
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(bottom = AppSpace.medium),
-        horizontalArrangement = Arrangement.spacedBy(AppSpace.small),
-    ) {
-        TaskCategory.entries.forEach { item ->
-            val active = item == selected
-            val label = stringResource(CATEGORY_LABELS.getValue(item))
-            val shape = RoundedCornerShape(AppShape.control)
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .clip(shape)
-                    .background(if (active) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.surface)
-                    .then(
-                        if (active) Modifier
-                        else Modifier.border(1.dp, MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.35f), shape),
-                    )
-                    .clickable { onSelect(item) }
-                    .padding(vertical = AppSpace.medium, horizontal = AppSpace.tiny),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    text = counts?.let { "$label · ${it.of(item)}" } ?: label,
-                    style = MiuixTheme.textStyles.footnote1,
-                    color = if (active) MiuixTheme.colorScheme.onPrimary else MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                    maxLines = 1,
-                    softWrap = false,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-        }
+    val reduceMotion = LocalEffects.current.reduceMotion
+    val tabs = TaskCategory.entries.map { item ->
+        val label = stringResource(CATEGORY_LABELS.getValue(item))
+        counts?.let { "$label · ${it.of(item)}" } ?: label
+    }
+    // A fresh native tab row snaps to its initial selection when motion is disabled.
+    key(if (reduceMotion) selected else "task-tabs") {
+        TabRowWithContour(
+            tabs = tabs,
+            selectedTabIndex = TaskCategory.entries.indexOf(selected),
+            onTabSelected = { onSelect(TaskCategory.entries[it]) },
+            minWidth = 112.dp,
+            modifier = Modifier.padding(bottom = AppSpace.medium),
+        )
     }
 }
 
 /** 分组列表中的一个任务行；待提交 / 被退回的行整行可点。 */
 @Composable
-private fun TaskRow(task: ReportTask, onEdit: () -> Unit) {
-    val actionable = task.status == "PENDING" || task.status == "RETURNED"
+private fun TaskRow(task: ReportTask, allowSubmission: Boolean, onEdit: () -> Unit) {
+    val actionable = allowSubmission && (task.status == "PENDING" || task.status == "RETURNED")
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .then(if (actionable) Modifier.clickable(onClick = onEdit) else Modifier)
+            .then(if (actionable) Modifier.clickable(role = Role.Button, onClickLabel = "填写${task.title}", onClick = onEdit) else Modifier)
             .padding(AppSpace.inset),
         verticalArrangement = Arrangement.spacedBy(AppSpace.small),
     ) {
@@ -329,8 +317,14 @@ private fun TaskRow(task: ReportTask, onEdit: () -> Unit) {
                 if (task.submissionStatus != null && task.status != "PENDING" && task.status != "RETURNED") {
                     task.submissionData?.let { data ->
                         // 行内会随父级状态反复重组，摘要只在提交数据本身变化时重算。
-                        val summary = remember(data) {
+                        val summary = remember(data, task.fields) {
+                            val imageFields = task.fields.filter { it.type == "IMAGE" }.map { it.name }.toSet()
                             data.keys().asSequence().mapNotNull { key ->
+                                if (key in imageFields) {
+                                    val images = data.optJSONArray(key)
+                                    val count = images?.length() ?: 0
+                                    return@mapNotNull if (count > 0) "$key：${count}张图片" else null
+                                }
                                 data.optString(key).takeIf { it.isNotBlank() && it != "null" }?.let { "$key：$it" }
                             }.joinToString("\n")
                         }
@@ -381,15 +375,13 @@ private fun SubmitSheet(
                 }
             }
             item { Column(verticalArrangement = Arrangement.spacedBy(AppSpace.small)) {
-                error?.let {
-                    Text(it, style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.error)
-                    Spacer(Modifier.height(8.dp))
-                }
+                error?.let { NoticeBanner(it, error = true) }
                 PrimaryAction(
                     text = stringResource(if (busy) R.string.submitting else R.string.submit),
                     busy = busy,
                     enabled = draft.ready,
                     onClick = {
+                        if (busy || !draft.ready) return@PrimaryAction
                         val values = draft.values.filterKeys { name -> task.fields.any { it.name == name } }
                         val missing = task.fields.any { field ->
                             if (!field.required || field.type == "COPYWRITE") false
@@ -404,14 +396,17 @@ private fun SubmitSheet(
                             error = resources.getString(R.string.required_fields)
                             return@PrimaryAction
                         }
+                        busy = true
+                        error = null
                         scope.launch {
-                            busy = true
-                            error = null
-                            when (val result = container.taskRepository.submit(task.id, values.toMap())) {
-                                is ApiResult.Ok -> { draft.submitted(); onDone() }
-                                is ApiResult.Err -> error = result.message
-                            }
-                            busy = false
+                            try {
+                                when (val result = container.taskRepository.submit(task.id, values.toMap())) {
+                                    is ApiResult.Ok -> { draft.submitted(); onDone() }
+                                    is ApiResult.Err -> error = result.message
+                                }
+                            } catch (cancelled: CancellationException) { throw cancelled }
+                            catch (_: Exception) { error = "提交失败，请稍后重试" }
+                            finally { busy = false }
                         }
                     },
                 )
@@ -475,7 +470,7 @@ private fun FieldEditor(field: TaskField, draft: FormDraft, enabled: Boolean) {
         "TEXTAREA" -> {
             val text = (value as? String) ?: ""
             FramedTextField(value = text, onValueChange = { draft.set(field.name, it) },
-                label = label, enabled = enabled, modifier = Modifier.fillMaxWidth())
+                label = label, minLines = 3, enabled = enabled, modifier = Modifier.fillMaxWidth())
         }
 
         "DATE" -> {
@@ -488,6 +483,7 @@ private fun FieldEditor(field: TaskField, draft: FormDraft, enabled: Boolean) {
             FramedTextField(value = text,
                 onValueChange = { draft.set(field.name, it) },
                 label = label,
+                singleLine = true,
                 enabled = enabled,
                 keyboardOptions = KeyboardOptions(keyboardType = if (field.type == "NUMBER") KeyboardType.Decimal else KeyboardType.Text),
                 modifier = Modifier.fillMaxWidth(),

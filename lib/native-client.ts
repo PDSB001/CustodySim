@@ -13,9 +13,24 @@
 export const NATIVE_CLIENT_HEADER = "x-custodysim-client"
 
 /** 约定值形如 `android-app/1`，版本号随协议变更递增，便于日后区分客户端代际。 */
-const NATIVE_CLIENT_PATTERN = /^android-app\/\d+$/
+const NATIVE_CLIENT_PATTERN = /^android-app\/(\d+)$/
 
 export function isNativeClient(headers: Headers) {
   const value = headers.get(NATIVE_CLIENT_HEADER)?.trim()
   return Boolean(value && NATIVE_CLIENT_PATTERN.test(value))
+}
+
+/**
+ * 原生客户端的协议代际（`android-app/N` 里的 N）；未声明代际的调用方（浏览器等）
+ * 返回 `null`。
+ *
+ * 用途：按代际切换响应形态。老代际只认旧字段，新形态必须能"只发给新代际"，
+ * 否则已发布的 App 会拿不到它需要的字段。
+ */
+export function nativeClientGeneration(headers: Headers): number | null {
+  const matched = NATIVE_CLIENT_PATTERN.exec(
+    headers.get(NATIVE_CLIENT_HEADER)?.trim() ?? "",
+  )
+  const version = matched?.[1]
+  return version ? Number(version) : null
 }

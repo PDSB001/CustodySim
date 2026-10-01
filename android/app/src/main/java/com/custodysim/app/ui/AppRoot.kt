@@ -52,20 +52,11 @@ import kotlinx.coroutines.isActive
  */
 @Composable
 fun AppRoot(container: AppContainer, onServerSettings: () -> Unit) {
-    if (container.endpoint.baseUrl.isBlank()) {
-        Box(Modifier.fillMaxSize().safeDrawingPadding().padding(24.dp), contentAlignment = Alignment.Center) {
-            androidx.compose.foundation.layout.Column {
-                PageState("欢迎使用 CustodySim，请先设置服务器地址")
-                top.yukonga.miuix.kmp.basic.TextButton(text = "设置服务器", onClick = onServerSettings)
-            }
-        }
-        return
-    }
     val context = LocalContext.current
     val resources = LocalResources.current
     val scope = rememberCoroutineScope()
 
-    var restored by remember { mutableStateOf(false) }
+    var restored by remember { mutableStateOf(container.endpoint.baseUrl.isBlank()) }
     var session by remember { mutableStateOf<SessionUser?>(null) }
     var mfaToken by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
@@ -89,7 +80,8 @@ fun AppRoot(container: AppContainer, onServerSettings: () -> Unit) {
 
     LaunchedEffect(Unit) {
         // First-use OkHttp/TLS and Keystore initialization must not block startup frames.
-        session = withContext(Dispatchers.IO) { container.authRepository.restoreSession() }
+        session = if (container.endpoint.baseUrl.isBlank()) null
+            else withContext(Dispatchers.IO) { container.authRepository.restoreSession() }
         restored = true
     }
 
@@ -123,19 +115,7 @@ fun AppRoot(container: AppContainer, onServerSettings: () -> Unit) {
         onDispose { container.observeSessionLoss(null) }
     }
 
-    val rootMode = when {
-        !restored -> 0
-        session == null -> 1
-        else -> 2
-    }
-    AnimatedContent(
-        targetState = rootMode,
-        transitionSpec = {
-            (fadeIn() + slideInHorizontally { it / 8 }) togetherWith
-                (fadeOut() + slideOutHorizontally { -it / 8 })
-        },
-        label = "root-state-transition",
-    ) { mode ->
+    AuthTransition(restored, session) { mode, displayedSession ->
         when (mode) {
             0 -> Box(Modifier.fillMaxSize().safeDrawingPadding().padding(24.dp), contentAlignment = Alignment.Center) {
                 PageState(stringResource(R.string.restoring), loading = true)
@@ -151,6 +131,12 @@ fun AppRoot(container: AppContainer, onServerSettings: () -> Unit) {
                     onCancelMfa = { mfaToken = null; notice = null; noticeIsError = false },
                     onSubmit = { username, password ->
                         if (busy || SystemClock.elapsedRealtime() < retryAt) return@LoginScreen
+                        if (container.endpoint.baseUrl.isBlank()) {
+                            notice = resources.getString(R.string.auth_server_required)
+                            noticeIsError = false
+                            onServerSettings()
+                            return@LoginScreen
+                        }
                         busy = true
                         scope.launch {
                             try {
@@ -165,7 +151,7 @@ fun AppRoot(container: AppContainer, onServerSettings: () -> Unit) {
 
                                     is LoginOutcome.MfaRequired -> {
                                         mfaToken = outcome.mfaToken
-                                        notice = resources.getString(R.string.mfa_intro)
+                                        notice = null
                                     }
                                 }
 
@@ -200,7 +186,7 @@ fun AppRoot(container: AppContainer, onServerSettings: () -> Unit) {
             else -> AppShell(
                     onServerSettings = onServerSettings,
                     container = container,
-                    session = session!!,
+                    session = requireNotNull(displayedSession),
                     onLogout = {
                         scope.launch {
                             container.authRepository.logout()
@@ -214,4 +200,27 @@ fun AppRoot(container: AppContainer, onServerSettings: () -> Unit) {
                 )
         }
     }
+}
+
+/** Each outgoing page owns its session snapshot until its animation finishes. */
+@Composable
+internal fun AuthTransition(
+    restored: Boolean,
+    session: SessionUser?,
+    content: @Composable (Int, SessionUser?) -> Unit,
+) {
+    val mode = when {
+        !restored -> 0
+        session == null -> 1
+        else -> 2
+    }
+    AnimatedContent(
+        targetState = mode to session,
+        contentKey = { it.first },
+        transitionSpec = {
+            (fadeIn() + slideInHorizontally { it / 8 }) togetherWith
+                (fadeOut() + slideOutHorizontally { -it / 8 })
+        },
+        label = "root-state-transition",
+    ) { (displayedMode, displayedSession) -> content(displayedMode, displayedSession) }
 }

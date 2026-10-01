@@ -24,7 +24,7 @@ object AppConfig {
      * 协议变更时递增结尾的数字（服务端校验 `^android-app/\d+$`）。
      */
     const val NATIVE_CLIENT_HEADER = "X-CustodySim-Client"
-    const val NATIVE_CLIENT_VALUE = "android-app/1"
+    const val NATIVE_CLIENT_VALUE = "android-app/2"
 
     /** 可信设备头：登录时携带可跳过 MFA，值为服务端下发的 `<deviceId>.<token>`。 */
     const val TRUSTED_DEVICE_HEADER = "X-CustodySim-Trusted-Device"

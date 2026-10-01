@@ -84,6 +84,12 @@ const MessageSchema = z.object({
   type: z.string(),
   content: z.string().nullable(),
   caption: z.string().nullable().optional(),
+  /**
+   * 图片形态：当前协议只给 `imageUrl`（`content` 为 null），老代际仍内联 data URL。
+   * 两个字段都声明，渲染时 `imageUrl` 优先。
+   */
+  hasImage: z.boolean().optional(),
+  imageUrl: z.string().nullable().optional(),
   recalledAt: z.string().nullable(),
   createdAt: z.string(),
   readCount: z.number(),
@@ -155,13 +161,24 @@ function useChatRealtime(selectedConversationId: string | null) {
       },
     )
     socketRef.current = socket
-    socket.on("chat:event", (event: { conversationId?: string }) => {
-      client.invalidateQueries({ queryKey: ["chat-conversations"] })
-      if (event.conversationId)
-        client.invalidateQueries({
-          queryKey: ["chat-messages", event.conversationId],
-        })
-    })
+    socket.on(
+      "chat:event",
+      (event: { conversationId?: string; type?: string }) => {
+        client.invalidateQueries({ queryKey: ["chat-conversations"] })
+        if (!event.conversationId) return
+        // 新消息只让"增量尾巴"（chat-tail）去补：历史页里可能有图片（单张 data URL
+        // 约 1.4 MB），每个事件都重取整段历史等于把同一张图反复搬运。
+        // 撤回与会话变更会影响历史页里的既有条目，才需要整段重取。
+        if (event.type === "message.created")
+          client.invalidateQueries({
+            queryKey: ["chat-tail", event.conversationId],
+          })
+        else
+          client.invalidateQueries({
+            queryKey: ["chat-messages", event.conversationId],
+          })
+      },
+    )
     return () => {
       socket.disconnect()
       socketRef.current = null
@@ -419,6 +436,7 @@ export function ChatWorkspace({ user }: { user: SessionUser }) {
   })
   const selected =
     conversations.data?.find((item) => item.id === selectedId) ?? null
+  /** 历史页：打开会话取最新 50 条，上拉再按 `before` 往前逐页取。 */
   const messages = useInfiniteQuery({
     queryKey: ["chat-messages", selectedId],
     queryFn: ({ pageParam }) =>
@@ -430,12 +448,40 @@ export function ChatWorkspace({ user }: { user: SessionUser }) {
     initialPageParam: null as string | null,
     getNextPageParam: (lastPage) =>
       lastPage.length === 50 ? lastPage[0]?.id : undefined,
-    refetchInterval: 10_000,
+    // 刻意不设 refetchInterval：useInfiniteQuery 的定时重取会把**每一页**都拉一遍，
+    // 上翻三页后就是每 10 秒重下 150 条（含图片则每次数 MB）。新消息交给增量尾巴。
+    refetchOnWindowFocus: false,
   })
-  const messageList = useMemo(
+  const historyMessages = useMemo(
     () => (messages.data ? [...messages.data.pages].reverse().flat() : []),
     [messages.data],
   )
+  const tailCursor = historyMessages.at(-1)?.id ?? ""
+  /** 增量尾巴：只取比已知最新一条更新的消息，返回空数组即表示没有新消息。 */
+  const tail = useQuery({
+    queryKey: ["chat-tail", selectedId, tailCursor],
+    queryFn: () =>
+      requestApi(
+        `/api/chat/conversations/${selectedId}/messages?after=${encodeURIComponent(tailCursor)}`,
+        MessagesSchema,
+      ),
+    enabled: Boolean(selectedId && tailCursor),
+    // 游标一推进 queryKey 就变，立刻再取一次直到服务端返回空数组；因此一次真的
+    // 新增超过 50 条也能顺序补齐，而稳态下每 10 秒只换回一个空数组。
+    refetchInterval: 10_000,
+    refetchOnWindowFocus: false,
+    retry: false,
+  })
+  const messageList = useMemo(() => {
+    const seen = new Set<string>()
+    const merged: typeof historyMessages = []
+    for (const message of [...historyMessages, ...(tail.data ?? [])]) {
+      if (seen.has(message.id)) continue
+      seen.add(message.id)
+      merged.push(message)
+    }
+    return merged
+  }, [historyMessages, tail.data])
   const latestMessageId = messageList.at(-1)?.id
   useChatRealtime(selectedId)
 
@@ -502,7 +548,8 @@ export function ChatWorkspace({ user }: { user: SessionUser }) {
         toast.error("图片已发送，但服务端未保存说明，请升级服务端后重试")
       }
       setPendingImage(null)
-      client.invalidateQueries({ queryKey: ["chat-messages", selectedId] })
+      // 自己发的消息会出现在增量尾巴里，不必重取历史页（历史页可能含图片）。
+      client.invalidateQueries({ queryKey: ["chat-tail", selectedId] })
       client.invalidateQueries({ queryKey: ["chat-conversations"] })
     },
     onError: (error) =>
@@ -516,7 +563,9 @@ export function ChatWorkspace({ user }: { user: SessionUser }) {
         { method: "POST" },
       ),
     onSuccess: () => {
+      // 撤回可能命中历史页里的旧消息（不只是尾巴），这里两处都要刷。
       client.invalidateQueries({ queryKey: ["chat-messages", selectedId] })
+      client.invalidateQueries({ queryKey: ["chat-tail", selectedId] })
       client.invalidateQueries({ queryKey: ["chat-conversations"] })
       toast.success("消息已撤回")
     },
@@ -656,6 +705,8 @@ export function ChatWorkspace({ user }: { user: SessionUser }) {
                       new Date(message.createdAt).getTime() + 5 * 60 * 1000
                     const canRecall =
                       mine && !message.recalledAt && now <= recallDeadline
+                    // 优先走独立图片端点（可被浏览器强缓存）；老服务端或老代际仍可能是内联 data URL。
+                    const imageSrc = message.imageUrl ?? message.content ?? ""
                     return (
                       <div
                         key={message.id}
@@ -694,16 +745,16 @@ export function ChatWorkspace({ user }: { user: SessionUser }) {
                               >
                                 消息已撤回
                               </span>
-                            ) : message.type === "IMAGE" && message.content ? (
+                            ) : message.type === "IMAGE" && imageSrc ? (
                               <div className="space-y-2">
                                 <a
-                                  href={message.content}
+                                  href={imageSrc}
                                   target="_blank"
                                   rel="noreferrer"
                                   className="block"
                                 >
                                   <Image
-                                    src={message.content}
+                                    src={imageSrc}
                                     alt="聊天图片"
                                     width={320}
                                     height={240}

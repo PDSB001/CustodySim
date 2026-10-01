@@ -16,6 +16,7 @@ import { getSessionUser } from "@/lib/session"
 import { getSupervisedUserIdsForActor } from "@/lib/supervision-scope"
 import { isEditableProfileRecord } from "@/lib/profile-record"
 import { applyComputedProfileAge } from "@/lib/profile-age"
+import { buildCommunityProfileSnapshot } from "@/lib/community-privacy"
 import {
   decryptHandwrittenSignature,
   encryptHandwrittenSignature,
@@ -43,6 +44,8 @@ export async function GET() {
           formContent: profileForms.content,
           formSnapshot: profileRecords.formSnapshot,
           data: profileRecords.data,
+          communityShare: profileRecords.communityShare,
+          communityShareFields: profileRecords.communityShareFields,
           photoData: profileRecords.photoData,
           signatureMode: profileRecords.signatureMode,
           generatedSignatureData: profileRecords.generatedSignatureData,
@@ -128,6 +131,25 @@ export async function POST(request: NextRequest) {
       })),
     }
     const data = applyComputedProfileAge(parsed.data.data, fields)
+    if (parsed.data.communityShare) {
+      try {
+        const preview = buildCommunityProfileSnapshot(
+          fields,
+          data,
+          parsed.data.communityShareFields,
+        )
+        if (!preview.length)
+          return failure("VALIDATION_ERROR", "请选择要分享的已填写字段", 400)
+      } catch {
+        return failure("VALIDATION_ERROR", "分享字段不合法，请重新选择", 400)
+      }
+    }
+    const share = {
+      communityShare: parsed.data.communityShare,
+      communityShareFields: parsed.data.communityShare
+        ? parsed.data.communityShareFields
+        : [],
+    }
     const [existing] = await db
       .select({ id: profileRecords.id, status: profileRecords.status })
       .from(profileRecords)
@@ -164,6 +186,7 @@ export async function POST(request: NextRequest) {
           .update(profileRecords)
           .set({
             data,
+            ...share,
             photoData: parsed.data.photoData ?? null,
             ...signature,
             officialSealData: null,
@@ -182,6 +205,7 @@ export async function POST(request: NextRequest) {
             userId: actor.id,
             formId: form.id,
             data,
+            ...share,
             formSnapshot: snapshot,
             photoData: parsed.data.photoData ?? null,
             ...signature,

@@ -1194,6 +1194,11 @@ export const profileRecords = pgTable(
     formSnapshot: jsonb("form_snapshot").notNull().default({}),
     data: jsonb("data").notNull().default({}),
     photoData: text("photo_data"),
+    communityShare: boolean("community_share").notNull().default(false),
+    communityShareFields: jsonb("community_share_fields")
+      .$type<string[]>()
+      .notNull()
+      .default([]),
     signatureMode: varchar("signature_mode", { length: 20 })
       .notNull()
       .default("GENERATED"),
@@ -1222,6 +1227,68 @@ export const profileRecords = pgTable(
     uniqueIndex("profile_records_code_unique").on(table.code),
     index("profile_records_user_status_idx").on(table.userId, table.status),
     index("profile_records_box_idx").on(table.boxId),
+  ],
+)
+
+export const communityPosts = pgTable(
+  "community_posts",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    authorId: uuid("author_id")
+      .notNull()
+      .references(() => users.id),
+    title: varchar("title", { length: 120 }).notNull(),
+    content: text("content").notNull(),
+    sourceRecordId: uuid("source_record_id").references(
+      () => profileRecords.id,
+      { onDelete: "set null" },
+    ),
+    profileSnapshot:
+      jsonb("profile_snapshot").$type<{ name: string; value: string }[]>(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index("community_posts_created_idx").on(table.createdAt, table.id),
+    uniqueIndex("community_posts_record_unique").on(table.sourceRecordId),
+  ],
+)
+
+export const communityImages = pgTable(
+  "community_images",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    postId: uuid("post_id")
+      .notNull()
+      .references(() => communityPosts.id, { onDelete: "cascade" }),
+    data: text("data").notNull(),
+    position: integer("position").notNull(),
+  },
+  (table) => [index("community_images_post_idx").on(table.postId)],
+)
+
+export const communityComments = pgTable(
+  "community_comments",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    postId: uuid("post_id")
+      .notNull()
+      .references(() => communityPosts.id, { onDelete: "cascade" }),
+    authorId: uuid("author_id")
+      .notNull()
+      .references(() => users.id),
+    content: text("content").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index("community_comments_post_idx").on(
+      table.postId,
+      table.createdAt,
+      table.id,
+    ),
   ],
 )
 

@@ -65,6 +65,7 @@ import com.custodysim.app.R
 import com.custodysim.app.data.auth.SessionUser
 import com.custodysim.app.data.chat.*
 import com.custodysim.app.data.net.ApiResult
+import com.custodysim.app.data.net.ApiClient
 import com.custodysim.app.ui.common.*
 import com.custodysim.app.ui.theme.*
 import java.time.Instant
@@ -111,6 +112,8 @@ private fun ChatImage(bitmap: ImageBitmap?, size: DpSize) {
 @Composable
 private fun ChatBubble(
     item: ChatMessage,
+    api: ApiClient,
+    uploadProgress: Int,
     own: Boolean,
     supervised: Boolean,
     maxWidth: androidx.compose.ui.unit.Dp,
@@ -132,15 +135,7 @@ private fun ChatBubble(
         else -> MiuixTheme.colorScheme.background
     }
     val recallable = own && item.canRecall(item.senderId.orEmpty())
-    // 乐观发送中先弱化显示，服务端确认后平滑恢复原样 —— 确认那一刻的气泡"落定"
-    // 正好接在入场动画之后，服务器往返的等待被这段过渡吃掉。
-    val bubbleAlpha by animateFloatAsState(
-        targetValue = if (item.pending) 0.72f else 1f,
-        animationSpec = if (LocalEffects.current.reduceMotion) snap() else spring(
-            dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMediumLow),
-        label = "bubble-confirm",
-    )
-    Row(Modifier.fillMaxWidth().graphicsLayer { alpha = bubbleAlpha },
+    Row(Modifier.fillMaxWidth(),
         horizontalArrangement = if (own) Arrangement.End else Arrangement.Start,
         verticalAlignment = Alignment.Bottom) {
         if (!own) {
@@ -159,8 +154,14 @@ private fun ChatBubble(
                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                 style = MiuixTheme.textStyles.footnote2,
                 maxLines = 1, overflow = TextOverflow.Ellipsis)
-            if (item.isImage) {
-                val bitmap = rememberDataUrlImage(item.content)
+            if (item.isImage && item.hasImage) {
+                val source = item.imageSource(api::imageUrl)
+                val loadedBitmap = if (source?.startsWith("data:image/") == true) rememberDataUrlImage(source)
+                    else rememberRemoteImage(api.remoteImages, source)
+                // Keep the local preview while the confirmed endpoint is being decoded.
+                var displayedBitmap by remember(item.presentationKey) { mutableStateOf<ImageBitmap?>(null) }
+                SideEffect { if (loadedBitmap != null) displayedBitmap = loadedBitmap }
+                val bitmap = loadedBitmap ?: displayedBitmap
                 val imageSize = if (bitmap == null) DpSize(CHAT_IMAGE_SIZE, CHAT_IMAGE_SIZE)
                     else {
                         val scale = minOf(220f / bitmap.width, 260f / bitmap.height)
@@ -170,10 +171,29 @@ private fun ChatBubble(
                 Column(Modifier.clip(RoundedCornerShape(AppShape.control))
                     .background(surface)
                     .combinedClickable(
-                        onClick = { item.content?.let(onPreview) },
+                        onClick = { source?.let(onPreview) },
                         onLongClick = { if (recallable) onRecall(item) },
                     ), verticalArrangement = Arrangement.spacedBy(AppSpace.small)) {
-                    ChatImage(bitmap, imageSize)
+                    Box {
+                        ChatImage(bitmap, imageSize)
+                        androidx.compose.animation.AnimatedVisibility(visible = item.pending,
+                            modifier = Modifier.align(Alignment.BottomCenter),
+                            enter = fadeIn(tween(if (LocalEffects.current.reduceMotion) 0 else 120)),
+                            exit = fadeOut(tween(if (LocalEffects.current.reduceMotion) 0 else 180))) {
+                            val progress by animateFloatAsState(uploadProgress / 100f,
+                                animationSpec = if (LocalEffects.current.reduceMotion) snap() else tween(120),
+                                label = "image-upload-progress")
+                            Column(Modifier.width(imageSize.width).background(Color.Black.copy(alpha = 0.58f))
+                                .padding(AppSpace.small), verticalArrangement = Arrangement.spacedBy(AppSpace.tiny)) {
+                                Text(if (uploadProgress < 100) stringResource(R.string.chat_image_upload_progress, uploadProgress)
+                                    else stringResource(R.string.chat_send_confirming),
+                                    color = Color.White, style = MiuixTheme.textStyles.footnote2)
+                                Box(Modifier.fillMaxWidth().height(3.dp).background(Color.White.copy(alpha = 0.25f))) {
+                                    Box(Modifier.fillMaxWidth(progress.coerceIn(0f, 1f)).fillMaxHeight().background(Color.White))
+                                }
+                            }
+                        }
+                    }
                     item.caption?.takeIf(String::isNotBlank)?.let { caption ->
                         Text(caption, color = foreground, style = MiuixTheme.textStyles.body1,
                             modifier = Modifier.width(imageSize.width)
@@ -186,7 +206,7 @@ private fun ChatBubble(
                         onClick = {}, onLongClick = { onRecall(item) },
                     ) else Modifier,
                     colors = CardDefaults.defaultColors(color = surface)) {
-                    Text(item.content.orEmpty(), color = foreground,
+                    Text(if (item.isImage) "" else item.content.orEmpty(), color = foreground,
                         modifier = Modifier.padding(horizontal = AppSpace.page, vertical = AppSpace.medium),
                         style = MiuixTheme.textStyles.body1)
                 }
@@ -198,7 +218,7 @@ private fun ChatBubble(
                     style = MiuixTheme.textStyles.footnote2)
                 if (own) {
                     val readByOthers = item.readCount > (if (supervised) 1 else 0)
-                    Text(stringResource(if (readByOthers) R.string.chat_read else R.string.chat_sent),
+                    Text(stringResource(if (item.pending) R.string.chat_sending else if (readByOthers) R.string.chat_read else R.string.chat_sent),
                         color = if (readByOthers) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onSurfaceVariantSummary,
                         style = MiuixTheme.textStyles.footnote2)
                 }
@@ -222,6 +242,7 @@ fun ChatScreen(container: AppContainer, session: SessionUser, scrollBehavior: Sc
     val readThrough = remember { mutableMapOf<String, String>() }
     val lifecycleOwner = LocalLifecycleOwner.current
     var sending by remember { mutableStateOf(false) }
+    val uploadProgress = remember { mutableStateMapOf<String, Int>() }
     var showNew by remember { mutableStateOf(false) }
     var showRequests by remember { mutableStateOf(false) }
     /** 长按自己 5 分钟内的消息后，待确认撤回的那条。 */
@@ -231,7 +252,14 @@ fun ChatScreen(container: AppContainer, session: SessionUser, scrollBehavior: Sc
     var pendingImage by remember(selectedId) { mutableStateOf<String?>(null) }
     var imagePickerTargetId by remember { mutableStateOf<String?>(null) }
     var previewImage by remember { mutableStateOf<String?>(null) }
+    var previewMessageId by remember { mutableStateOf<String?>(null) }
     var previewVisible by remember { mutableStateOf(false) }
+    LaunchedEffect(messages, container) {
+        if (messages.any { it.id == previewMessageId && (it.recalled || !it.hasImage) }) {
+            previewVisible = false
+            previewImage = null
+        }
+    }
     /** 还有更早的消息可翻；首次拉不到新页就置 false。 */
     var hasMore by remember { mutableStateOf(true) }
     var loadingOlder by remember { mutableStateOf(false) }
@@ -271,7 +299,7 @@ fun ChatScreen(container: AppContainer, session: SessionUser, scrollBehavior: Sc
             else messageEntrance.animateTo(1f, tween(260, easing = FastOutSlowInEasing))
         }
     }
-    LaunchedEffect(selectedId, conversationLayoutReady, messages.lastOrNull()?.id) {
+    LaunchedEffect(selectedId, conversationLayoutReady, messages.lastOrNull()?.presentationKey) {
         if (selectedId == null || !conversationLayoutReady) return@LaunchedEffect
         if (messages.isNotEmpty() && (firstMessageLoad || messages.last().senderId == session.id ||
             (messageListState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0) >= messages.lastIndex - 2)) {
@@ -324,7 +352,8 @@ fun ChatScreen(container: AppContainer, session: SessionUser, scrollBehavior: Sc
                 // 保留仍在发送中的本地占位：实时事件驱动的刷新常常早于发送回包到达，
                 // 直接整体覆盖会让刚点出来的气泡"闪一下又消失"。
                 val stillPending = messages.filter { it.pending }
-                messages = result.data + stillPending
+                val previous = messages.associateBy { it.id }
+                messages = result.data.map { it.withPresentationOf(previous[it.id]) } + stillPending
                 error = null
                 result.data.lastOrNull()?.let { last ->
                     if (readThrough[id] != last.id &&
@@ -514,34 +543,26 @@ fun ChatScreen(container: AppContainer, session: SessionUser, scrollBehavior: Sc
                         CircularProgressIndicator()
                     }
                 }
-                items(messages, key = { it.id }, contentType = { if (it.recalled) "recalled" else if (it.isImage) "image" else "text" }) { item ->
-                    // 两层动画：
-                    // 1) animateItem —— 插入时的淡入 + 让位（否则新消息是"瞬间出现 + 下方瞬时位移"）；
-                    // 2) justSent —— 本机刚发出的那条从右下小幅滑入，"发送成功"这件事才看得见。
-                    // 历史消息不带位移，避免进入会话时整屏抖一下。reduceMotion 时两者都退化为瞬时。
-                    // 只有乐观发送的占位气泡播入场动效：它出现的那一刻就是"用户点下发送"，
-                    // 动画跑在服务器往返之前，正好把延迟遮住。服务端确认后是同位置的静态替换。
+                items(messages, key = { it.presentationKey }, contentType = { if (it.recalled) "recalled" else if (it.isImage) "image" else "text" }) { item ->
+                    // Stable presentation keys preserve composition through acknowledgement and polls.
+                    // Local sends use one entrance fade; acknowledgement never cancels the motion.
                     val justSent = item.pending
-                    val entrance = remember(item.id) {
+                    val entrance = remember(item.presentationKey) {
                         Animatable(if (justSent && !reduceMotion) 0f else 1f)
                     }
-                    LaunchedEffect(item.id, justSent) {
-                        if (justSent && !reduceMotion) {
-                            // spring 带轻微过冲：气泡是"落"进列表的，不是匀速平移到位。
-                            entrance.animateTo(1f, spring(
-                                dampingRatio = Spring.DampingRatioLowBouncy,
-                                stiffness = Spring.StiffnessMediumLow,
-                            ))
-                        }
+                    LaunchedEffect(item.presentationKey, reduceMotion) {
+                        if (reduceMotion) entrance.snapTo(1f)
+                        else entrance.animateTo(1f, tween(280, easing = FastOutSlowInEasing))
                     }
                     Box(Modifier
                         .animateItem(
-                            fadeInSpec = tween(if (reduceMotion) 0 else 200, easing = FastOutSlowInEasing),
+                            fadeInSpec = if (item.presentationKey.startsWith("local-")) null
+                                else tween(if (reduceMotion) 0 else 200, easing = FastOutSlowInEasing),
                             placementSpec = tween(if (reduceMotion) 0 else 260, easing = FastOutSlowInEasing),
                         )
                         .graphicsLayer {
                             alpha = entrance.value.coerceIn(0f, 1f)
-                            if (justSent) {
+                            if (entrance.value < 1f) {
                                 // 24dp / 10dp 的位移在项目动效规范的"1/8 屏宽"以内。
                                 translationX = (1f - entrance.value) * 24.dp.toPx()
                                 translationY = (1f - entrance.value) * 10.dp.toPx()
@@ -549,10 +570,12 @@ fun ChatScreen(container: AppContainer, session: SessionUser, scrollBehavior: Sc
                         }) {
                         ChatBubble(
                             item = item,
+                            api = container.apiClient,
+                            uploadProgress = uploadProgress[item.presentationKey] ?: 0,
                             own = item.senderId == session.id,
                             supervised = session.isSupervised,
                             maxWidth = bubbleMaxWidth,
-                            onPreview = { previewImage = it; previewVisible = true },
+                            onPreview = { previewImage = it; previewMessageId = item.id; previewVisible = true },
                             onRecall = { recalling = it; recallVisible = true },
                         )
                     }
@@ -696,6 +719,7 @@ fun ChatScreen(container: AppContainer, session: SessionUser, scrollBehavior: Sc
                         pending = true,
                     )
                     messages = messages + local
+                    if (image != null) uploadProgress[local.presentationKey] = 0
                     message = ""
                     pendingImage = null
                     sending = true
@@ -706,13 +730,19 @@ fun ChatScreen(container: AppContainer, session: SessionUser, scrollBehavior: Sc
                                     id, image ?: text,
                                     if (image != null) ChatMessage.TYPE_IMAGE else ChatMessage.TYPE_TEXT,
                                     if (image != null) text.takeIf { it.isNotBlank() } else null,
+                                    onUploadProgress = if (image == null) null else { percent ->
+                                        scope.launch {
+                                            if (messages.any { it.presentationKey == local.presentationKey && it.pending }) {
+                                                uploadProgress[local.presentationKey] = percent
+                                            }
+                                        }
+                                    },
                                 )) {
                                     is ApiResult.Ok -> {
                                         if (selectedId == id) {
-                                            // 同位置替换为服务端正式消息：内容一致，只有 pending 消失
-                                            // （气泡透明度平滑恢复）。
+                                            if (image != null) uploadProgress[local.presentationKey] = 100
                                             messages = messages
-                                                .map { if (it.id == local.id) result.data else it }
+                                                .map { if (it.id == local.id) result.data.withPresentationOf(local) else it }
                                                 .distinctBy { it.id }
                                             if (image != null && text.isNotBlank() &&
                                                 result.data.caption != text) {
@@ -733,6 +763,10 @@ fun ChatScreen(container: AppContainer, session: SessionUser, scrollBehavior: Sc
                             }
                         } finally {
                             sending = false
+                            scope.launch {
+                                delay(250) // Let the confirmation overlay finish fading out.
+                                uploadProgress.remove(local.presentationKey)
+                            }
                         }
                     }
                 }, enabled = canSend,
@@ -760,8 +794,10 @@ fun ChatScreen(container: AppContainer, session: SessionUser, scrollBehavior: Sc
     if (previewVisible) {
         Dialog(onDismissRequest = { previewVisible = false; previewImage = null },
             properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
-            val fullBitmap = rememberFullDataUrlImage(previewImage)
-            val bitmap = fullBitmap ?: rememberDataUrlImage(previewImage)
+            val remote = if (previewImage?.startsWith("data:image/") == false)
+                rememberRemoteImageState(container.apiClient.remoteImages, previewImage, 2048) else null
+            val bitmap = if (remote != null) remote.bitmap
+                else rememberFullDataUrlImage(previewImage) ?: rememberDataUrlImage(previewImage)
             var zoom by remember(previewImage) { mutableFloatStateOf(1f) }
             var pan by remember(previewImage) { mutableStateOf(Offset.Zero) }
             var viewport by remember { mutableStateOf(IntSize.Zero) }
@@ -782,7 +818,12 @@ fun ChatScreen(container: AppContainer, session: SessionUser, scrollBehavior: Sc
                             translationX = pan.x; translationY = pan.y
                         }.transformable(transform),
                     contentScale = ContentScale.Fit)
-                else CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
+                else if (remote?.loading == false) Text(stringResource(R.string.image_unavailable),
+                    color = Color.White, modifier = Modifier.align(Alignment.Center))
+                else Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
+                    CircularProgressIndicator()
+                    Text(stringResource(R.string.chat_image_loading), color = Color.White)
+                }
                 IconButton(onClick = { previewVisible = false; previewImage = null },
                     modifier = Modifier.align(Alignment.TopStart).statusBarsPadding().padding(AppSpace.page),
                     backgroundColor = Color.Black.copy(alpha = 0.45f)) {

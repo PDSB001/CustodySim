@@ -1,6 +1,7 @@
 package com.custodysim.app.ui
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
@@ -40,6 +41,7 @@ import com.custodysim.app.ui.mine.AccountHub
 import com.custodysim.app.ui.mine.NoticeSheet
 import com.custodysim.app.ui.applications.ApplicationsScreen
 import com.custodysim.app.ui.chat.ChatScreen
+import com.custodysim.app.ui.community.CommunityScreen
 import com.custodysim.app.ui.common.*
 import com.custodysim.app.ui.theme.*
 import com.custodysim.app.location.LocationPreferences
@@ -69,7 +71,13 @@ enum class MainTab(val label: Int) {
 @Composable
 fun AppShell(container: AppContainer, session: SessionUser, onLogout: () -> Unit, onServerSettings: () -> Unit) {
     var tab by rememberSaveable { mutableStateOf(MainTab.HOME) }
+    // Personal checkins and applications are restricted to supervised accounts.
+    val visibleTabs = remember(session.role) {
+        if (session.isSupervised) MainTab.entries.toList() else listOf(MainTab.HOME, MainTab.TASKS, MainTab.CHAT, MainTab.MINE)
+    }
+    LaunchedEffect(visibleTabs) { if (tab !in visibleTabs) tab = MainTab.HOME }
     var showNotices by rememberSaveable { mutableStateOf(false) }
+    var showCommunity by rememberSaveable { mutableStateOf(false) }
     var chatConversationTitle by remember { mutableStateOf<String?>(null) }
     var chatBackRequest by remember { mutableIntStateOf(0) }
     var chatRefreshRequest by remember { mutableIntStateOf(0) }
@@ -82,7 +90,7 @@ fun AppShell(container: AppContainer, session: SessionUser, onLogout: () -> Unit
             snackbarState.showSnackbar(message)
         } }
     }
-    BackHandler(tab != MainTab.HOME) { tab = MainTab.HOME }
+    BackHandler(!showCommunity && tab != MainTab.HOME) { tab = MainTab.HOME }
     // Each tab keeps its own content state through SaveableStateProvider. Do not key the
     // whole scaffold by tab: doing so would recreate AnimatedContent and make transitions
     // appear to snap instead of animating from the previous page.
@@ -94,6 +102,7 @@ fun AppShell(container: AppContainer, session: SessionUser, onLogout: () -> Unit
     val extendUnderNavigation = !inConversation && effects.effectiveLevel != EffectsLevel.OFF
     CompositionLocalProvider(LocalAppSnackbar provides showSnackbar, LocalDraftOwner provides session.id,
             LocalGlassBackdrop provides backdrop) {
+        Box(Modifier.fillMaxSize()) {
         Scaffold(
             snackbarHost = { SnackbarHost(snackbarState, Modifier.imePadding()) },
             topBar = {
@@ -122,6 +131,9 @@ fun AppShell(container: AppContainer, session: SessionUser, onLogout: () -> Unit
                     scrollBehavior = scrollBehavior,
                     actions = {
                         if (tab == MainTab.HOME) {
+                            IconButton(onClick = { showCommunity = true }) {
+                                Icon(MiuixIcons.Messages, contentDescription = "匿名社区")
+                            }
                             IconButton(onClick = { showNotices = true }) {
                                 Icon(MiuixIcons.Promotions, contentDescription = stringResource(R.string.portal_notices), tint = MiuixTheme.colorScheme.primary)
                             }
@@ -149,10 +161,10 @@ fun AppShell(container: AppContainer, session: SessionUser, onLogout: () -> Unit
                     bottom = if (glassEnabled) WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + AppSpace.small else 0.dp,
                 )) {
                 GlassSurface {
-                GlassTabIndicator(selectedIndex = tab.ordinal, count = MainTab.entries.size)
+                GlassTabIndicator(selectedIndex = visibleTabs.indexOf(tab).coerceAtLeast(0), count = visibleTabs.size)
                 NavigationBar(color = Color.Transparent, showDivider = !glassEnabled,
                     defaultWindowInsetsPadding = !glassEnabled) {
-                    MainTab.entries.forEach { destination ->
+                    visibleTabs.forEach { destination ->
                         NavigationBarItem(
                             // Miuix anchors icon+label at the top of its 64dp cell. Balance the
                             // remaining label space inside the floating glass surface.
@@ -196,23 +208,30 @@ fun AppShell(container: AppContainer, session: SessionUser, onLogout: () -> Unit
                             // 与 AppRoot（登录 ↔ 主壳）、聊天「列表 ↔ 会话」同一套：小幅位移 + 淡入淡出，
                             // 都用默认 spring，两端自然减速。位移与淡入若配不同的显式 tween（淡入先结束、
                             // 位移还在跑），后半程只剩"裸滑动"，观感又快又硬。
-                            (fadeIn() + slideInHorizontally { direction * it / 8 }) togetherWith
-                                (fadeOut() + slideOutHorizontally { -direction * it / 8 }) using null
+                            if (effects.reduceMotion) {
+                                fadeIn(tween(0)) togetherWith fadeOut(tween(0)) using null
+                            } else {
+                                (fadeIn() + slideInHorizontally { direction * it / 8 }) togetherWith
+                                    (fadeOut() + slideOutHorizontally { -direction * it / 8 }) using null
+                            }
                         },
                         label = "main-tab-transition",
                     ) { destination ->
                     stateHolder.SaveableStateProvider(destination.name) {
                         val scrollBehavior = tabScrollBehaviors[destination.ordinal]
                         when (destination) {
-                            MainTab.HOME -> HomeScreen(container, session, scrollBehavior)
+                            MainTab.HOME -> HomeScreen(container, session, scrollBehavior,
+                                active = tab == MainTab.HOME && !showCommunity && !showNotices,
+                                onNavigate = { tab = it }, onNotices = { showNotices = true })
                             MainTab.CHECKINS -> CheckinsScreen(container, scrollBehavior)
-                            MainTab.TASKS -> TasksScreen(container, scrollBehavior)
+                            MainTab.TASKS -> TasksScreen(container, scrollBehavior, allowSubmission = session.isSupervised)
                             MainTab.APPLICATIONS -> ApplicationsScreen(container, scrollBehavior)
                             MainTab.CHAT -> ChatScreen(container, session, scrollBehavior,
                                 conversationLayoutReady = inConversation,
                                 onConversationChanged = { chatConversationTitle = it },
                                 backRequest = chatBackRequest, refreshRequest = chatRefreshRequest)
-                            MainTab.MINE -> MineScreen(container, session, onLogout, scrollBehavior, onServerSettings)
+                            MainTab.MINE -> MineScreen(container, session, onLogout, scrollBehavior, onServerSettings,
+                                onCommunity = { showCommunity = true })
                         }
                     }
                     }
@@ -220,6 +239,19 @@ fun AppShell(container: AppContainer, session: SessionUser, onLogout: () -> Unit
                 NoticeSheet(container, showNotices) { showNotices = false }
             }
             }
+        }
+        AnimatedVisibility(
+            visible = showCommunity,
+            modifier = Modifier.fillMaxSize(),
+            enter = fadeIn(tween(if (effects.reduceMotion) 0 else 300, easing = FastOutSlowInEasing)) +
+                slideInHorizontally(tween(if (effects.reduceMotion) 0 else 300, easing = FastOutSlowInEasing)) { it / 12 },
+            exit = fadeOut(tween(if (effects.reduceMotion) 0 else 300, easing = FastOutSlowInEasing)) +
+                slideOutHorizontally(tween(if (effects.reduceMotion) 0 else 300, easing = FastOutSlowInEasing)) { it / 12 },
+        ) {
+            Box(Modifier.fillMaxSize().background(MiuixTheme.colorScheme.surface)) {
+                CommunityScreen(container, onClose = { showCommunity = false })
+            }
+        }
         }
     }
 
@@ -234,7 +266,8 @@ fun roleLabel(role: String): String = when (role) {
 }
 
 @Composable
-private fun MineScreen(container: AppContainer, session: SessionUser, onLogout: () -> Unit, scrollBehavior: ScrollBehavior, onServerSettings: () -> Unit) {
+private fun MineScreen(container: AppContainer, session: SessionUser, onLogout: () -> Unit, scrollBehavior: ScrollBehavior, onServerSettings: () -> Unit,
+    onCommunity: () -> Unit) {
     val context = LocalContext.current
     val appearance = LocalAppearance.current
     val haptics = LocalHapticFeedback.current
@@ -338,6 +371,7 @@ private fun MineScreen(container: AppContainer, session: SessionUser, onLogout: 
                 SectionTitle(stringResource(R.string.about))
                 SettingGroup {
                     BasicComponent(title = "服务器设置", onClick = onServerSettings)
+                    BasicComponent(title = "匿名社区", summary = "分享日常与自愿公开的档案内容", onClick = onCommunity)
                     InfoRow(stringResource(R.string.version), BuildConfig.VERSION_NAME)
                 }
             }

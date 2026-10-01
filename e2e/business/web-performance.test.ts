@@ -96,6 +96,52 @@ test("message cursors handle equal timestamps and counts exclude supervisors", a
   )
 })
 
+test("incremental cursor only returns newer messages in ascending order", async () => {
+  const id = randomUUID()
+  const a = randomUUID()
+  const b = randomUUID()
+  const c = randomUUID()
+  // d 与 e 用同一个时间戳：验证 (createdAt, id) 的兜底排序，避免"时间相同丢消息"。
+  const [d, e] = [randomUUID(), randomUUID()].sort()
+  const base = Date.now()
+  await db.transaction(async (tx) => {
+    await tx.insert(chatConversations).values({ id, type: "DIRECT" })
+    await tx.insert(chatMessages).values([
+      { id: a, conversationId: id, senderId: userIds[1], content: "a", createdAt: new Date(base) },
+      { id: b, conversationId: id, senderId: userIds[1], content: "b", createdAt: new Date(base + 1000) },
+      { id: c, conversationId: id, senderId: userIds[1], content: "c", createdAt: new Date(base + 2000) },
+      { id: d, conversationId: id, senderId: userIds[1], content: "d", createdAt: new Date(base + 3000) },
+      { id: e, conversationId: id, senderId: userIds[1], content: "e", createdAt: new Date(base + 3000) },
+    ])
+  })
+  const context = { params: Promise.resolve({ id }) }
+  const request = (query: string) =>
+    new NextRequest(
+      `http://localhost/api/chat/conversations/${id}/messages${query}`,
+    )
+  const idsOf = async (query: string) =>
+    (await (await GET(request(query), context)).json()).data.map(
+      (message: { id: string }) => message.id,
+    )
+  try {
+    // 游标严格排除自身，且正序下发 —— 客户端把游标推进到本页最后一条即可顺序补齐。
+    expect(await idsOf(`?after=${a}`)).toEqual([b, c, d, e])
+    // 同一时刻按 id 兜底：游标指向 d 时 e 仍要出现在增量里。
+    expect(await idsOf(`?after=${d}`)).toEqual([e])
+    // 已经是最新一条时返回空数组：稳态轮询的常态，也是这套方案省掉整段历史的前提。
+    expect(await idsOf(`?after=${e}`)).toEqual([])
+    // 跨会话的游标不报错、也不返回任何消息（边界子查询按会话收敛）。
+    expect(await idsOf(`?after=${messageIds[0]}`)).toEqual([])
+    // 参数互斥与非法游标。
+    const both = await GET(request(`?before=${c}&after=${a}`), context)
+    expect(both.status).toBe(400)
+    const invalid = await GET(request("?after=not-a-uuid"), context)
+    expect(invalid.status).toBe(400)
+  } finally {
+    await db.delete(chatConversations).where(eq(chatConversations.id, id))
+  }
+})
+
 test("performance indexes apply idempotently and roll back", async () => {
   const client = await db.$client.connect()
   const before = await inspectPerformanceIndexes(client)

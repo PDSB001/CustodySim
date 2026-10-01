@@ -64,6 +64,8 @@ const RecordSchema = z.object({
   formContent: z.string().nullable(),
   formSnapshot: FormSnapshotSchema,
   data: z.record(z.string(), z.unknown()),
+  communityShare: z.boolean().default(false),
+  communityShareFields: z.array(z.string()).default([]),
   photoData: z.string().nullable(),
   signatureMode: z.enum(["GENERATED", "HANDWRITTEN"]),
   signatureData: z.string().nullable(),

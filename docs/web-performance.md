@@ -49,3 +49,56 @@ node scripts/measure-web-bundles.mjs '/(supervised)/my/page' '/(dashboard)/perso
 第二轮验证：185 项单元测试、3 项测试库集成测试、桌面及移动端 2 项浏览器回归、生产构建、TypeScript 和全量 ESLint 通过。浏览器回归使用生产构建的独立 3102 端口，配置测试库及对应 `APP_ORIGIN`，没有中断已有开发服务。浏览器列表数据使用固定样本检查交互，实际 SQL 与接口兼容性由测试库集成测试验证。
 
 分页将 Web 单页传输和渲染的人员数量限制为 25；本轮未对真实业务数据进行接口延迟基准测试，不报告未经测量的耗时降幅。
+
+## 第三轮：聊天轮询改为增量拉取（2026-09-27）
+
+### 问题（按 70 人规模推算）
+
+- 消息接口 `GET /api/chat/conversations/{id}/messages` 每次返回最新 50 条，而 `type=IMAGE` 的 `content` 就是整张 data URL（原图 ≤ 1 MB → base64 约 1.4 MB）。
+- 会话查询是 `useInfiniteQuery`，却在上面挂了 `refetchInterval: 10_000`：**每个轮询周期会把已加载的每一页都重取一遍**。用户上翻三页后，每 10 秒重下 150 条。
+- 单用户每小时 360 次轮询，只要这 50 条窗口里有 1 张图片，就是约 500 MB/小时；纯文本约 2.5 MB/小时。70 人同时开着会话时，前者约 35 GB/小时，且每次都要在 2 vCPU 上重新 `JSON.stringify` 数 MB、在 PostgreSQL 侧 detoast 同一段历史。
+- 同一张图会被反复下发：图片一旦进入窗口，在留存期内每次轮询都要搬运一次。
+
+### 改动
+
+- 服务端 `GET .../messages` 新增 `after=<消息 UUID>` 增量游标：只返回比游标更新（严格排除游标本身）的消息，**正序**、最多 50 条，便于客户端把游标推进到本页最后一条后顺序补齐、不丢消息；`before` 与 `after` 互斥。游标不属于该会话时返回空数组而不是报错。
+- Web 端会话查询不再定时重取历史页（去掉 `refetchInterval`，并关闭 `refetchOnWindowFocus`），新增 `chat-tail` 增量查询：只拉"比已知最新一条更新"的消息，游标一推进 queryKey 就变并立刻再取一次，直到服务端返回空数组。稳态下每 10 秒只换回一个空数组。
+- 实时事件分流：`message.created` 只失效增量尾巴；`message.recalled` 等会影响历史页既有条目的事件才整段重取。发送与撤回的失效目标同步调整。
+- 历史页仍用于"打开会话"与"上拉加载更早"，行为不变。
+
+### 验证
+
+- `tsc` 0 错误；改动文件与相关测试文件在 `eslint --max-warnings 0` 下通过。
+- `e2e/business/web-performance.test.ts` 3 项通过，其中新增用例覆盖：游标严格排除自身、正序下发、同一时刻按 id 兜底（时间相同不丢消息）、推进到最新一条返回空数组、跨会话游标返回空数组、`before`/`after` 同时传与非法游标均 400。
+- `e2e/chat.spec.ts` 6 项通过，含新增用例：会话内跨两个轮询周期只出现 `after=` 增量请求，整段取次数不再增加（旧实现会周期性重取）。
+
+### 仍未做（触发条件见下）
+
+- Android 客户端目前仍是"每 15 秒重取最新 50 条"，应改用同一 `after` 游标（并入聊天实时化那一轮的降级轮询）。
+- 打卡明细弹层（每次 15 张照片）与任务是同一形态（内联 data URL），同样受益于独立图片端点，见下一节。
+
+## 第四轮：聊天图片改独立端点（2026-09-27）
+
+### 问题
+
+第三轮把轮询改成了增量，但图片本体仍内联在消息体里：**首次打开**含图片的会话、以及**上拉加载更早**时，仍会一次性传输那些图片（最新 50 条全是图片的极端情况下约 70 MB）。同一张图每次重开会话都要重传一遍，浏览器也没有任何缓存可依。
+
+### 改动
+
+- 新增 `GET /api/chat/messages/{id}/image`：返回原始图片字节，`Content-Type` 由 data URL 的 MIME 推出，`Cache-Control: private, max-age=31536000, immutable`（内容按消息 ID 不可变）+ `Vary: Cookie, Authorization`（浏览器缓存按凭据分桶，避免同机换号串图）+ `nosniff`。鉴权、留存期与可见性判定与消息列表完全同源；失败一律 404（不区分"不存在 / 不是图片 / 已撤回 / 超期"）。
+- 消息列表与发送响应改为统一下发形态：图片消息给 `hasImage` + `imageUrl`、`content` 置 `null`；撤回后一律不给内容。
+- **代际兼容**：服务端按 `X-CustodySim-Client` 的代际下发。已发布的**代际 1 仍内联 data URL**（否则它会看不到图片），代际 ≥ 2 与浏览器只拿 `imageUrl`。协议细节见 [Android 协议](android-client.md)。
+- **`proxy.ts` 的全局 `private, no-store` 需要豁免**：该中间件给所有 `/api/**` 响应强制禁缓存，与图片端点的强缓存直接冲突（实测表现为 `Cache-Control` 被覆盖成 `private, no-store`、`immutable` 失效）。现在按路径放行，路径规则与地址生成共用 `lib/chat-image-path.ts` 一份定义，避免两处漂移后"缓存静默失效"。
+- Web 端渲染改用 `imageUrl`（保留 `content` 兜底，兼容旧服务端），`<Image>` 保持 `unoptimized`（走 next/image 优化器会由服务端无凭据回源，反而取不到图）。
+
+### 验证
+
+- `tsc` 0 错误；改动文件在 `eslint --max-warnings 0` 下通过；`lib/__tests__/chat.test.ts` 8 项通过（新增代际判定、消息形态、路径与缓存豁免同源三组断言）。
+- `e2e/chat.spec.ts` 6 项通过：图片端点返回字节与原始 PNG **完全一致**、`content-type`/`cache-control` 正确、未登录 401、非图片/不存在/已撤回 404、代际 1 仍内联；UI 用例断言气泡里的图**真实解码成功**（`naturalWidth > 0`，即带 cookie 鉴权的端点确实取回了字节），而不是"元素存在"。
+- `e2e/role-routing.spec.ts` 25 项通过 / 2 项守卫跳过，`vitest run` 全量 34 个文件通过，确认中间件改动没有外溢。
+
+### 生产主机基线（2026-09-27 实测）
+
+- 主机 2 vCPU / 1.9 GB 内存 / 50 GB 磁盘（可用 37 GB）；PostgreSQL 18 同机（cohosted 档：`shared_buffers` 256 MB、`max_connections` 50、`work_mem` 4 MB）。
+- 进程：Next standalone 上限 600 MB（`--max-old-space-size=384`）、实时服务上限 200 MB；实测 PSS 约 Next 254 MB、PG 46 MB、nginx 5 MB、实时 38 MB，`available` 约 1.2 GB，swap 1.9 GB 仅用 121 MB。
+- 结论：稳态内存有余量，**瓶颈不是内存而是单次响应的体量与 CPU**；把整段历史（含图片）反复搬运才是 70 人规模下的真正风险。用 `bash scripts/mem-report.sh` 复核（PSS 口径，勿用 sudo）。

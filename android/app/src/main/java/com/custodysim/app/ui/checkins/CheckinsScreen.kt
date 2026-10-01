@@ -141,11 +141,15 @@ fun CheckinsScreen(container: AppContainer, scrollBehavior: ScrollBehavior) {
 
     suspend fun refresh() {
         loading = true
-        when (val result = container.checkinRepository.fetchToday()) {
-            is ApiResult.Ok -> { slots = result.data; notice = null }
-            is ApiResult.Err -> notice = result.message
-        }
-        loading = false
+        notice = null
+        try {
+            when (val result = container.checkinRepository.fetchToday()) {
+                is ApiResult.Ok -> { slots = result.data; notice = null }
+                is ApiResult.Err -> notice = result.message
+            }
+        } catch (cancelled: CancellationException) { throw cancelled }
+        catch (_: Exception) { notice = "无法加载点名时段，请稍后重试" }
+        finally { loading = false }
     }
 
     LaunchedEffect(Unit) { refresh() }
@@ -344,14 +348,18 @@ private fun CheckinSheet(
             Spacer(Modifier.height(AppSpace.page))
             if (mode == Mode.MAKEUP) {
                 FramedTextField(value = reason,
-                    onValueChange = { reason = it },
+                    onValueChange = { reason = it; error = null },
                     label = stringResource(R.string.makeup_reason),
+                    minLines = 2,
                     enabled = !busy,
                     modifier = Modifier.fillMaxWidth(),
                 )
+                Spacer(Modifier.height(AppSpace.small))
+                Text("补卡原因至少填写 2 个字", style = MiuixTheme.textStyles.footnote1,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
             } else {
                 FramedTextField(value = remark,
-                    onValueChange = { remark = it },
+                    onValueChange = { remark = it; error = null },
                     label = if (slot.needRemark) "打卡备注（必填）" else stringResource(R.string.remark_optional),
                     enabled = !busy,
                     modifier = Modifier.fillMaxWidth(),
@@ -383,7 +391,7 @@ private fun CheckinSheet(
 
             error?.let {
                 Spacer(Modifier.height(8.dp))
-                Text(it, style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.error)
+                NoticeBanner(it, error = true)
             }
             Spacer(Modifier.height(16.dp))
 
@@ -402,9 +410,9 @@ private fun CheckinSheet(
                 busy = busy,
                 onClick = {
                     if (busy) return@PrimaryAction
+                    busy = true
+                    error = null
                     scope.launch {
-                        busy = true
-                        error = null
                         try {
                         val currentTime = System.currentTimeMillis()
                         if (mode == Mode.CHECKIN && (start == null || end == null || currentTime !in start..end)) {

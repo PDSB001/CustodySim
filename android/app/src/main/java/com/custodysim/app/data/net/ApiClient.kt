@@ -7,6 +7,15 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlin.coroutines.resume
+import okhttp3.Call
+import okhttp3.Callback
+import java.io.IOException
+import java.io.File
+import okhttp3.Cache
+import com.custodysim.app.data.media.RemoteImageLoader
+import com.custodysim.app.data.media.resolveImageUrl
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -28,17 +37,60 @@ import java.util.concurrent.TimeUnit
 class ApiClient(
     private val tokenStore: TokenStore,
     private val baseUrl: String,
+    cacheDirectory: File? = null,
     private val onSessionLost: () -> Unit = {},
 ) {
+    private val imageLoader = lazy { RemoteImageLoader(this) }
+    val remoteImages by imageLoader
+
+    fun imageUrl(path: String): String? = resolveImageUrl(baseUrl, path)
+
+    /** Uses the authenticated client and its 30s read timeout; cancellation closes the socket. */
+    suspend fun getBytes(path: String): ApiResult<ByteArray> = suspendCancellableCoroutine { continuation ->
+        val url = imageUrl(path)
+        if (url == null) {
+            continuation.resume(ApiResult.Err(ApiErrorCode.UNKNOWN, "Invalid image URL", 0))
+            return@suspendCancellableCoroutine
+        }
+        val call = client.newCall(Request.Builder().url(url).get().build())
+        continuation.invokeOnCancellation { call.cancel() }
+        call.enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                continuation.resume(ApiResult.Err(ApiErrorCode.UNKNOWN, e.message.orEmpty(), 0))
+            }
+
+            override fun onResponse(call: Call, response: Response) {
+                val result = try {
+                    response.use {
+                        if (it.isSuccessful) {
+                            it.body?.bytes()?.let { bytes -> ApiResult.Ok(bytes) }
+                                ?: ApiResult.Err(ApiErrorCode.UNKNOWN, "Empty image response", it.code)
+                        } else {
+                            val error = parseEnvelope(it.body?.string().orEmpty(), it.code)
+                            (error as? ApiResult.Err)
+                                ?: ApiResult.Err(ApiErrorCode.UNKNOWN, "Image request failed", it.code)
+                        }
+                    }
+                } catch (e: IOException) {
+                    ApiResult.Err(ApiErrorCode.UNKNOWN, e.message.orEmpty(), 0)
+                }
+                continuation.resume(result)
+            }
+        })
+    }
 
     @Volatile private var closed = false
 
     fun close() {
         closed = true
         accessToken = null
+        if (imageLoader.isInitialized()) remoteImages.clear()
         client.dispatcher.cancelAll()
         bareClient.dispatcher.cancelAll()
         client.connectionPool.evictAll()
+        // Close the journal before a replacement container opens this directory; keep entries
+        // for process restarts. Vary: Authorization prevents reuse with a different bearer token.
+        try { httpCache?.close() } catch (_: IOException) { /* Cache failure must not block server switching. */ }
     }
 
     private val jsonMediaType = "application/json; charset=utf-8".toMediaType()
@@ -61,7 +113,10 @@ class ApiClient(
         .readTimeout(20, TimeUnit.SECONDS)
         .build()
 
+    private val httpCache = cacheDirectory?.let(::createHttpCache)
+
     private val client = bareClient.newBuilder()
+        .cache(httpCache)
         .readTimeout(30, TimeUnit.SECONDS)
         .addInterceptor { chain ->
             val builder = chain.request().newBuilder()
@@ -76,6 +131,7 @@ class ApiClient(
 
     /** 进程启动时用本地凭证回填内存缓存。 */
     fun setAccessToken(token: String?) {
+        if (token == null && imageLoader.isInitialized()) remoteImages.clear()
         if (!closed) accessToken = token
     }
 
@@ -93,12 +149,13 @@ class ApiClient(
         executeList(Request.Builder().url(baseUrl + path).get().build())
     }
 
-    suspend fun post(path: String, body: JSONObject? = null): ApiResult<JSONObject> =
+    suspend fun post(path: String, body: JSONObject? = null, onUploadProgress: ((Int) -> Unit)? = null): ApiResult<JSONObject> =
         withContext(Dispatchers.IO) {
+            val requestBody = (body?.toString() ?: "{}").toRequestBody(jsonMediaType)
             execute(
                 Request.Builder()
                     .url(baseUrl + path)
-                    .post((body?.toString() ?: "{}").toRequestBody(jsonMediaType))
+                    .post(onUploadProgress?.let { ProgressRequestBody(requestBody, it) } ?: requestBody)
                     .build(),
             )
         }
@@ -112,6 +169,10 @@ class ApiClient(
                     .build(),
             )
         }
+
+    suspend fun delete(path: String): ApiResult<JSONObject> = withContext(Dispatchers.IO) {
+        execute(Request.Builder().url(baseUrl + path).delete().build())
+    }
 
     /** 登录用：服务端要求可信设备值走请求头（浏览器才用 cookie）。 */
     suspend fun postWithTrustedDevice(
@@ -231,6 +292,7 @@ class ApiClient(
 
     private suspend fun loseSession() {
         accessToken = null
+        if (imageLoader.isInitialized()) remoteImages.clear()
         withContext(Dispatchers.IO) { tokenStore.clear() }
         onSessionLost()
     }
@@ -246,3 +308,6 @@ class ApiClient(
         return count
     }
 }
+
+/** One bounded app-private HTTP cache. Respect max-age, Vary and no-store without overrides. */
+internal fun createHttpCache(directory: File): Cache = Cache(directory, 25L * 1024 * 1024)

@@ -37,6 +37,7 @@ class AppContainer(context: Context, val endpoint: com.custodysim.app.config.Ser
     val apiClient by lazy { ApiClient(
         tokenStore = tokenStore,
         baseUrl = endpoint.baseUrl,
+        cacheDirectory = java.io.File(appContext.cacheDir, "http"),
         onSessionLost = { sessionLostListener?.invoke() },
     ) }
 
@@ -59,6 +60,7 @@ class AppContainer(context: Context, val endpoint: com.custodysim.app.config.Ser
     val taskRepository by lazy { TaskRepository(apiClient) }
 
     val portalRepository by lazy { PortalRepository(apiClient) }
+    val communityRepository by lazy { com.custodysim.app.data.community.CommunityRepository(apiClient) }
 
     val pendingPointStore = PendingPointStore(appContext, endpoint.namespace)
 

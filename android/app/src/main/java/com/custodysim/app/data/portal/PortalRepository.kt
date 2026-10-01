@@ -32,6 +32,8 @@ data class ProfileRecord(
     val updatedAt: String,
     val fields: List<ProfileField>,
     val signatureMode: String = "GENERATED",
+    val communityShare: Boolean = false,
+    val communityShareFields: List<String> = emptyList(),
 )
 
 /**
@@ -46,6 +48,11 @@ data class ProfileSummary(
 )
 
 class PortalRepository(private val api: ApiClient) {
+    suspend fun homeOverview(): ApiResult<HomeOverview> = when (val result = api.get("/api/my/overview")) {
+        is ApiResult.Err -> result
+        is ApiResult.Ok -> ApiResult.Ok(HomeOverview.from(result.data))
+    }
+
     private fun parseFields(array: JSONArray?): List<ProfileField> = (0 until (array?.length() ?: 0)).map { index ->
         val item = array!!.getJSONObject(index)
         val options = item.optJSONArray("options")?.let { values ->
@@ -78,6 +85,10 @@ class PortalRepository(private val api: ApiClient) {
                 lockedAt = item.optString("lockedAt").takeIf { it.isNotBlank() && it != "null" },
                 updatedAt = item.optString("updatedAt"), fields = parseFields(item.optJSONArray("fields")),
                 signatureMode = item.optString("signatureMode", "GENERATED"),
+                communityShare = item.optBoolean("communityShare"),
+                communityShareFields = item.optJSONArray("communityShareFields")?.let { a ->
+                    (0 until a.length()).map { a.getString(it) }
+                } ?: emptyList(),
             )
         })
     }
@@ -100,13 +111,16 @@ class PortalRepository(private val api: ApiClient) {
      * [photoData] 始终随请求发送：传 null 表示清除已上传的证件照（服务端 schema 允许 nullable）。
      */
     suspend fun saveProfileRecord(formId: String, data: JSONObject, photoData: String? = null,
-        signatureMode: String = "GENERATED", handwrittenSignatureData: String? = null): ApiResult<JSONObject> {
+        signatureMode: String = "GENERATED", handwrittenSignatureData: String? = null,
+        communityShare: Boolean = false, communityShareFields: List<String> = emptyList()): ApiResult<JSONObject> {
         if (signatureMode == "HANDWRITTEN" && handwrittenSignatureData.isNullOrBlank()) {
             return ApiResult.Err(com.custodysim.app.data.net.ApiErrorCode.VALIDATION_ERROR, "请完成手写签名后再保存", 400)
         }
         val body = JSONObject()
             .put("formId", formId)
             .put("data", data)
+            .put("communityShare", communityShare)
+            .put("communityShareFields", JSONArray(communityShareFields))
             .put("signatureMode", signatureMode)
             .put("handwrittenSignatureData", if (signatureMode == "HANDWRITTEN") handwrittenSignatureData else JSONObject.NULL)
             .put("photoData", photoData ?: JSONObject.NULL)

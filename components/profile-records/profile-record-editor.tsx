@@ -21,6 +21,7 @@ import {
 import { Textarea } from "@/components/ui/textarea"
 import { toast } from "@/components/ui/toast"
 import { ProfileSignatureField } from "@/components/profile-records/profile-signature-field"
+import { ProfileCommunitySharing } from "@/components/profile-records/profile-community-sharing"
 import {
   applyComputedProfileAge,
   calculateAgeFromBirthMonth,
@@ -28,6 +29,10 @@ import {
 } from "@/lib/profile-age"
 
 import { ProfileFieldSchema } from "@/lib/profile-field-schema"
+import {
+  communityShareableFields,
+  currentCommunityShareSelection,
+} from "@/lib/community-profile-fields"
 
 const SaveResult = z.object({ id: z.string(), status: z.string() })
 
@@ -46,6 +51,8 @@ export function ProfileRecordEditor({
     id: string
     status: string
     data: Record<string, unknown>
+    communityShare?: boolean
+    communityShareFields?: string[]
     photoData: string | null
     signatureMode: "GENERATED" | "HANDWRITTEN"
     signatureData: string | null
@@ -66,6 +73,17 @@ export function ProfileRecordEditor({
     string | null
   >(record?.signatureMode === "HANDWRITTEN" ? record.signatureData : null)
   const [saving, setSaving] = useState(false)
+  const [communityShare, setCommunityShare] = useState(
+    record?.communityShare ?? false,
+  )
+  const [communityShareFields, setCommunityShareFields] = useState<string[]>(
+    () =>
+      currentCommunityShareSelection(
+        form.fields,
+        data,
+        record?.communityShareFields ?? [],
+      ),
+  )
 
   // 仅在切换到另一份档案时用服务端数据重建表单；同一档案的后台刷新
   // 不应覆盖用户尚未保存的编辑内容。
@@ -74,13 +92,37 @@ export function ProfileRecordEditor({
     const key = `${form.id}:${record?.id ?? "new"}`
     if (syncedRecordKey.current === key) return
     syncedRecordKey.current = key
-    setData(applyComputedProfileAge(record?.data ?? {}, form.fields))
+    const nextData = applyComputedProfileAge(record?.data ?? {}, form.fields)
+    setData(nextData)
+    setCommunityShare(record?.communityShare ?? false)
+    setCommunityShareFields(
+      currentCommunityShareSelection(
+        form.fields,
+        nextData,
+        record?.communityShareFields ?? [],
+      ),
+    )
     setPhotoData(record?.photoData ?? null)
     setSignatureMode(record?.signatureMode ?? "GENERATED")
     setHandwrittenSignatureData(
       record?.signatureMode === "HANDWRITTEN" ? record.signatureData : null,
     )
   }, [record, form.id, form.fields])
+
+  const previousShareData = useRef(data)
+  useEffect(() => {
+    // A record switch first renders with the previous data. Wait for the
+    // restored data before pruning the new record's explicit choices.
+    if (previousShareData.current === data) return
+    previousShareData.current = data
+    setCommunityShareFields((current) => {
+      const next = currentCommunityShareSelection(form.fields, data, current)
+      return next.length === current.length &&
+        next.every((name, index) => name === current[index])
+        ? current
+        : next
+    })
+  }, [data, form.fields])
 
   const editable = !record || ["DRAFT", "RETURNED"].includes(record.status)
   const ageIsComputed = hasComputedProfileAge(form.fields)
@@ -103,6 +145,12 @@ export function ProfileRecordEditor({
     fieldsInDisplayOrder[ageIndex] = birthMonthField
     fieldsInDisplayOrder[birthMonthIndex] = ageField
   }
+  const communityFields = communityShareableFields(fieldsInDisplayOrder, data)
+  const currentCommunityShareFields = currentCommunityShareSelection(
+    form.fields,
+    data,
+    communityShareFields,
+  )
   const save = async (submit: boolean) => {
     setSaving(true)
     try {
@@ -111,6 +159,10 @@ export function ProfileRecordEditor({
         body: JSON.stringify({
           formId: form.id,
           data,
+          communityShare,
+          communityShareFields: communityShare
+            ? currentCommunityShareFields
+            : [],
           photoData,
           signatureMode,
           handwrittenSignatureData:
@@ -442,6 +494,21 @@ export function ProfileRecordEditor({
           </tbody>
         </table>
       </div>
+      {editable ? (
+        <ProfileCommunitySharing
+          key={form.id}
+          fields={communityFields}
+          data={data}
+          sharing={communityShare}
+          selected={currentCommunityShareFields}
+          saving={saving}
+          onSharingChange={(value) => {
+            setCommunityShare(value)
+            if (!value) setCommunityShareFields([])
+          }}
+          onSelectionChange={setCommunityShareFields}
+        />
+      ) : null}
       {editable ? (
         <div className="flex flex-wrap gap-2">
           <Button

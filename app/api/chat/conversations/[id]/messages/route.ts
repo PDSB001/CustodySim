@@ -1,4 +1,4 @@
-import { and, count, desc, eq, gte, inArray, sql } from "drizzle-orm"
+import { and, asc, count, desc, eq, gte, inArray, sql } from "drizzle-orm"
 import { NextRequest } from "next/server"
 import { z } from "zod"
 
@@ -8,6 +8,8 @@ import {
   CHAT_MESSAGE_MAX_LENGTH,
   CHAT_SEND_RATE_LIMIT_COUNT,
   CHAT_SEND_RATE_LIMIT_WINDOW_MS,
+  chatImagesInline,
+  chatMessagePayload,
   retentionCutoff,
 } from "@/lib/chat"
 import { getChatConversationAccess, notifyChatEvent } from "@/lib/chat-server"
@@ -36,9 +38,15 @@ export async function GET(
   if (!conversation) return failure("NOT_FOUND", "会话不存在", 404)
   try {
     const beforeValue = request.nextUrl.searchParams.get("before")
+    const afterValue = request.nextUrl.searchParams.get("after")
     const before = beforeValue ? IdSchema.safeParse(beforeValue) : null
+    const after = afterValue ? IdSchema.safeParse(afterValue) : null
     if (before && !before.success)
       return failure("VALIDATION_ERROR", "分页游标无效", 400)
+    if (after && !after.success)
+      return failure("VALIDATION_ERROR", "增量游标无效", 400)
+    if (beforeValue && afterValue)
+      return failure("VALIDATION_ERROR", "不能同时使用 before 与 after", 400)
     const conditions = [
       eq(chatMessages.conversationId, conversation.id),
       gte(chatMessages.createdAt, retentionCutoff(actor.role)),
@@ -52,25 +60,43 @@ export async function GET(
             and boundary.conversation_id = ${conversation.id}::uuid
         )
       `)
-    const rows = (
-      await db
-        .select({
-          id: chatMessages.id,
-          senderId: chatMessages.senderId,
-          senderName: users.name,
-          senderAvatar: users.avatar,
-          type: chatMessages.type,
-          content: chatMessages.content,
-          caption: chatMessages.caption,
-          recalledAt: chatMessages.recalledAt,
-          createdAt: chatMessages.createdAt,
-        })
-        .from(chatMessages)
-        .leftJoin(users, eq(users.id, chatMessages.senderId))
-        .where(and(...conditions))
-        .orderBy(desc(chatMessages.createdAt), desc(chatMessages.id))
-        .limit(50)
-    ).reverse()
+    // `after` 是给轮询用的增量游标：只取比游标更新的消息，游标本身严格排除。
+    // 用正序 + 50 条（而不是倒序取"最新 50 条"）是为了**多轮能顺序补齐、不丢消息**：
+    // 一次新增超过 50 条时，客户端把游标推进到本页最后一条，下一次轮询接着取下一页。
+    if (after?.success)
+      conditions.push(sql<boolean>`
+        (${chatMessages.createdAt}, ${chatMessages.id}) > (
+          select boundary.created_at, boundary.id
+          from chat_messages boundary
+          where boundary.id = ${after.data}::uuid
+            and boundary.conversation_id = ${conversation.id}::uuid
+        )
+      `)
+    const incremental = Boolean(after?.success)
+    const page = await db
+      .select({
+        id: chatMessages.id,
+        senderId: chatMessages.senderId,
+        senderName: users.name,
+        senderAvatar: users.avatar,
+        type: chatMessages.type,
+        content: chatMessages.content,
+        caption: chatMessages.caption,
+        recalledAt: chatMessages.recalledAt,
+        createdAt: chatMessages.createdAt,
+      })
+      .from(chatMessages)
+      .leftJoin(users, eq(users.id, chatMessages.senderId))
+      .where(and(...conditions))
+      .orderBy(
+        incremental
+          ? asc(chatMessages.createdAt)
+          : desc(chatMessages.createdAt),
+        incremental ? asc(chatMessages.id) : desc(chatMessages.id),
+      )
+      .limit(50)
+    // 历史页是倒序取"最新的 50 条"，翻回正序下发；增量页本身就是正序，不再翻。
+    const rows = incremental ? page : page.reverse()
     const readRows = rows.length
       ? await db
           .select({ messageId: chatMessageReads.messageId, count: count() })
@@ -90,11 +116,13 @@ export async function GET(
     const readCounts = new Map(
       readRows.map((row) => [row.messageId, row.count]),
     )
+    // 图片按代际决定内联还是给独立端点：代际 1 的 App 继续拿 data URL，
+    // 浏览器与代际 ≥ 2 只拿 `imageUrl`（列表里不再有 Base64）。
+    const inlineImage = chatImagesInline(request.headers)
     return success(
       rows.map((row) => ({
         ...row,
-        content: row.recalledAt ? null : row.content,
-        caption: row.recalledAt ? null : row.caption,
+        ...chatMessagePayload(row, { inlineImage }),
         recalledAt: row.recalledAt?.toISOString() ?? null,
         createdAt: row.createdAt.toISOString(),
         readCount: readCounts.get(row.id) ?? 0,
@@ -174,6 +202,10 @@ export async function POST(
     return success(
       {
         ...message,
+        // 与列表响应同一形态：发送方也不必再回传一遍整张 data URL。
+        ...chatMessagePayload(message, {
+          inlineImage: chatImagesInline(request.headers),
+        }),
         senderName: actor.name,
         senderAvatar: actor.avatar ?? null,
         recalledAt: null,

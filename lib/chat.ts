@@ -1,5 +1,7 @@
 import { z } from "zod"
 
+import { chatImagePath } from "@/lib/chat-image-path"
+import { nativeClientGeneration } from "@/lib/native-client"
 import { validateTaskImageDataUrl } from "@/lib/task-image"
 
 export const CHAT_RECALL_WINDOW_MS = 5 * 60 * 1000
@@ -41,7 +43,14 @@ export const ChatMessageDraftSchema = z
       .optional()
       .default(CHAT_MESSAGE_TYPE_TEXT),
     content: z.string().trim().min(1, "消息不能为空"),
-    caption: z.string().trim().max(CHAT_MESSAGE_MAX_LENGTH, `图片说明不能超过${CHAT_MESSAGE_MAX_LENGTH}字`).optional(),
+    caption: z
+      .string()
+      .trim()
+      .max(
+        CHAT_MESSAGE_MAX_LENGTH,
+        `图片说明不能超过${CHAT_MESSAGE_MAX_LENGTH}字`,
+      )
+      .optional(),
   })
   .superRefine((value, context) => {
     if (value.type === CHAT_MESSAGE_TYPE_IMAGE) {
@@ -51,7 +60,11 @@ export const ChatMessageDraftSchema = z
       return
     }
     if (value.caption)
-      context.addIssue({ code: "custom", message: "文字消息不能附带图片说明", path: ["caption"] })
+      context.addIssue({
+        code: "custom",
+        message: "文字消息不能附带图片说明",
+        path: ["caption"],
+      })
     if (value.content.length > CHAT_MESSAGE_MAX_LENGTH)
       context.addIssue({
         code: "custom",
@@ -66,9 +79,68 @@ export const ChatMessageDraftSchema = z
  * 图片消息的 `content` 是整张 data URL，绝不能直接下发到列表（体积与观感都不合适），
  * 这里统一折叠成「[图片]」。
  */
-export function chatMessagePreview(type: string, content: string | null, caption?: string | null) {
-  if (type === CHAT_MESSAGE_TYPE_IMAGE) return caption ? `[图片] ${caption.slice(0, 80)}` : "[图片]"
+export function chatMessagePreview(
+  type: string,
+  content: string | null,
+  caption?: string | null,
+) {
+  if (type === CHAT_MESSAGE_TYPE_IMAGE)
+    return caption ? `[图片] ${caption.slice(0, 80)}` : "[图片]"
   return content
+}
+
+/**
+ * 图片消息内联下发的最高代际。
+ *
+ * 代际 1 是图片功能上线时的客户端：它把 `content` 里的 data URL 当成唯一图片来源，
+ * 因此对它必须继续内联；浏览器（不带客户端头）与代际 ≥ 2 一律只拿 `imageUrl`。
+ */
+const CHAT_INLINE_IMAGE_MAX_GENERATION = 1
+
+/**
+ * 图片是否内联下发（`content` 直接给 data URL）。
+ *
+ * 只有老代际需要内联：data URL 会随每次列表响应重复传输（单张约 1.4 MB），
+ * 而独立端点按消息 ID 不可变、可被浏览器长期强缓存。
+ */
+export function chatImagesInline(headers: Headers) {
+  const generation = nativeClientGeneration(headers)
+  return generation !== null && generation <= CHAT_INLINE_IMAGE_MAX_GENERATION
+}
+
+/** 图片消息的独立端点：内容按消息 ID 不可变。 */
+export function chatMessageImageUrl(messageId: string) {
+  return chatImagePath(messageId)
+}
+
+/**
+ * 消息下发形态：撤回后一律不下发内容；图片消息按代际决定内联还是给端点地址。
+ *
+ * 消息列表与发送响应共用这一处，避免两条链路出现字段漂移。
+ */
+export function chatMessagePayload(
+  message: {
+    id: string
+    type: string
+    content: string | null
+    caption?: string | null
+    recalledAt: Date | null
+  },
+  options: { inlineImage: boolean },
+) {
+  const withdrawn = Boolean(message.recalledAt)
+  const hasImage =
+    !withdrawn &&
+    message.type === CHAT_MESSAGE_TYPE_IMAGE &&
+    Boolean(message.content)
+  return {
+    content:
+      withdrawn || (hasImage && !options.inlineImage) ? null : message.content,
+    caption: withdrawn ? null : (message.caption ?? null),
+    hasImage,
+    imageUrl:
+      hasImage && !options.inlineImage ? chatMessageImageUrl(message.id) : null,
+  }
 }
 
 export const ChatReadSchema = z.object({

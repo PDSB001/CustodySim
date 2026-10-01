@@ -56,6 +56,7 @@ const workspaceConfig = {
       { href: "/supervisor/scores", label: "考核记分", icon: Trophy },
       { href: "/supervisor/notices", label: "监所公示", icon: BellRing },
       { href: "/supervisor/chat", label: "通信监管", icon: MessageCircle },
+      { href: "/supervisor/community", label: "匿名社区", icon: MessageCircle },
       {
         href: "/supervisor/applications",
         label: "申请审查",
@@ -80,6 +81,7 @@ const workspaceConfig = {
       { href: "/my/electronic-fence", label: "电子围栏", icon: MapPinned },
       { href: "/my/notices", label: "监所公示", icon: BellRing },
       { href: "/my/chat", label: "监室通信", icon: MessageCircle },
+      { href: "/my/community", label: "匿名社区", icon: MessageCircle },
       { href: "/my/profile", label: "在押档案", icon: FileText },
       { href: "/my/scores", label: "考核记分", icon: Trophy },
       { href: "/my/applications", label: "申诉与呈报", icon: ClipboardCheck },
@@ -126,7 +128,11 @@ function WorkspaceSidebar({
           },
           {
             label: "监室联络",
-            paths: ["/supervisor/notices", "/supervisor/chat"],
+            paths: [
+              "/supervisor/notices",
+              "/supervisor/chat",
+              "/supervisor/community",
+            ],
           },
         ]
       : [
@@ -138,7 +144,10 @@ function WorkspaceSidebar({
             label: "在押事务",
             paths: ["/my/profile", "/my/scores", "/my/applications"],
           },
-          { label: "监室联络", paths: ["/my/notices", "/my/chat"] },
+          {
+            label: "监室联络",
+            paths: ["/my/notices", "/my/chat", "/my/community"],
+          },
         ]
 
   return (

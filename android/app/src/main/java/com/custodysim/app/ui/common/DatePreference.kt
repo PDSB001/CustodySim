@@ -13,8 +13,7 @@ import java.time.LocalDateTime
 import java.time.YearMonth
 import java.util.Locale
 import top.yukonga.miuix.kmp.basic.*
-import top.yukonga.miuix.kmp.icon.MiuixIcons
-import top.yukonga.miuix.kmp.icon.basic.ArrowRight
+import top.yukonga.miuix.kmp.preference.ArrowPreference
 import top.yukonga.miuix.kmp.overlay.OverlayDialog
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
@@ -47,9 +46,8 @@ fun DatePreference(
     val lastDay = YearMonth.of(year, month).lengthOfMonth()
     LaunchedEffect(lastDay) { day = day.coerceAtMost(lastDay) }
     val row: @Composable () -> Unit = {
-        BasicComponent(title = label, summary = value.replace('T', ' ').ifBlank { "请选择" },
-            enabled = enabled, onClick = { show = true },
-            endActions = { Icon(MiuixIcons.Basic.ArrowRight, contentDescription = null) })
+        ArrowPreference(title = label, summary = value.replace('T', ' ').ifBlank { "请选择" },
+            enabled = enabled, onClick = { show = true })
     }
     if (standalone) SettingGroup { row() } else row()
     OverlayDialog(show = show, title = label, onDismissRequest = { show = false }) {

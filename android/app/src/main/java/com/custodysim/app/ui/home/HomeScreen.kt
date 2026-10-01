@@ -20,10 +20,13 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.repeatOnLifecycle
 import com.custodysim.app.AppContainer
 import com.custodysim.app.R
 import com.custodysim.app.data.auth.SessionUser
 import com.custodysim.app.data.net.ApiResult
+import com.custodysim.app.data.portal.HomeOverview
+import com.custodysim.app.ui.MainTab
 import com.custodysim.app.ui.common.*
 import com.custodysim.app.ui.roleLabel
 import com.custodysim.app.ui.theme.*
@@ -31,11 +34,19 @@ import com.custodysim.app.location.LocationPreferences
 import com.custodysim.app.location.LocationNotifications
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.sync.Mutex
+import java.time.ZoneId
+import java.time.ZonedDateTime
+import java.time.format.DateTimeFormatter
 import top.yukonga.miuix.kmp.basic.*
+import top.yukonga.miuix.kmp.preference.ArrowPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 @Composable
-fun HomeScreen(container: AppContainer, session: SessionUser, scrollBehavior: ScrollBehavior) {
+fun HomeScreen(container: AppContainer, session: SessionUser, scrollBehavior: ScrollBehavior,
+    active: Boolean, onNavigate: (MainTab) -> Unit, onNotices: () -> Unit) {
     val context = LocalContext.current
     val resources = LocalResources.current
     val scope = rememberCoroutineScope()
@@ -55,6 +66,42 @@ fun HomeScreen(container: AppContainer, session: SessionUser, scrollBehavior: Sc
         hasBackground = container.locationCollector.hasBackgroundPermission()
     }
     val owner = LocalLifecycleOwner.current
+    var overview by remember(container, session.id) { mutableStateOf<HomeOverview?>(null) }
+    var overviewLoading by remember(container, session.id) { mutableStateOf(true) }
+    var overviewError by remember(container, session.id) { mutableStateOf<String?>(null) }
+    var overviewUpdatedAt by remember(container, session.id) { mutableStateOf<String?>(null) }
+    val overviewMutex = remember(container, session.id) { Mutex() }
+    suspend fun refreshOverview() {
+        if (!overviewMutex.tryLock()) return
+        overviewLoading = true
+        overviewError = null
+        try {
+            when (val result = container.portalRepository.homeOverview()) {
+                is ApiResult.Ok -> {
+                    overview = result.data
+                    overviewUpdatedAt = ZonedDateTime.now(ZoneId.of("Asia/Shanghai"))
+                        .format(DateTimeFormatter.ofPattern("MM-dd HH:mm"))
+                }
+                is ApiResult.Err -> overviewError = result.message
+            }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            overviewError = error.message ?: "无法读取概览"
+        } finally {
+            overviewLoading = false
+            overviewMutex.unlock()
+        }
+    }
+    LaunchedEffect(container, session.id, owner, active) {
+        if (!active) return@LaunchedEffect
+        owner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            while (isActive) {
+                refreshOverview()
+                delay(60_000)
+            }
+        }
+    }
     DisposableEffect(owner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
@@ -120,32 +167,23 @@ fun HomeScreen(container: AppContainer, session: SessionUser, scrollBehavior: Sc
             }
         }
         if (session.mustChangePassword) item { NoticeBanner(stringResource(R.string.password_notice), error = true) }
-        item {
-            val status = when {
-                !session.isSupervised -> R.string.location_not_required
-                hasForeground -> R.string.location_ready
-                else -> R.string.location_needs_permission
-            }
-            Card(modifier = Modifier.fillMaxWidth(), cornerRadius = AppShape.group,
-                insideMargin = PaddingValues(AppSpace.inset),
-                colors = CardDefaults.defaultColors(
-                    color = MiuixTheme.colorScheme.primary.copy(alpha = 0.10f))) {
-                Text(stringResource(R.string.location), style = MiuixTheme.textStyles.footnote1,
-                    color = MiuixTheme.colorScheme.primary)
-                Spacer(Modifier.height(AppSpace.small))
-                Text(stringResource(status), style = MiuixTheme.textStyles.title2)
-                Spacer(Modifier.height(AppSpace.small))
-                Text(stringResource(when {
-                    !session.isSupervised -> R.string.location_role_hint
-                    hasForeground -> R.string.location_ready_hint
-                    else -> R.string.location_permission_hint
-                }), style = MiuixTheme.textStyles.footnote1,
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-            }
-        }
-        if (session.isSupervised) {
-            item {
-                PrimaryAction(stringResource(if (reporting) R.string.report_busy else R.string.report_now),
+        item(key = "overview") {
+            // 定位概览与指标卡同处一组横划卡片；非被监管账号不上报位置。
+            val locationOverview = if (session.isSupervised) LocationOverview(
+                status = stringResource(if (hasForeground) R.string.location_ready
+                    else R.string.location_needs_permission),
+                hint = stringResource(if (hasForeground) R.string.location_ready_hint
+                    else R.string.location_permission_hint),
+            ) else null
+            // 卡片、页点、上报按钮是一组：放在同一个 item 内自己控间距，
+            // 否则会被列表统一的 16dp 间距把按钮推远。
+            Column(verticalArrangement = Arrangement.spacedBy(AppSpace.medium)) {
+                HomeOverviewSection(overview, session.isSupervised, overviewLoading, overviewError,
+                    overviewUpdatedAt, locationOverview,
+                    onRefresh = { scope.launch { refreshOverview() } },
+                    onNavigate = onNavigate, onNotices = onNotices)
+                if (session.isSupervised) PrimaryAction(
+                    stringResource(if (reporting) R.string.report_busy else R.string.report_now),
                     busy = reporting, onClick = {
                         if (reporting) return@PrimaryAction
                         if (!hasForeground) {
@@ -157,12 +195,14 @@ fun HomeScreen(container: AppContainer, session: SessionUser, scrollBehavior: Sc
                         }
                     })
             }
+        }
+        if (session.isSupervised) {
             item {
                 Column {
                     SectionTitle(stringResource(R.string.location))
                     SettingGroup {
                         BasicComponent(title = "自动上报状态", summary = automaticLocationStatus)
-                        if (!notificationsEnabled) BasicComponent(
+                        if (!notificationsEnabled) ArrowPreference(
                             title = stringResource(R.string.location_notification_settings),
                             summary = stringResource(R.string.location_notification_hint),
                             onClick = {
@@ -200,13 +240,15 @@ fun HomeScreen(container: AppContainer, session: SessionUser, scrollBehavior: Sc
                 Column {
                     SectionTitle(stringResource(R.string.location_permissions))
                     SettingGroup {
+                        // 未授权的状态胶囊走主题 error：StatusChip 只在 success/error 时才带图标，
+                        // 未授权要的就是那个 ✕。
                         BasicComponent(title = stringResource(R.string.foreground_permission), endActions = {
                             StatusChip(stringResource(if (hasForeground) R.string.granted else R.string.not_granted),
-                                if (hasForeground) AppColors.success else AppColors.warning)
+                                if (hasForeground) AppColors.success else MiuixTheme.colorScheme.error)
                         })
                         BasicComponent(title = stringResource(R.string.background_permission), endActions = {
                             StatusChip(stringResource(if (hasBackground) R.string.granted else R.string.not_granted),
-                                if (hasBackground) AppColors.success else AppColors.warning)
+                                if (hasBackground) AppColors.success else MiuixTheme.colorScheme.error)
                         })
                     }
                 }

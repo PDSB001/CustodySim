@@ -32,9 +32,22 @@ data class ChatMessage(
      * 服务端确认后会被正式消息替换；失败则移除，并把草稿还回输入框。
      */
     val pending: Boolean = false,
+    val imageUrl: String? = null,
+    val hasImage: Boolean = !recalled && type == TYPE_IMAGE && content?.startsWith("data:image/") == true,
+    /** Stable only for this screen's lifetime; server IDs remain authoritative for API calls. */
+    val presentationKey: String = id,
 ) {
-    /** 图片消息的 [content] 是 data URL（单张，≤ 1 MB）。 */
+    /** Type only; imageUrl is the original server path, content supports legacy/local data URLs. */
     val isImage: Boolean get() = type == TYPE_IMAGE
+
+    fun withPresentationOf(previous: ChatMessage?): ChatMessage =
+        if (previous == null) this else copy(presentationKey = previous.presentationKey)
+
+    fun imageSource(resolve: (String) -> String?): String? {
+        if (recalled || !hasImage || !isImage) return null
+        return if (!imageUrl.isNullOrBlank()) resolve(imageUrl)
+        else content?.takeIf { it.startsWith("data:image/") }
+    }
 
     /**
      * 本端要不要显示"撤回"：自己发的、未撤回、且在 5 分钟窗口内。
@@ -117,11 +130,13 @@ class ChatRepository(private val api: ApiClient) {
         content: String,
         type: String = ChatMessage.TYPE_TEXT,
         caption: String? = null,
+        onUploadProgress: ((Int) -> Unit)? = null,
     ): ApiResult<ChatMessage> = when (
         val result = api.post(
             AppConfig.pathChatMessages(conversationId),
             JSONObject().put("type", type).put("content", content)
                 .apply { if (type == ChatMessage.TYPE_IMAGE && !caption.isNullOrBlank()) put("caption", caption) },
+            onUploadProgress = onUploadProgress,
         )
     ) {
         is ApiResult.Err -> result
@@ -199,17 +214,29 @@ class ChatRepository(private val api: ApiClient) {
     }
 
     private fun parseMessages(array: JSONArray): List<ChatMessage> = (0 until array.length()).map { parseMessage(array.getJSONObject(it)) }
-    private fun parseMessage(item: JSONObject): ChatMessage = ChatMessage(
-        id = item.optString("id"),
-        senderId = item.optString("senderId").takeIf { it.isNotBlank() && it != "null" },
-        senderName = item.optString("senderName").takeIf { it.isNotBlank() && it != "null" },
-        senderAvatar = item.optString("senderAvatar").takeIf { it.isNotBlank() && it != "null" },
-        // 老数据/老服务端可能不带 type，缺省按文本处理。
-        type = item.optString("type").ifBlank { ChatMessage.TYPE_TEXT },
-        content = item.optString("content").takeIf { it.isNotBlank() && it != "null" },
-        caption = item.optString("caption").takeIf { it.isNotBlank() && it != "null" },
-        recalled = !item.isNull("recalledAt"),
-        createdAt = item.optString("createdAt"),
-        readCount = item.optInt("readCount"),
+    private fun parseMessage(item: JSONObject): ChatMessage = parseMessage(
+        string = { item.optString(it).takeIf { value -> value.isNotBlank() && value != "null" } },
+        boolean = { if (item.has(it)) item.optBoolean(it) else null },
+        integer = { item.optInt(it) },
+    )
+}
+
+/** Pure mapping, with JSON access supplied by the repository (also testable on a plain JVM). */
+internal fun parseMessage(
+    string: (String) -> String?,
+    boolean: (String) -> Boolean?,
+    integer: (String) -> Int,
+): ChatMessage {
+    val content = string("content")
+    val type = string("type") ?: ChatMessage.TYPE_TEXT
+    val recalled = string("recalledAt") != null
+    return ChatMessage(
+        id = string("id").orEmpty(), senderId = string("senderId"),
+        senderName = string("senderName"), senderAvatar = string("senderAvatar"),
+        type = type, content = content, caption = string("caption"),
+        recalled = recalled, createdAt = string("createdAt").orEmpty(),
+        readCount = integer("readCount"), imageUrl = string("imageUrl"),
+        hasImage = boolean("hasImage")
+            ?: (!recalled && type == ChatMessage.TYPE_IMAGE && content?.startsWith("data:image/") == true),
     )
 }

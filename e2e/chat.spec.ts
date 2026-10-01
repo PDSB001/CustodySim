@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto"
+
 import { expect, request, test, type APIRequestContext } from "@playwright/test"
 import { io, type Socket } from "socket.io-client"
 
@@ -278,7 +280,12 @@ test("聊天图片消息：类型、体积校验与会话摘要", async ({}, tes
     // 负例：不在白名单的格式必须被拒，且给出中文原因
     const rejected = await liu.post(
       `/api/chat/conversations/${direct.data.id}/messages`,
-      { data: { type: "IMAGE", content: "data:image/gif;base64,R0lGODlhAQABAA" } },
+      {
+        data: {
+          type: "IMAGE",
+          content: "data:image/gif;base64,R0lGODlhAQABAA",
+        },
+      },
     )
     expect(rejected.status()).toBe(400)
     const rejectedPayload = (await rejected.json()) as ApiPayload<unknown>
@@ -287,31 +294,79 @@ test("聊天图片消息：类型、体积校验与会话摘要", async ({}, tes
       expect(rejectedPayload.error.message).toContain("图片")
 
     const imageDataUrl = `data:image/png;base64,${tinyPngBase64}`
-    const sent = await call<{ id: string; type: string; content: string }>(
-      liu,
-      "post",
-      `/api/chat/conversations/${direct.data.id}/messages`,
-      { type: "IMAGE", content: imageDataUrl },
-    )
-    expect(sent.data.type).toBe("IMAGE")
-    const mixed = await call<{ id: string; type: string; content: string; caption: string }>(
-      liu, "post", `/api/chat/conversations/${direct.data.id}/messages`,
-      { type: "IMAGE", content: imageDataUrl, caption: "同一条图文消息" },
-    )
-    expect(mixed.data).toMatchObject({ type: "IMAGE", content: imageDataUrl, caption: "同一条图文消息" })
-
-    // 接收方拿到的仍是图片本体（未被改写），且类型正确
-    const received = await call<
-      Array<{ id: string; type: string; content: string | null; caption: string | null }>
-    >(zhou, "get", `/api/chat/conversations/${direct.data.id}/messages`)
-    const receivedImage = received.data.find((item) => item.id === sent.data.id)
-    expect(receivedImage).toMatchObject({
+    // 当前协议（浏览器 / 代际 ≥ 2）不再内联 data URL：`content` 为 null，只给图片端点地址。
+    const sent = await call<{
+      id: string
+      type: string
+      content: string | null
+      hasImage: boolean
+      imageUrl: string | null
+    }>(liu, "post", `/api/chat/conversations/${direct.data.id}/messages`, {
       type: "IMAGE",
       content: imageDataUrl,
     })
-    expect(received.data.find((item) => item.id === mixed.data.id)).toMatchObject({
-      type: "IMAGE", content: imageDataUrl, caption: "同一条图文消息",
+    expect(sent.data).toMatchObject({
+      type: "IMAGE",
+      content: null,
+      hasImage: true,
+      imageUrl: `/api/chat/messages/${sent.data.id}/image`,
     })
+    const mixed = await call<{
+      id: string
+      type: string
+      content: string | null
+      caption: string | null
+      imageUrl: string | null
+    }>(liu, "post", `/api/chat/conversations/${direct.data.id}/messages`, {
+      type: "IMAGE",
+      content: imageDataUrl,
+      caption: "同一条图文消息",
+    })
+    expect(mixed.data).toMatchObject({
+      type: "IMAGE",
+      content: null,
+      caption: "同一条图文消息",
+      imageUrl: `/api/chat/messages/${mixed.data.id}/image`,
+    })
+
+    // 接收方拿到的也是端点地址；图片本身从端点按字节取回，需与原始 PNG 完全一致。
+    const received = await call<
+      Array<{
+        id: string
+        type: string
+        content: string | null
+        caption: string | null
+        imageUrl: string | null
+      }>
+    >(zhou, "get", `/api/chat/conversations/${direct.data.id}/messages`)
+    expect(
+      received.data.find((item) => item.id === sent.data.id),
+    ).toMatchObject({
+      type: "IMAGE",
+      content: null,
+      imageUrl: `/api/chat/messages/${sent.data.id}/image`,
+    })
+    expect(
+      received.data.find((item) => item.id === mixed.data.id),
+    ).toMatchObject({
+      type: "IMAGE",
+      content: null,
+      caption: "同一条图文消息",
+    })
+    const image = await zhou.get(sent.data.imageUrl ?? "")
+    expect(image.status()).toBe(200)
+    expect(image.headers()["content-type"]).toBe("image/png")
+    // 内容按消息 ID 不可变：允许浏览器长期强缓存，同一张图只下载一次。
+    expect(image.headers()["cache-control"]).toContain("immutable")
+    expect((await image.body()).toString("base64")).toBe(tinyPngBase64)
+
+    // 未登录拿不到图片：鉴权与消息列表同源。
+    const anonymous = await request.newContext({ baseURL: integrationBaseUrl })
+    try {
+      expect((await anonymous.get(sent.data.imageUrl ?? "")).status()).toBe(401)
+    } finally {
+      await anonymous.dispose()
+    }
 
     // 会话列表不把 data URL 下发出去，折叠成 [图片]
     const conversations = await call<
@@ -322,14 +377,62 @@ test("聊天图片消息：类型、体积校验与会话摘要", async ({}, tes
         ?.content,
     ).toBe("[图片] 同一条图文消息")
 
-    // 撤回后与文本消息一致：不再下发内容
+    // 代际 1 的已发布 App 仍按老形态内联 data URL，否则它会看不到图片。
+    const legacy = await liu.post(
+      `/api/chat/conversations/${direct.data.id}/messages`,
+      {
+        headers: { "X-CustodySim-Client": "android-app/1" },
+        data: { type: "IMAGE", content: imageDataUrl },
+      },
+    )
+    const legacyPayload = (await legacy.json()) as ApiPayload<{
+      content: string | null
+      hasImage: boolean
+      imageUrl: string | null
+    }>
+    expect(legacyPayload.success).toBe(true)
+    if (legacyPayload.success) {
+      expect(legacyPayload.data.content).toBe(imageDataUrl)
+      expect(legacyPayload.data.hasImage).toBe(true)
+      expect(legacyPayload.data.imageUrl).toBeNull()
+    }
+
+    // 非图片消息与不存在的消息一律 404，不区分失败原因。
+    const text = await call<{ id: string }>(
+      liu,
+      "post",
+      `/api/chat/conversations/${direct.data.id}/messages`,
+      { content: "纯文本，没有图片" },
+    )
+    expect(
+      (await zhou.get(`/api/chat/messages/${text.data.id}/image`)).status(),
+    ).toBe(404)
+    expect(
+      (await zhou.get(`/api/chat/messages/${randomUUID()}/image`)).status(),
+    ).toBe(404)
+
+    // 撤回后与文本消息一致：不再下发内容，图片端点也不再给图。
     await call(liu, "post", `/api/chat/messages/${mixed.data.id}/recall`)
     const recalled = await call<
-      Array<{ id: string; content: string | null; caption: string | null; recalledAt: string | null }>
+      Array<{
+        id: string
+        content: string | null
+        caption: string | null
+        recalledAt: string | null
+        imageUrl: string | null
+      }>
     >(zhou, "get", `/api/chat/conversations/${direct.data.id}/messages`)
-    expect(recalled.data.find((item) => item.id === mixed.data.id)).toMatchObject(
-      { content: null, caption: null, recalledAt: expect.any(String) },
-    )
+    expect(
+      recalled.data.find((item) => item.id === mixed.data.id),
+    ).toMatchObject({
+      content: null,
+      caption: null,
+      imageUrl: null,
+      recalledAt: expect.any(String),
+    })
+    expect(
+      (await zhou.get(`/api/chat/messages/${mixed.data.id}/image`)).status(),
+    ).toBe(404)
   } finally {
     await Promise.all([liu.dispose(), zhou.dispose()])
   }
@@ -354,11 +457,7 @@ test("聊天工作台可以发送并渲染图片消息", async ({ page }, testIn
 
   // 注意：「发起私聊」按钮文案里也含"私聊"，这里只按"群聊"定位会话，
   // 否则会点开对话框、输入区被遮挡。
-  await page
-    .getByRole("button")
-    .filter({ hasText: "群聊" })
-    .first()
-    .click()
+  await page.getByRole("button").filter({ hasText: "群聊" }).first().click()
 
   // 输入区必须已经渲染出来（选到会话才会有）
   await expect(
@@ -375,7 +474,75 @@ test("聊天工作台可以发送并渲染图片消息", async ({ page }, testIn
   await expect(sendImage).toBeEnabled()
   await sendImage.click()
 
-  // 发送成功后输入区复位，且消息气泡里渲染出图片本体
+  // 发送成功后输入区复位，且消息气泡通过独立端点渲染出图片本体（浏览器带 cookie 也能取回）
   await expect(page.getByRole("button", { name: /^发送$/ })).toBeVisible()
-  await expect(page.locator('img[src^="data:image/"]').first()).toBeVisible()
+  const chatImage = page.locator('img[src*="/api/chat/messages/"]').first()
+  await expect(chatImage).toBeVisible()
+  // 真正解码成功才算通：只出现元素而拿不到字节（鉴权失败）时 naturalWidth 会是 0。
+  await expect
+    .poll(() =>
+      chatImage.evaluate((node) => (node as HTMLImageElement).naturalWidth),
+    )
+    .toBeGreaterThan(0)
+})
+
+test("会话内轮询只发增量请求，不再每 10 秒重取整段历史", async ({
+  page,
+}, testInfo) => {
+  test.slow()
+  test.skip(testInfo.project.name !== "desktop-chrome", "轮询策略仅需执行一次")
+  // 先确保有一个群聊会话且里面有消息，避免工作面落在空态上。
+  const liu = await loginApi("rank_101_liu")
+  try {
+    const room = await call<{ id: string }>(
+      liu,
+      "post",
+      "/api/chat/conversations",
+      { kind: "ROOM" },
+    )
+    await call(
+      liu,
+      "post",
+      `/api/chat/conversations/${room.data.id}/messages`,
+      {
+        content: "轮询策略回归样本",
+      },
+    )
+  } finally {
+    await liu.dispose()
+  }
+
+  // 只看消息列表接口：带 after= 的是增量轮询，其余是整段取（首次打开 / 上拉加载更早）。
+  const incremental: string[] = []
+  const fullPage: string[] = []
+  page.on("request", (requestEvent) => {
+    const url = requestEvent.url()
+    if (requestEvent.method() !== "GET") return
+    if (!/\/api\/chat\/conversations\/[^/]+\/messages/.test(url)) return
+    const target = url.includes("after=") ? incremental : fullPage
+    target.push(url)
+  })
+
+  await page.goto("/login")
+  await page.getByLabel("账号").fill("rank_101_liu")
+  await page.getByLabel("密码").fill("Demo12345")
+  await page.getByRole("button", { name: /登\s*录/ }).click()
+  await expect(page).toHaveURL("/my")
+  await page.goto("/my/chat")
+  await page.getByRole("button").filter({ hasText: "群聊" }).first().click()
+  await expect(
+    page.getByPlaceholder("输入消息，Enter 发送，Shift+Enter 换行"),
+  ).toBeVisible()
+
+  // 先等首屏稳定（开发模式 effect 可能触发两次整段取），再记基线。
+  await page.waitForTimeout(2_000)
+  const baseline = fullPage.length
+  expect(baseline).toBeGreaterThan(0)
+
+  // 跨过两个轮询周期：应当只出现增量请求（空数组也算一次），整段取不再增加。
+  // 旧实现是 useInfiniteQuery 上的 refetchInterval，会把每页历史反复重拉，
+  // 有任何一张图片在窗口里就是每次数 MB —— 这两条断言就是钉住这一点。
+  await page.waitForTimeout(11_000)
+  expect(incremental.length).toBeGreaterThan(0)
+  expect(fullPage.length).toBe(baseline)
 })

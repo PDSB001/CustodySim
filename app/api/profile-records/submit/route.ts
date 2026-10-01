@@ -5,7 +5,12 @@ import { z } from "zod"
 import { failure, success } from "@/lib/api-response"
 import { writeAuditLog } from "@/lib/audit"
 import { db } from "@/lib/db"
-import { profileRecordReviews, profileRecords } from "@/lib/db/schema"
+import {
+  communityPosts,
+  profileRecordReviews,
+  profileRecords,
+} from "@/lib/db/schema"
+import { buildCommunityProfileSnapshot } from "@/lib/community-privacy"
 import { validateFieldPayload } from "@/lib/fields"
 import { getSessionUser } from "@/lib/session"
 import {
@@ -122,6 +127,19 @@ export async function POST(request: NextRequest) {
           .valid
       )
         return { status: "INVALID" as const }
+      let sharedSnapshot: { name: string; value: string }[] = []
+      if (lockedRecord.communityShare) {
+        try {
+          sharedSnapshot = buildCommunityProfileSnapshot(
+            lockedSnapshot.data.fields,
+            lockedNormalizedData,
+            lockedRecord.communityShareFields,
+          )
+          if (!sharedSnapshot.length) return { status: "INVALID" as const }
+        } catch {
+          return { status: "INVALID" as const }
+        }
+      }
       await tx
         .delete(profileRecordReviews)
         .where(eq(profileRecordReviews.recordId, record.id))
@@ -147,6 +165,30 @@ export async function POST(request: NextRequest) {
             inArray(profileRecords.status, ["DRAFT", "RETURNED"]),
           ),
         )
+      if (lockedRecord.communityShare) {
+        await tx
+          .insert(communityPosts)
+          .values({
+            authorId: actor.id,
+            title: "我的档案分享",
+            content: "自愿分享已选择的档案内容。",
+            sourceRecordId: record.id,
+            profileSnapshot: sharedSnapshot,
+          })
+          .onConflictDoUpdate({
+            target: communityPosts.sourceRecordId,
+            set: { profileSnapshot: sharedSnapshot },
+          })
+      } else {
+        await tx
+          .delete(communityPosts)
+          .where(
+            and(
+              eq(communityPosts.sourceRecordId, record.id),
+              eq(communityPosts.authorId, actor.id),
+            ),
+          )
+      }
       return { status: "SUBMITTED" as const }
     })
     if (submitted.status === "CONFLICT")
