@@ -2,6 +2,7 @@
 
 import {
   Building2,
+  BookOpen,
   CalendarCheck2,
   ChevronDown,
   ClipboardList,
@@ -73,6 +74,7 @@ const navSections: NavSection[] = [
     label: "执行规程",
     entries: [
       { href: "/rules", label: "任务编排", icon: Settings2 },
+      { href: "/library", label: "图书馆管理", icon: BookOpen },
       { href: "/checkin-rules", label: "打卡规则", icon: CalendarCheck2 },
       { href: "/electronic-fences", label: "电子围栏", icon: MapPinned },
     ],

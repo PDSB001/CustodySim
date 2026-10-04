@@ -22,6 +22,7 @@ const fallbackSecurityHeaders = [
 const nextConfig: NextConfig = {
   output: "standalone",
   poweredByHeader: false,
+  experimental: { proxyClientMaxBodySize: "26mb" },
   /**
    * 关闭内置图片优化器（含它的磁盘缓存）。
    *
@@ -35,6 +36,14 @@ const nextConfig: NextConfig = {
   allowedDevOrigins: ["127.0.0.1", "localhost", ...localNetworkHosts],
   serverExternalPackages: ["geoip-lite"],
   outputFileTracingIncludes: {
+    "/api/library/pdf-worker": [
+      "./node_modules/pdfjs-dist/build/pdf.worker.min.mjs",
+    ],
+    "/api/library/pdf-assets/**": [
+      "./node_modules/pdfjs-dist/cmaps/**/*",
+      "./node_modules/pdfjs-dist/standard_fonts/**/*",
+      "./node_modules/pdfjs-dist/wasm/**/*",
+    ],
     "/*": ["./node_modules/geoip-lite/data/**/*"],
   },
   async headers() {

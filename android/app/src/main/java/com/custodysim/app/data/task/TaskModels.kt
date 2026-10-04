@@ -40,6 +40,9 @@ data class ReportTask(
     val reviewGrade: Double?,
     val templateContent: String?,
     val submissionData: JSONObject?,
+    val readingMinutes: Int = 0,
+    val readingSeconds: Int = 0,
+    val automaticReading: Boolean = false,
 ) {
     companion object {
         fun from(json: JSONObject): ReportTask {
@@ -63,6 +66,9 @@ data class ReportTask(
                 reviewGrade = if (grade is Number) grade.toDouble() else null,
                 templateContent = template?.optString("content")?.takeIf { it.isNotBlank() && it != "null" },
                 submissionData = json.optJSONObject("data"),
+                readingMinutes = template?.optInt("readingMinutes", 0) ?: 0,
+                readingSeconds = json.optInt("readingSeconds", 0),
+                automaticReading = template?.optString("completionMode") == "READING",
             )
         }
     }

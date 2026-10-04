@@ -39,6 +39,7 @@ const Field = z.object({
   options: z.array(z.string()),
 })
 const Template = z.object({
+  readingMinutes: z.number().default(0),
   id: z.string(),
   name: z.string(),
   kind: z.string(),
@@ -74,6 +75,7 @@ export function ReportTemplateManage() {
   const [name, setName] = useState("")
   const [kind, setKind] = useState("REPORT")
   const [content, setContent] = useState("")
+  const [readingMinutes, setReadingMinutes] = useState(0)
   const [fields, setFields] = useState([
     { name: "", type: "TEXT", required: true, options: "" },
   ])
@@ -90,6 +92,7 @@ export function ReportTemplateManage() {
     queryFn: () => requestApi("/api/admin/report-templates", z.array(Template)),
   })
   const templatePayload = () => ({
+    readingMinutes: kind === "STUDY" ? readingMinutes : 0,
     name,
     kind,
     content: content || null,
@@ -110,6 +113,7 @@ export function ReportTemplateManage() {
     setName("")
     setKind("REPORT")
     setContent("")
+    setReadingMinutes(0)
     setFields([{ name: "", type: "TEXT", required: true, options: "" }])
     setEditingTemplate(null)
   }
@@ -218,6 +222,25 @@ export function ReportTemplateManage() {
               </p>
             ) : null}
           </div>
+          {kind === "STUDY" && (
+            <div className="space-y-2">
+              <Label htmlFor="reading-minutes">图书馆阅读要求（分钟）</Label>
+              <Input
+                id="reading-minutes"
+                type="number"
+                min={0}
+                max={1440}
+                value={readingMinutes}
+                onChange={(event) =>
+                  setReadingMinutes(Number(event.target.value))
+                }
+              />
+              <p className="text-muted-foreground text-xs">
+                0
+                表示不限制；仅累计任务开始至截止期间的有效阅读时长，达到要求后可提交。
+              </p>
+            </div>
+          )}
           <div className="space-y-3">
             <div className="flex items-center justify-between">
               <p className="text-foreground text-sm font-medium">表单字段</p>
@@ -419,6 +442,7 @@ export function ReportTemplateManage() {
                             setName(template.name)
                             setKind(template.kind)
                             setContent(template.content ?? "")
+                            setReadingMinutes(template.readingMinutes)
                             setFields(
                               template.fields.map((field) => ({
                                 name: field.name,

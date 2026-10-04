@@ -78,6 +78,8 @@ fun AppShell(container: AppContainer, session: SessionUser, onLogout: () -> Unit
     LaunchedEffect(visibleTabs) { if (tab !in visibleTabs) tab = MainTab.HOME }
     var showNotices by rememberSaveable { mutableStateOf(false) }
     var showCommunity by rememberSaveable { mutableStateOf(false) }
+    var showLibrary by rememberSaveable { mutableStateOf(false) }
+    var libraryRefreshRequest by remember { mutableIntStateOf(0) }
     var chatConversationTitle by remember { mutableStateOf<String?>(null) }
     var chatBackRequest by remember { mutableIntStateOf(0) }
     var chatRefreshRequest by remember { mutableIntStateOf(0) }
@@ -90,7 +92,7 @@ fun AppShell(container: AppContainer, session: SessionUser, onLogout: () -> Unit
             snackbarState.showSnackbar(message)
         } }
     }
-    BackHandler(!showCommunity && tab != MainTab.HOME) { tab = MainTab.HOME }
+    BackHandler(!showCommunity && !showLibrary && tab != MainTab.HOME) { tab = MainTab.HOME }
     // Each tab keeps its own content state through SaveableStateProvider. Do not key the
     // whole scaffold by tab: doing so would recreate AnimatedContent and make transitions
     // appear to snap instead of animating from the previous page.
@@ -130,6 +132,9 @@ fun AppShell(container: AppContainer, session: SessionUser, onLogout: () -> Unit
                     title = stringResource(tab.label),
                     scrollBehavior = scrollBehavior,
                     actions = {
+                        IconButton(onClick = { showLibrary = true }) {
+                            Icon(MiuixIcons.Notes, contentDescription = "图书馆")
+                        }
                         if (tab == MainTab.HOME) {
                             IconButton(onClick = { showCommunity = true }) {
                                 Icon(MiuixIcons.Messages, contentDescription = "匿名社区")
@@ -221,10 +226,10 @@ fun AppShell(container: AppContainer, session: SessionUser, onLogout: () -> Unit
                         val scrollBehavior = tabScrollBehaviors[destination.ordinal]
                         when (destination) {
                             MainTab.HOME -> HomeScreen(container, session, scrollBehavior,
-                                active = tab == MainTab.HOME && !showCommunity && !showNotices,
-                                onNavigate = { tab = it }, onNotices = { showNotices = true })
+                                active = tab == MainTab.HOME && !showCommunity && !showNotices && !showLibrary,
+                                onNavigate = { tab = it }, onNotices = { showNotices = true }, onLibrary = { showLibrary = true })
                             MainTab.CHECKINS -> CheckinsScreen(container, scrollBehavior)
-                            MainTab.TASKS -> TasksScreen(container, scrollBehavior, allowSubmission = session.isSupervised)
+                            MainTab.TASKS -> TasksScreen(container, scrollBehavior, allowSubmission = session.isSupervised, refreshSignal = libraryRefreshRequest)
                             MainTab.APPLICATIONS -> ApplicationsScreen(container, scrollBehavior)
                             MainTab.CHAT -> ChatScreen(container, session, scrollBehavior,
                                 conversationLayoutReady = inConversation,
@@ -251,6 +256,9 @@ fun AppShell(container: AppContainer, session: SessionUser, onLogout: () -> Unit
             Box(Modifier.fillMaxSize().background(MiuixTheme.colorScheme.surface)) {
                 CommunityScreen(container, onClose = { showCommunity = false })
             }
+        }
+        if (showLibrary) {
+            com.custodysim.app.ui.library.LibraryScreen(container, admin = session.role == "ADMIN", onClose = { showLibrary = false; libraryRefreshRequest++ })
         }
         }
     }

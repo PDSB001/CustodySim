@@ -6,12 +6,15 @@ import { db } from "@/lib/db"
 import { reportSubmissions, reportTasks } from "@/lib/db/schema"
 import { validateFieldPayload } from "@/lib/fields"
 import { getSessionUser } from "@/lib/session"
+import { taskReadingSeconds } from "@/lib/reading-server"
 
 const SubmissionSchema = z.object({
   taskId: z.string().uuid(),
   data: z.record(z.string(), z.unknown()),
 })
 const TemplateSnapshotSchema = z.object({
+  completionMode: z.string().optional(),
+  readingMinutes: z.number().int().min(0).default(0),
   fields: z
     .array(
       z.object({
@@ -58,6 +61,26 @@ export async function POST(request: NextRequest) {
       400,
     )
   const template = TemplateSnapshotSchema.parse(task.templateSnapshot)
+  if (template.completionMode === "READING")
+    return failure(
+      "VALIDATION_ERROR",
+      "学习任务按阅读时长自动通过，无需手动提交",
+      400,
+    )
+  const readingSeconds =
+    template.readingMinutes > 0
+      ? await taskReadingSeconds(
+          actor.id,
+          task.scheduleAt,
+          new Date(Math.min(Date.now(), task.deadline.getTime())),
+        )
+      : 0
+  if (readingSeconds < template.readingMinutes * 60)
+    return failure(
+      "VALIDATION_ERROR",
+      `请先在图书馆完成阅读：任务期间已阅读 ${Math.floor(readingSeconds / 60)} / ${template.readingMinutes} 分钟`,
+      400,
+    )
   const check = validateFieldPayload(template.fields, parsed.data.data)
   if (!check.valid)
     return failure("VALIDATION_ERROR", JSON.stringify(check.errors), 400)

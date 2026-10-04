@@ -46,7 +46,7 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 @Composable
 fun HomeScreen(container: AppContainer, session: SessionUser, scrollBehavior: ScrollBehavior,
-    active: Boolean, onNavigate: (MainTab) -> Unit, onNotices: () -> Unit) {
+    active: Boolean, onNavigate: (MainTab) -> Unit, onNotices: () -> Unit, onLibrary: () -> Unit = {}) {
     val context = LocalContext.current
     val resources = LocalResources.current
     val scope = rememberCoroutineScope()
@@ -167,6 +167,7 @@ fun HomeScreen(container: AppContainer, session: SessionUser, scrollBehavior: Sc
             }
         }
         if (session.mustChangePassword) item { NoticeBanner(stringResource(R.string.password_notice), error = true) }
+        item { ArrowPreference(title = "图书馆", summary = "电子书与阅读记录", onClick = onLibrary) }
         item(key = "overview") {
             // 定位概览与指标卡同处一组横划卡片；非被监管账号不上报位置。
             val locationOverview = if (session.isSupervised) LocationOverview(

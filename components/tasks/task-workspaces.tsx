@@ -2,7 +2,13 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import Image from "next/image"
-import { CheckCircle2, ClipboardCheck, FileText, Send, Star } from "lucide-react"
+import {
+  CheckCircle2,
+  ClipboardCheck,
+  FileText,
+  Send,
+  Star,
+} from "lucide-react"
 import { useEffect, useRef, useState } from "react"
 import { z } from "zod"
 
@@ -54,6 +60,8 @@ const TemplateField = z.object({
   options: z.array(z.string()),
 })
 const TemplateSnapshot = z.object({
+  completionMode: z.string().optional(),
+  readingMinutes: z.number().default(0),
   name: z.string().optional(),
   content: z.string().nullable().optional(),
   fields: z.array(TemplateField).default([]),
@@ -66,6 +74,7 @@ const Task = z.object({
   deadline: z.string(),
   status: z.string(),
   templateSnapshot: TemplateSnapshot,
+  readingSeconds: z.number().default(0),
   submissionId: z.string().nullable(),
   content: z.string().nullable(),
   data: z.record(z.string(), z.unknown()).nullable(),
@@ -273,6 +282,20 @@ function TaskPayloadForm({ task }: { task: z.infer<typeof Task> }) {
         )}
       </p>
     )
+  if (task.templateSnapshot.completionMode === "READING")
+    return (
+      <div className="space-y-2 text-sm">
+        <p className="text-muted-foreground">
+          已阅读 {Math.floor(task.readingSeconds / 60)} /{" "}
+          {task.templateSnapshot.readingMinutes} 分钟，达标后自动通过。
+        </p>
+        {task.status === "PENDING" || task.status === "RETURNED" ? (
+          <a className="underline" href="/my/library">
+            前往图书馆
+          </a>
+        ) : null}
+      </div>
+    )
   if (!task.templateSnapshot.fields.length)
     return (
       <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800">
@@ -281,6 +304,15 @@ function TaskPayloadForm({ task }: { task: z.infer<typeof Task> }) {
     )
   return (
     <div className="mt-5 space-y-4">
+      {task.templateSnapshot.readingMinutes > 0 && (
+        <p className="text-muted-foreground text-sm">
+          任务期间已阅读 {Math.floor(task.readingSeconds / 60)} /{" "}
+          {task.templateSnapshot.readingMinutes} 分钟。
+          <a className="underline" href="/my/library">
+            前往图书馆
+          </a>
+        </p>
+      )}
       {task.status === "RETURNED" && task.reviewComment && (
         <p
           role="status"
@@ -444,6 +476,14 @@ export function SupervisedTasks() {
   const tasks = useQuery({
     queryKey: ["tasks"],
     queryFn: () => requestApi("/api/tasks", Tasks),
+    refetchInterval: (query) =>
+      query.state.data?.some(
+        (task) =>
+          task.templateSnapshot.completionMode === "READING" &&
+          task.status === "PENDING",
+      )
+        ? 15000
+        : false,
   })
   const filters = [
     {

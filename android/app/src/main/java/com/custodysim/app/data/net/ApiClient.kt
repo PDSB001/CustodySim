@@ -40,6 +40,18 @@ class ApiClient(
     cacheDirectory: File? = null,
     private val onSessionLost: () -> Unit = {},
 ) {
+    data class UploadPart(val name: String, val filename: String, val contentType: String, val bytes: ByteArray)
+
+    /** Uses the same authenticated native client as JSON calls. */
+    suspend fun multipart(path: String, fields: Map<String, String>, files: List<UploadPart>, replace: Boolean = false): ApiResult<JSONObject> =
+        withContext(Dispatchers.IO) {
+            val body = okhttp3.MultipartBody.Builder().setType(okhttp3.MultipartBody.FORM).apply {
+                fields.forEach { (key, value) -> addFormDataPart(key, value) }
+                files.forEach { part -> addFormDataPart(part.name, part.filename,
+                    part.bytes.toRequestBody(part.contentType.toMediaType())) }
+            }.build()
+            execute(Request.Builder().url(baseUrl + path).apply { if (replace) put(body) else post(body) }.build())
+        }
     private val imageLoader = lazy { RemoteImageLoader(this) }
     val remoteImages by imageLoader
 
@@ -169,6 +181,10 @@ class ApiClient(
                     .build(),
             )
         }
+
+    suspend fun put(path: String, body: JSONObject): ApiResult<JSONObject> = withContext(Dispatchers.IO) {
+        execute(Request.Builder().url(baseUrl + path).put(body.toString().toRequestBody(jsonMediaType)).build())
+    }
 
     suspend fun delete(path: String): ApiResult<JSONObject> = withContext(Dispatchers.IO) {
         execute(Request.Builder().url(baseUrl + path).delete().build())

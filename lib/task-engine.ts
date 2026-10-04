@@ -1,4 +1,4 @@
-import { and, eq, inArray, isNull, lt, lte } from "drizzle-orm"
+import { and, eq, inArray, isNull, lt, lte, sql } from "drizzle-orm"
 
 import { db } from "@/lib/db"
 import {
@@ -33,6 +33,7 @@ import {
   SCORE_POLICY,
 } from "@/lib/scoring"
 import { getShanghaiDateAtTime } from "@/lib/shanghai-datetime"
+import { reconcileReadingTasks } from "@/lib/reading-server"
 
 function dateAtSlot(date: Date, slot: string) {
   return getShanghaiDateAtTime(date, slot)
@@ -128,22 +129,37 @@ export async function ensureUserTasks(userId: string, now = new Date()) {
         : rule.templateId
           ? templates.find((item) => item.id === rule.templateId)
           : null
-      if (pool && !template) continue
-      const templateSnapshot = template
-        ? {
-            name: template.name,
-            kind: template.kind,
-            content: template.content,
-            fields: templateFields
-              .filter((field) => field.templateId === template.id)
-              .map((field) => ({
-                name: field.name,
-                type: field.type,
-                required: field.required,
-                options: field.options,
-              })),
-          }
-        : {}
+      const requiredMinutes =
+        rule.taskType === "STUDY"
+          ? rule.readingMinutes || template?.readingMinutes || 0
+          : 0
+      if (pool && !template && !requiredMinutes) continue
+      const templateSnapshot =
+        requiredMinutes > 0
+          ? {
+              name: rule.name,
+              kind: "STUDY",
+              readingMinutes: requiredMinutes,
+              completionMode: "READING",
+              fields: [],
+            }
+          : template
+            ? {
+                name: template.name,
+                kind: template.kind,
+                readingMinutes:
+                  template.kind === "STUDY" ? template.readingMinutes : 0,
+                content: template.content,
+                fields: templateFields
+                  .filter((field) => field.templateId === template.id)
+                  .map((field) => ({
+                    name: field.name,
+                    type: field.type,
+                    required: field.required,
+                    options: field.options,
+                  })),
+              }
+            : {}
       await db
         .insert(reportTasks)
         .values({
@@ -160,6 +176,7 @@ export async function ensureUserTasks(userId: string, now = new Date()) {
         .onConflictDoNothing()
     }
   }
+  await reconcileReadingTasks(userId, now)
 }
 
 export async function ensureScheduledTasks(now = new Date()) {
@@ -190,6 +207,7 @@ export async function runLeaveTaskAutoApprovalSweep(now = new Date()) {
     .where(
       and(
         inArray(reportTasks.supervisedId, leaveUserIds),
+        sql`${reportTasks.templateSnapshot}->>'completionMode' is distinct from 'READING'`,
         inArray(reportTasks.status, ["PENDING", "SUBMITTED", "RETURNED"]),
         lte(reportTasks.scheduleAt, now),
       ),

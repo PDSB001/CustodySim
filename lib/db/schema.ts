@@ -1,5 +1,6 @@
 import {
   boolean,
+  customType,
   date,
   foreignKey,
   index,
@@ -13,6 +14,35 @@ import {
   uuid,
   varchar,
 } from "drizzle-orm/pg-core"
+
+const bookBytes = customType<{ data: Buffer; driverData: Buffer }>({
+  dataType: () => "bytea",
+})
+
+export const libraryBooks = pgTable("library_books", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  title: varchar("title", { length: 200 }).notNull(),
+  author: varchar("author", { length: 200 }).notNull().default(""),
+  format: varchar("format", { length: 10 }).notNull(),
+  filename: text("filename").notNull(),
+  readerText: text("reader_text"),
+  bytes: bookBytes("bytes").notNull(),
+  coverBytes: bookBytes("cover_bytes"),
+  coverMime: varchar("cover_mime", { length: 40 }),
+  coverUpdatedAt: timestamp("cover_updated_at", { withTimezone: true }),
+  deletedAt: timestamp("deleted_at", { withTimezone: true }),
+  enabled: boolean("enabled").notNull().default(true),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+})
+
+export const libraryScoreSettings = pgTable("library_score_settings", {
+  id: integer("id").primaryKey().default(1),
+  enabled: boolean("enabled").notNull().default(true),
+  minutesPerPoint: integer("minutes_per_point").notNull().default(15),
+  dailyCap: integer("daily_cap").notNull().default(3),
+})
 
 export const organizations = pgTable("organizations", {
   id: uuid("id").defaultRandom().primaryKey(),
@@ -581,6 +611,7 @@ export const rules = pgTable(
     allowNoLocation: boolean("allow_no_location").notNull().default(false),
     needRemark: boolean("need_remark").notNull().default(false),
     timeoutMinutes: integer("timeout_minutes").notNull().default(30),
+    readingMinutes: integer("reading_minutes").notNull().default(0),
     custodyLevel: varchar("custody_level", { length: 20 }),
     slotSettings: jsonb("slot_settings").notNull().default([]),
     startDate: timestamp("start_date", { withTimezone: true }),
@@ -625,6 +656,7 @@ export const reportTemplates = pgTable("report_templates", {
   name: varchar("name", { length: 100 }).notNull(),
   kind: varchar("kind", { length: 30 }).notNull().default("REPORT"),
   content: text("content"),
+  readingMinutes: integer("reading_minutes").notNull().default(0),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
@@ -1603,5 +1635,68 @@ export const chatMessageReads = pgTable(
   (table) => [
     uniqueIndex("chat_message_reads_unique").on(table.messageId, table.userId),
     index("chat_message_reads_user_idx").on(table.userId, table.readAt),
+  ],
+)
+
+export const readingSessions = pgTable(
+  "reading_sessions",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    bookId: uuid("book_id")
+      .notNull()
+      .references(() => libraryBooks.id),
+    lastHeartbeat: timestamp("last_heartbeat", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    active: boolean("active").notNull().default(true),
+    closed: boolean("closed").notNull().default(false),
+  },
+  (table) => [index("reading_sessions_user_idx").on(table.userId)],
+)
+
+export const readingTicks = pgTable(
+  "reading_ticks",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    sessionId: uuid("session_id")
+      .notNull()
+      .references(() => readingSessions.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    bookId: uuid("book_id")
+      .notNull()
+      .references(() => libraryBooks.id),
+    startedAt: timestamp("started_at", { withTimezone: true }).notNull(),
+    endedAt: timestamp("ended_at", { withTimezone: true }).notNull(),
+    seconds: integer("seconds").notNull(),
+  },
+  (table) => [
+    index("reading_ticks_user_time_idx").on(table.userId, table.endedAt),
+  ],
+)
+
+export const readingProgress = pgTable(
+  "reading_progress",
+  {
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    bookId: uuid("book_id")
+      .notNull()
+      .references(() => libraryBooks.id),
+    page: integer("page").notNull().default(1),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("reading_progress_user_book_idx").on(
+      table.userId,
+      table.bookId,
+    ),
   ],
 )

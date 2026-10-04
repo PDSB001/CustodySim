@@ -59,6 +59,11 @@ export async function PUT(
               ? "REPORT"
               : parsed.data.kind,
           content: parsed.data.content ?? null,
+          readingMinutes:
+            parsed.data.kind === "STUDY" &&
+            current.name !== ELECTRONIC_FENCE_REPORT_TEMPLATE_NAME
+              ? parsed.data.readingMinutes
+              : 0,
           updatedAt: new Date(),
         })
         .where(eq(reportTemplates.id, params.data.id))

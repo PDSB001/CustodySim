@@ -24,7 +24,10 @@ export async function GET() {
     // concurrent template edit from returning a partially updated list.
     const result = await db.transaction(async (tx) => {
       const [templates, fields] = await Promise.all([
-        tx.select().from(reportTemplates).orderBy(asc(reportTemplates.createdAt)),
+        tx
+          .select()
+          .from(reportTemplates)
+          .orderBy(asc(reportTemplates.createdAt)),
         tx
           .select()
           .from(reportTemplateFields)
@@ -64,6 +67,8 @@ export async function POST(request: NextRequest) {
       .values({
         name: parsed.data.name,
         kind: parsed.data.kind,
+        readingMinutes:
+          parsed.data.kind === "STUDY" ? parsed.data.readingMinutes : 0,
         content: parsed.data.content ?? null,
       })
       .returning()

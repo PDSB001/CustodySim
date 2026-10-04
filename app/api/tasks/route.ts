@@ -1,4 +1,15 @@
-import { and, asc, desc, eq, gt, inArray, lt, notInArray, or, sql } from "drizzle-orm"
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  gt,
+  inArray,
+  lt,
+  notInArray,
+  or,
+  sql,
+} from "drizzle-orm"
 import { NextRequest } from "next/server"
 
 import { failure, success } from "@/lib/api-response"
@@ -31,7 +42,9 @@ const TASK_CATEGORIES = ["pending", "review", "history"] as const
 type TaskCategory = (typeof TASK_CATEGORIES)[number]
 
 function isTaskCategory(value: string | null): value is TaskCategory {
-  return value !== null && (TASK_CATEGORIES as readonly string[]).includes(value)
+  return (
+    value !== null && (TASK_CATEGORIES as readonly string[]).includes(value)
+  )
 }
 
 function taskCategoryWhere(category: TaskCategory) {
@@ -79,7 +92,10 @@ export async function GET(request: NextRequest) {
     // 分类计数：分类按钮上的数字，一次分组查询就够。
     if (params.get("counts") === "1") {
       const grouped = await db
-        .select({ status: reportTasks.status, total: sql<number>`count(*)::int` })
+        .select({
+          status: reportTasks.status,
+          total: sql<number>`count(*)::int`,
+        })
         .from(reportTasks)
         .where(inArray(reportTasks.supervisedId, ids))
         .groupBy(reportTasks.status)
@@ -136,6 +152,7 @@ export async function GET(request: NextRequest) {
         deadline: reportTasks.deadline,
         status: reportTasks.status,
         templateSnapshot: reportTasks.templateSnapshot,
+        readingSeconds: sql<number>`(select coalesce(sum(seconds), 0)::int from reading_ticks where user_id = ${reportTasks.supervisedId} and started_at >= ${reportTasks.scheduleAt} and ended_at <= least(now(), ${reportTasks.deadline}))`,
         submissionId: reportSubmissions.id,
         content: reportSubmissions.content,
         data: reportSubmissions.data,
@@ -148,9 +165,7 @@ export async function GET(request: NextRequest) {
         reviewGrade: sql<
           number | null
         >`(select ${reportReviews.grade} from ${reportReviews} where ${reportReviews.submissionId} = ${reportSubmissions.id} order by ${reportReviews.createdAt} desc limit 1)`,
-        reviewedAt: sql<
-          Date | null
-        >`(select ${reportReviews.createdAt} from ${reportReviews} where ${reportReviews.submissionId} = ${reportSubmissions.id} order by ${reportReviews.createdAt} desc limit 1)`,
+        reviewedAt: sql<Date | null>`(select ${reportReviews.createdAt} from ${reportReviews} where ${reportReviews.submissionId} = ${reportSubmissions.id} order by ${reportReviews.createdAt} desc limit 1)`,
         inputVersion: sql<string>`${reportTasks.updatedAt}::text || '/' || ${reportSubmissions.updatedAt}::text`,
       })
       .from(reportTasks)

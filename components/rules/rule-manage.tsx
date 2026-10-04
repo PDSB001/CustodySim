@@ -42,6 +42,7 @@ const Rule = z.object({
   timeSlots: z.array(z.string()).catch([]),
   timeoutMinutes: z.coerce.number().int().min(1).max(10080).catch(90),
   taskPoolId: z.string().nullable().catch(null),
+  readingMinutes: z.number().catch(0),
   scopes: z.array(z.object({ id: z.string() })).catch([]),
 })
 const Group = z.object({ id: z.string(), name: z.string() })
@@ -87,6 +88,7 @@ export function RuleManage() {
   const [slot, setSlot] = useState("09:00")
   const [scheduleDays, setScheduleDays] = useState<number[]>([1])
   const [timeoutMinutes, setTimeoutMinutes] = useState(90)
+  const [readingMinutes, setReadingMinutes] = useState(30)
   const [startDate, setStartDate] = useState(() =>
     new Date().toLocaleDateString("en-CA"),
   )
@@ -126,10 +128,11 @@ export function RuleManage() {
           scheduleDays: freq === "DAILY" ? [] : scheduleDays,
           timeSlots: [slot],
           timeoutMinutes,
+          readingMinutes: taskType === "STUDY" ? readingMinutes : 0,
           startDate: new Date(`${startDate}T${slot}:00`).toISOString(),
           ruleGroupId: groupId || null,
-          templateId: templateId || null,
-          taskPoolId: taskPoolId || null,
+          templateId: taskType === "STUDY" ? null : templateId || null,
+          taskPoolId: taskType === "STUDY" ? null : taskPoolId || null,
           enabled: true,
           scopes: userId ? [{ targetType: "USER", targetId: userId }] : [],
         }),
@@ -232,9 +235,12 @@ export function RuleManage() {
                       </SelectContent>
                     </Select>
                   </div>
-                  <div className="space-y-2">
+                  <div
+                    className={taskType === "STUDY" ? "hidden" : "space-y-2"}
+                  >
                     <Label>任务表单</Label>
                     <Select
+                      disabled={taskType === "STUDY"}
                       value={templateId}
                       onValueChange={(value) => {
                         setTemplateId(value === "__none__" ? "" : value)
@@ -256,9 +262,16 @@ export function RuleManage() {
                       </SelectContent>
                     </Select>
                   </div>
-                  <div className="space-y-2 sm:col-span-2">
+                  <div
+                    className={
+                      taskType === "STUDY"
+                        ? "hidden"
+                        : "space-y-2 sm:col-span-2"
+                    }
+                  >
                     <Label>每日随机任务池（可选）</Label>
                     <Select
+                      disabled={taskType === "STUDY"}
                       value={taskPoolId}
                       onValueChange={(value) => {
                         const nextPoolId = value === "__none__" ? "" : value
@@ -343,6 +356,26 @@ export function RuleManage() {
                       }
                     />
                   </div>
+                  {taskType === "STUDY" && (
+                    <div className="space-y-2">
+                      <Label htmlFor="study-reading-minutes">
+                        阅读时长要求（分钟）
+                      </Label>
+                      <Input
+                        id="study-reading-minutes"
+                        type="number"
+                        min={1}
+                        max={timeoutMinutes}
+                        value={readingMinutes}
+                        onChange={(event) =>
+                          setReadingMinutes(Number(event.target.value))
+                        }
+                      />
+                      <p className="text-muted-foreground text-xs">
+                        时长达标自动通过，无需表单或人工批阅。
+                      </p>
+                    </div>
+                  )}
                   <div className="space-y-2">
                     <Label>
                       {freq === "ONCE" ? "发出日期" : "开始生效日期"}
@@ -490,11 +523,13 @@ export function RuleManage() {
               <div className="border-border/70 bg-card text-muted-foreground flex items-start gap-2 rounded-xl border px-3 py-2.5 text-[12px]">
                 <FileText className="text-brand-700 mt-0.5 size-3.5 shrink-0" />
                 <span>
-                  {taskPoolId
-                    ? "已绑定每日随机任务池"
-                    : templateId
-                      ? "已绑定任务表单"
-                      : "未绑定表单，可稍后补充"}
+                  {taskType === "STUDY"
+                    ? `阅读 ${readingMinutes} 分钟后自动通过`
+                    : taskPoolId
+                      ? "已绑定每日随机任务池"
+                      : templateId
+                        ? "已绑定任务表单"
+                        : "未绑定表单，可稍后补充"}
                 </span>
               </div>
               <div className="border-border/70 bg-card text-muted-foreground flex items-start gap-2 rounded-xl border px-3 py-2.5 text-[12px]">
@@ -545,6 +580,11 @@ export function RuleManage() {
                   <tr key={rule.id} className="hover:bg-muted/30">
                     <td className="px-6 py-4">
                       <p className="text-foreground font-medium">{rule.name}</p>
+                      {rule.readingMinutes > 0 && (
+                        <p className="text-muted-foreground mt-1 text-xs">
+                          阅读 {rule.readingMinutes} 分钟 · 自动通过
+                        </p>
+                      )}
                       <Badge variant="brand" className="mt-1.5 text-[10px]">
                         {taskTypeLabels[
                           rule.type as keyof typeof taskTypeLabels

@@ -114,6 +114,7 @@ export const RuleSchema = z
     name: z.string().trim().min(1).max(100),
     type: z.enum(["REPORT", "STUDY", "LABOR"]).default("REPORT"),
     taskType: z.enum(["REPORT", "STUDY", "LABOR"]).default("REPORT"),
+    readingMinutes: z.coerce.number().int().min(0).max(1440).default(0),
     freq: z.enum(["DAILY", "WEEKLY", "MONTHLY", "ONCE"]).default("DAILY"),
     scheduleDays: z.array(z.coerce.number().int().min(1).max(31)).default([]),
     timeSlots: z
@@ -129,6 +130,26 @@ export const RuleSchema = z
     scopes: z.array(ScopeSchema).default([]),
   })
   .superRefine((value, context) => {
+    if (
+      value.taskType === "STUDY" &&
+      !value.templateId &&
+      !value.taskPoolId &&
+      value.readingMinutes < 1
+    )
+      context.addIssue({
+        code: "custom",
+        message: "请设置学习任务阅读时长",
+        path: ["readingMinutes"],
+      })
+    if (
+      value.taskType === "STUDY" &&
+      value.readingMinutes > value.timeoutMinutes
+    )
+      context.addIssue({
+        code: "custom",
+        message: "阅读时长不能超过任务有效时长",
+        path: ["readingMinutes"],
+      })
     if (value.templateId && value.taskPoolId)
       context.addIssue({
         code: "custom",
@@ -186,6 +207,7 @@ export const UiConfigSchema = z.object({
 })
 
 export const ReportTemplateSchema = z.object({
+  readingMinutes: z.number().int().min(0).max(1440).default(0),
   name: z.string().trim().min(1).max(100),
   kind: z.enum(["REPORT", "STUDY", "LABOR"]),
   content: z.string().trim().max(2000).nullable().optional(),

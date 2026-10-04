@@ -3,6 +3,7 @@
 import { useQuery } from "@tanstack/react-query"
 import {
   BellRing,
+  BookOpen,
   CalendarCheck2,
   ClipboardCheck,
   FileText,
@@ -45,6 +46,7 @@ const workspaceConfig = {
     entries: [
       { href: "/supervisor", label: "执勤总览", icon: ClipboardCheck },
       { href: "/supervisor/tasks", label: "呈报批阅", icon: ClipboardCheck },
+      { href: "/supervisor/library", label: "图书馆", icon: BookOpen },
       { href: "/supervisor/checkins", label: "点名记录", icon: CalendarCheck2 },
       { href: "/supervisor/makeups", label: "补点核准", icon: TimerReset },
       {
@@ -77,6 +79,7 @@ const workspaceConfig = {
     entries: [
       { href: "/my", label: "监室", icon: UserRound },
       { href: "/my/tasks", label: "服刑任务", icon: ClipboardCheck },
+      { href: "/my/library", label: "图书馆", icon: BookOpen },
       { href: "/my/checkins", label: "点名", icon: CalendarCheck2 },
       { href: "/my/electronic-fence", label: "电子围栏", icon: MapPinned },
       { href: "/my/notices", label: "监所公示", icon: BellRing },
@@ -111,6 +114,7 @@ function WorkspaceSidebar({
             paths: [
               "/supervisor",
               "/supervisor/tasks",
+              "/supervisor/library",
               "/supervisor/checkins",
               "/supervisor/makeups",
               "/supervisor/location-tracks",
@@ -138,7 +142,13 @@ function WorkspaceSidebar({
       : [
           {
             label: "每日执行",
-            paths: ["/my", "/my/tasks", "/my/checkins", "/my/electronic-fence"],
+            paths: [
+              "/my",
+              "/my/tasks",
+              "/my/library",
+              "/my/checkins",
+              "/my/electronic-fence",
+            ],
           },
           {
             label: "在押事务",

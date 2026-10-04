@@ -104,7 +104,7 @@ private const val TASKS_PAGE_SIZE = 20
 
 /** 服刑任务页：分类列表 + 动态表单提交。分类与 Web 端「服刑任务」一致。 */
 @Composable
-fun TasksScreen(container: AppContainer, scrollBehavior: ScrollBehavior, allowSubmission: Boolean = true) {
+fun TasksScreen(container: AppContainer, scrollBehavior: ScrollBehavior, allowSubmission: Boolean = true, refreshSignal: Int = 0) {
     val scope = rememberCoroutineScope()
     val snackbar = LocalAppSnackbar.current
     val listState = rememberAppListState()
@@ -179,7 +179,7 @@ fun TasksScreen(container: AppContainer, scrollBehavior: ScrollBehavior, allowSu
     }
 
     // 首次进入与切换分类都走这里：清空上一个分类的内容再拉第一页。
-    LaunchedEffect(category) {
+    LaunchedEffect(category, refreshSignal) {
         tasks = emptyList()
         reachedEnd = false
         notice = null
@@ -284,7 +284,7 @@ private fun CategoryTabs(selected: TaskCategory, counts: TaskCounts?, onSelect: 
 /** 分组列表中的一个任务行；待提交 / 被退回的行整行可点。 */
 @Composable
 private fun TaskRow(task: ReportTask, allowSubmission: Boolean, onEdit: () -> Unit) {
-    val actionable = allowSubmission && (task.status == "PENDING" || task.status == "RETURNED")
+    val actionable = allowSubmission && !task.automaticReading && (task.status == "PENDING" || task.status == "RETURNED")
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -300,6 +300,7 @@ private fun TaskRow(task: ReportTask, allowSubmission: Boolean, onEdit: () -> Un
                     Text(it, style = MiuixTheme.textStyles.footnote1,
                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                 }
+                if (task.readingMinutes > 0) Text("任务期间已阅读 ${task.readingSeconds / 60} / ${task.readingMinutes} 分钟${if (task.automaticReading) " · 达标自动通过" else ""}", style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                 Text(
                     stringResource(R.string.deadline, formatDateTime(task.deadline)),
                     style = MiuixTheme.textStyles.footnote1,

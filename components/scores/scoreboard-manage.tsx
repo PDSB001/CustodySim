@@ -82,6 +82,7 @@ function weekLabel(weekKey: string) {
 const scoreSourceLabels: Record<string, string> = {
   CHECKIN_DAILY: "打卡日结",
   TASK_OUTCOME: "任务结果",
+  READING_DURATION: "阅读时长",
   MANUAL: "人工调整",
 }
 
