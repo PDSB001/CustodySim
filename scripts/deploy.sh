@@ -91,7 +91,7 @@ mkdir -p .next/standalone/public .next/standalone/.next .logs
 cp -r public/. .next/standalone/public/
 cp -r .next/static/. .next/standalone/.next/static/
 
-echo "==> 5/7 数据库索引与字段升级（聊天图片说明、批阅快照、社区）"
+echo "==> 5/7 数据库升级（性能索引、聊天图片说明、批阅快照、社区）"
 upgrade_database --apply
 
 echo "==> 6/7 重启 pm2"
