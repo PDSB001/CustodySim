@@ -83,7 +83,8 @@ server {
     ssl_certificate_key /etc/letsencrypt/live/example.com/privkey.pem;
     include /etc/letsencrypt/options-ssl-nginx.conf;
     ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
-    client_max_body_size 10m;
+    # 图书馆电子书与封面上传：与 Next.js 代理缓冲上限一致。
+    client_max_body_size 26m;
 
     location /socket.io/ {
         proxy_pass http://127.0.0.1:3001;
@@ -111,6 +112,8 @@ server {
 ```
 
 Socket.IO 的 proxy_pass 不附加尾斜杠路径，否则可能剥掉请求前缀。两个普通前缀 location 由最长前缀匹配，并非按书写先后匹配；已有正则 location 时需额外检查匹配关系。单独片段见 [socket-io.conf](../deploy/nginx/socket-io.conf)。
+
+图书馆上传上限片段见 [library-upload.conf](../deploy/nginx/library-upload.conf)。将其内容放入实际生效的 HTTPS `server` 块；增量部署脚本只更新应用与数据库，不会修改或重载 Nginx。
 
 ```bash
 sudo nginx -t && sudo systemctl reload nginx
