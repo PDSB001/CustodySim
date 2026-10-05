@@ -1,6 +1,6 @@
 "use client"
 
-import { Camera, Save, Send, X } from "lucide-react"
+import { Camera, LoaderCircle, Save, Send, X } from "lucide-react"
 import Image from "next/image"
 import { Fragment, useEffect, useRef, useState } from "react"
 import { z } from "zod"
@@ -36,6 +36,19 @@ import {
 
 const SaveResult = z.object({ id: z.string(), status: z.string() })
 
+function readPhotoData(blob: Blob) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader()
+    reader.addEventListener("load", () => {
+      if (typeof reader.result === "string") resolve(reader.result)
+      else reject(new Error("照片读取失败"))
+    })
+    reader.addEventListener("error", () => reject(new Error("照片读取失败")))
+    reader.addEventListener("abort", () => reject(new Error("照片读取已取消")))
+    reader.readAsDataURL(blob)
+  })
+}
+
 export function ProfileRecordEditor({
   form,
   record,
@@ -58,7 +71,7 @@ export function ProfileRecordEditor({
     signatureData: string | null
     officialSealData: string | null
   } | null
-  onSaved: () => void
+  onSaved: () => void | Promise<void>
 }) {
   const [data, setData] = useState<Record<string, unknown>>(() =>
     applyComputedProfileAge(record?.data ?? {}, form.fields),
@@ -72,7 +85,19 @@ export function ProfileRecordEditor({
   const [handwrittenSignatureData, setHandwrittenSignatureData] = useState<
     string | null
   >(record?.signatureMode === "HANDWRITTEN" ? record.signatureData : null)
-  const [saving, setSaving] = useState(false)
+  const [savingAction, setSavingAction] = useState<"DRAFT" | "SUBMIT" | null>(
+    null,
+  )
+  const saving = savingAction !== null
+  const savingRef = useRef(false)
+  const processingImagesRef = useRef(new Set<string>())
+  const [processingImages, setProcessingImages] = useState(new Set<string>())
+  const processing = processingImages.size > 0
+  const setImageProcessing = (key: string, active: boolean) => {
+    if (active) processingImagesRef.current.add(key)
+    else processingImagesRef.current.delete(key)
+    setProcessingImages(new Set(processingImagesRef.current))
+  }
   const [communityShare, setCommunityShare] = useState(
     record?.communityShare ?? false,
   )
@@ -152,7 +177,10 @@ export function ProfileRecordEditor({
     communityShareFields,
   )
   const save = async (submit: boolean) => {
-    setSaving(true)
+    if (savingRef.current || processingImagesRef.current.size || !editable)
+      return
+    savingRef.current = true
+    setSavingAction(submit ? "SUBMIT" : "DRAFT")
     try {
       const saved = await requestApi("/api/profile-records", SaveResult, {
         method: "POST",
@@ -175,16 +203,22 @@ export function ProfileRecordEditor({
           body: JSON.stringify({ recordId: saved.id }),
         })
       toast.success(submit ? "档案已提交会签" : "草稿已保存")
-      onSaved()
+      await onSaved()
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "保存失败")
     } finally {
-      setSaving(false)
+      savingRef.current = false
+      setSavingAction(null)
     }
   }
 
   const selectPhoto = async (file: File | undefined) => {
-    if (!file) return
+    if (
+      !file ||
+      savingRef.current ||
+      processingImagesRef.current.has("portrait")
+    )
+      return
     if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) {
       toast.error("请上传 JPEG、PNG 或 WebP 格式的照片")
       return
@@ -193,37 +227,41 @@ export function ProfileRecordEditor({
       toast.error("照片不能超过 2MB")
       return
     }
+    setImageProcessing("portrait", true)
     try {
-      const bitmap = await createImageBitmap(file)
-      const maxEdge = 1600
-      const scale = Math.min(1, maxEdge / Math.max(bitmap.width, bitmap.height))
-      const canvas = document.createElement("canvas")
-      canvas.width = Math.max(1, Math.round(bitmap.width * scale))
-      canvas.height = Math.max(1, Math.round(bitmap.height * scale))
-      canvas
-        .getContext("2d")
-        ?.drawImage(bitmap, 0, 0, canvas.width, canvas.height)
-      bitmap.close()
-      const compressed = await new Promise<Blob | null>((resolve) =>
-        canvas.toBlob(resolve, "image/jpeg", 0.82),
-      )
-      if (!compressed) throw new Error("照片压缩失败")
-      const reader = new FileReader()
-      reader.addEventListener("load", () => {
-        if (typeof reader.result === "string") setPhotoData(reader.result)
-      })
-      reader.readAsDataURL(compressed)
-    } catch {
-      const reader = new FileReader()
-      reader.addEventListener("load", () => {
-        if (typeof reader.result === "string") setPhotoData(reader.result)
-      })
-      reader.readAsDataURL(file)
+      let nextPhoto: string
+      try {
+        const bitmap = await createImageBitmap(file)
+        const maxEdge = 1600
+        const scale = Math.min(
+          1,
+          maxEdge / Math.max(bitmap.width, bitmap.height),
+        )
+        const canvas = document.createElement("canvas")
+        canvas.width = Math.max(1, Math.round(bitmap.width * scale))
+        canvas.height = Math.max(1, Math.round(bitmap.height * scale))
+        canvas
+          .getContext("2d")
+          ?.drawImage(bitmap, 0, 0, canvas.width, canvas.height)
+        bitmap.close()
+        const compressed = await new Promise<Blob | null>((resolve) =>
+          canvas.toBlob(resolve, "image/jpeg", 0.82),
+        )
+        if (!compressed) throw new Error("照片压缩失败")
+        nextPhoto = await readPhotoData(compressed)
+      } catch {
+        nextPhoto = await readPhotoData(file)
+      }
+      setPhotoData(nextPhoto)
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "照片处理失败")
+    } finally {
+      setImageProcessing("portrait", false)
     }
   }
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-5" aria-busy={saving || processing}>
       {form.content ? (
         <p className="bg-muted/60 text-muted-foreground rounded-lg px-3.5 py-3 text-sm leading-6">
           {form.content}
@@ -246,7 +284,7 @@ export function ProfileRecordEditor({
                         alt="档案证件照"
                         fill
                         unoptimized
-                        className="object-cover"
+                        className="object-contain"
                       />
                     </div>
                   ) : (
@@ -256,16 +294,25 @@ export function ProfileRecordEditor({
                   )}
                   {editable ? (
                     <div className="flex flex-wrap gap-2">
-                      <Label className="border-border bg-background hover:bg-muted inline-flex h-9 cursor-pointer items-center gap-2 rounded-lg border px-3 text-sm font-medium transition-colors">
+                      <Label
+                        className={`border-border bg-background inline-flex h-9 items-center gap-2 rounded-lg border px-3 text-sm font-medium transition-colors ${saving || processingImages.has("portrait") ? "cursor-not-allowed opacity-60" : "hover:bg-muted cursor-pointer"}`}
+                      >
                         <Camera className="size-4" />
-                        {photoData ? "更换照片" : "上传照片"}
+                        {processingImages.has("portrait")
+                          ? "正在处理…"
+                          : photoData
+                            ? "更换照片"
+                            : "上传照片"}
                         <Input
                           className="sr-only"
                           type="file"
+                          disabled={saving || processingImages.has("portrait")}
                           accept="image/jpeg,image/png,image/webp"
-                          onChange={(event) =>
-                            selectPhoto(event.target.files?.[0])
-                          }
+                          onChange={(event) => {
+                            const file = event.target.files?.[0]
+                            event.target.value = ""
+                            void selectPhoto(file)
+                          }}
                         />
                       </Label>
                       {photoData ? (
@@ -273,6 +320,7 @@ export function ProfileRecordEditor({
                           type="button"
                           variant="ghost"
                           size="sm"
+                          disabled={saving || processingImages.has("portrait")}
                           onClick={() => setPhotoData(null)}
                         >
                           <X />
@@ -319,7 +367,8 @@ export function ProfileRecordEditor({
                             {field.options[0] || "此字段未设置抄写原文"}
                           </p>
                           <Textarea
-                            disabled={!editable}
+                            aria-label={field.name}
+                            disabled={!editable || saving}
                             value={String(data[field.name] ?? "")}
                             onChange={(event) =>
                               setData((current) => ({
@@ -336,7 +385,10 @@ export function ProfileRecordEditor({
                           required={field.required}
                           showLabel={false}
                           value={data[field.name]}
-                          disabled={!editable}
+                          disabled={!editable || saving}
+                          onProcessingChange={(active) =>
+                            setImageProcessing(`field:${field.name}`, active)
+                          }
                           onChange={(value) =>
                             setData((current) => ({
                               ...current,
@@ -346,7 +398,8 @@ export function ProfileRecordEditor({
                         />
                       ) : field.type === "TEXTAREA" ? (
                         <Textarea
-                          disabled={!editable}
+                          aria-label={field.name}
+                          disabled={!editable || saving}
                           value={String(data[field.name] ?? "")}
                           onChange={(event) =>
                             setData((current) => ({
@@ -357,7 +410,7 @@ export function ProfileRecordEditor({
                         />
                       ) : field.type === "SELECT" ? (
                         <Select
-                          disabled={!editable}
+                          disabled={!editable || saving}
                           value={String(data[field.name] ?? "")}
                           onValueChange={(value) =>
                             setData((current) => {
@@ -369,7 +422,10 @@ export function ProfileRecordEditor({
                             })
                           }
                         >
-                          <SelectTrigger className="w-full">
+                          <SelectTrigger
+                            className="w-full"
+                            aria-label={field.name}
+                          >
                             <SelectValue placeholder="请选择" />
                           </SelectTrigger>
                           <SelectContent>
@@ -397,7 +453,7 @@ export function ProfileRecordEditor({
                         </div>
                       ) : field.name === "出生年月" ? (
                         <MonthPicker
-                          disabled={!editable}
+                          disabled={!editable || saving}
                           value={String(data[field.name] ?? "")}
                           onValueChange={(value) =>
                             setData((current) =>
@@ -411,7 +467,7 @@ export function ProfileRecordEditor({
                       ) : field.type === "DATE" ? (
                         <DatePicker
                           ariaLabel={field.name}
-                          disabled={!editable}
+                          disabled={!editable || saving}
                           value={String(data[field.name] ?? "")}
                           onValueChange={(value) =>
                             setData((current) => ({
@@ -422,7 +478,8 @@ export function ProfileRecordEditor({
                         />
                       ) : (
                         <Input
-                          disabled={!editable}
+                          aria-label={field.name}
+                          disabled={!editable || saving}
                           type={field.type === "NUMBER" ? "number" : "text"}
                           min={field.name === "出生日" ? 1 : undefined}
                           max={field.name === "出生日" ? 31 : undefined}
@@ -457,9 +514,11 @@ export function ProfileRecordEditor({
                   signatureData={
                     signatureMode === "HANDWRITTEN"
                       ? handwrittenSignatureData
-                      : (record?.signatureData ?? null)
+                      : record?.signatureMode === "GENERATED"
+                        ? record.signatureData
+                        : null
                   }
-                  editable={editable}
+                  editable={editable && !saving}
                   onModeChange={setSignatureMode}
                   onSignatureChange={setHandwrittenSignatureData}
                 />
@@ -510,19 +569,34 @@ export function ProfileRecordEditor({
         />
       ) : null}
       {editable ? (
-        <div className="flex flex-wrap gap-2">
-          <Button
-            variant="outline"
-            disabled={saving}
-            onClick={() => save(false)}
-          >
-            <Save />
-            保存草稿
-          </Button>
-          <Button disabled={saving} onClick={() => save(true)}>
-            <Send />
-            保存并提交会签
-          </Button>
+        <div className="space-y-2">
+          {processing ? (
+            <p className="text-muted-foreground text-xs" role="status">
+              正在处理图片，请稍候再保存或提交。
+            </p>
+          ) : null}
+          <div className="flex flex-wrap gap-2">
+            <Button
+              variant="outline"
+              disabled={saving || processing}
+              onClick={() => save(false)}
+            >
+              {savingAction === "DRAFT" ? (
+                <LoaderCircle className="animate-spin motion-reduce:animate-none" />
+              ) : (
+                <Save />
+              )}
+              {savingAction === "DRAFT" ? "正在保存…" : "保存草稿"}
+            </Button>
+            <Button disabled={saving || processing} onClick={() => save(true)}>
+              {savingAction === "SUBMIT" ? (
+                <LoaderCircle className="animate-spin motion-reduce:animate-none" />
+              ) : (
+                <Send />
+              )}
+              {savingAction === "SUBMIT" ? "正在提交…" : "保存并提交会签"}
+            </Button>
+          </div>
         </div>
       ) : (
         <p className="bg-muted/60 text-muted-foreground rounded-lg px-3 py-2 text-sm">

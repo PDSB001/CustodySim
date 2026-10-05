@@ -52,7 +52,8 @@ const TodayExecutionSchema = z.array(
 
 type TodayExecutionItem = z.infer<typeof TodayExecutionSchema>[number]
 
-type MetricTone = "brand" | "info" | "success" | "warning" | "danger" | "neutral"
+type MetricTone =
+  "brand" | "info" | "success" | "warning" | "danger" | "neutral"
 
 /** 快捷管理：原先占据首页第一视觉层级的监所设置入口，降级为页面底部的轻量入口。 */
 const manageEntries = [
@@ -163,7 +164,11 @@ function TodayExecution() {
           <p className="text-muted-foreground text-xs">
             今日执行情况暂不可用，请稍后重试。
           </p>
-          <Button variant="outline" size="sm" onClick={() => execution.refetch()}>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => execution.refetch()}
+          >
             重新加载
           </Button>
         </div>
@@ -223,8 +228,8 @@ function PendingQueue({
   pendingTasks,
   pendingMakeups,
 }: {
-  pendingTasks: number
-  pendingMakeups: number
+  pendingTasks: number | undefined
+  pendingMakeups: number | undefined
 }) {
   const items: Array<{
     href: string
@@ -267,7 +272,10 @@ function PendingQueue({
       icon: FileClock,
     },
   ]
-  const total = pendingTasks + pendingMakeups
+  const total =
+    pendingTasks === undefined || pendingMakeups === undefined
+      ? null
+      : pendingTasks + pendingMakeups
 
   return (
     <div className="surface-panel overflow-hidden">
@@ -279,7 +287,11 @@ function PendingQueue({
           待处理事项
         </h2>
         <p className="surface-panel__sub">
-          {total > 0 ? `共 ${total} 项待审` : "当前无待审事项"}
+          {total === null
+            ? "审核数量暂不可用"
+            : total > 0
+              ? `共 ${total} 项待审`
+              : "当前无待审事项"}
         </p>
       </div>
       <div className="divide-border/60 divide-y">
@@ -432,7 +444,11 @@ export function DashboardHome({ user }: Readonly<{ user: SessionUser }>) {
               <p className="text-muted-foreground text-xs">
                 运行指标暂不可用，请刷新页面或稍后重试。
               </p>
-              <Button variant="outline" size="sm" onClick={() => summary.refetch()}>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => summary.refetch()}
+              >
                 重新加载
               </Button>
             </div>
@@ -455,8 +471,8 @@ export function DashboardHome({ user }: Readonly<{ user: SessionUser }>) {
       <section className="page-enter grid items-start gap-4 lg:grid-cols-[minmax(0,1.6fr)_minmax(17rem,1fr)]">
         <TodayExecution />
         <PendingQueue
-          pendingTasks={pendingTasks}
-          pendingMakeups={pendingMakeups}
+          pendingTasks={summary.error ? undefined : data?.pendingTasks}
+          pendingMakeups={summary.error ? undefined : data?.pendingMakeups}
         />
       </section>
 

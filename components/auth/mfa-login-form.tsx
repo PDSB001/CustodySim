@@ -1,7 +1,7 @@
 "use client"
 
 import { Loader2, ShieldCheck } from "lucide-react"
-import { useState } from "react"
+import { useRef, useState } from "react"
 
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -14,11 +14,15 @@ export function MfaLoginForm() {
   const [trustDevice, setTrustDevice] = useState(true)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const pending = useRef(false)
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    if (pending.current || !code.trim()) return
+    pending.current = true
     setSubmitting(true)
     setError(null)
+    let navigating = false
     try {
       const response = await fetch("/api/auth/mfa/verify", {
         method: "POST",
@@ -44,15 +48,24 @@ export function MfaLoginForm() {
           ? "/change-password"
           : getRoleHome(user.data.role),
       )
+      navigating = true
     } catch {
       setError("暂时无法完成验证，请检查网络后重试。")
     } finally {
-      setSubmitting(false)
+      if (!navigating) {
+        pending.current = false
+        setSubmitting(false)
+      }
     }
   }
 
   return (
-    <form className="flex flex-col gap-5" onSubmit={handleSubmit} noValidate>
+    <form
+      className="flex flex-col gap-5"
+      onSubmit={handleSubmit}
+      aria-busy={submitting}
+      noValidate
+    >
       <div className="flex flex-col gap-1.5">
         <label
           htmlFor="mfa-code"
@@ -72,7 +85,7 @@ export function MfaLoginForm() {
           className="h-11 rounded-xl"
         />
       </div>
-      <label className="flex cursor-pointer items-center gap-2.5 text-sm text-muted-foreground">
+      <label className="text-muted-foreground flex cursor-pointer items-center gap-2.5 text-sm">
         <Checkbox
           checked={trustDevice}
           onCheckedChange={(checked) => setTrustDevice(checked === true)}
@@ -94,8 +107,20 @@ export function MfaLoginForm() {
         disabled={submitting || !code.trim()}
         className="from-brand-600 hover:from-brand-700 h-11 w-full rounded-xl bg-gradient-to-r to-[color:var(--chart-5)] text-white shadow-[0_8px_24px_-8px_rgba(112,80,255,0.6)] hover:to-[color:var(--chart-5)]"
       >
-        {submitting ? <Loader2 className="size-4 animate-spin" /> : <ShieldCheck className="size-4" />}
-        验证并继续
+        {submitting ? (
+          <>
+            <Loader2
+              aria-hidden
+              className="size-4 animate-spin motion-reduce:animate-none"
+            />
+            正在验证
+          </>
+        ) : (
+          <>
+            <ShieldCheck aria-hidden className="size-4" />
+            验证并继续
+          </>
+        )}
       </Button>
     </form>
   )

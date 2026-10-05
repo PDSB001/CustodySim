@@ -144,7 +144,7 @@ export function PersonArchiveDialog({
                       alt={`${person.name}的档案证件照`}
                       fill
                       unoptimized
-                      className="object-cover"
+                      className="object-contain"
                     />
                   </div>
                 ) : null}

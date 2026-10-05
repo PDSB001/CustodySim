@@ -6,6 +6,7 @@ import {
   BookOpenCheck,
   FileText,
   LockKeyhole,
+  LoaderCircle,
   Trash2,
 } from "lucide-react"
 import { useState } from "react"
@@ -18,6 +19,7 @@ import { PageHeader } from "@/components/shared/page-header"
 import { StatusPill, type StatusTone } from "@/components/shared/status-pill"
 import { Card, CardContent } from "@/components/ui/card"
 import { toast } from "@/components/ui/toast"
+import { Button } from "@/components/ui/button"
 import dynamic from "next/dynamic"
 import { ProfileFieldSchema } from "@/lib/profile-field-schema"
 import { ProfileImageActions } from "@/components/profile-records/profile-image-actions"
@@ -121,6 +123,52 @@ function RecordMeta({ record }: { record: z.infer<typeof RecordSchema> }) {
   )
 }
 
+function ProfileLoadFeedback({
+  loading,
+  error,
+  refreshing,
+  onRetry,
+}: {
+  loading: boolean
+  error: Error | null
+  refreshing: boolean
+  onRetry: () => void
+}) {
+  if (error)
+    return (
+      <div
+        className="surface-panel flex flex-wrap items-center justify-between gap-3"
+        role="alert"
+      >
+        <p className="text-destructive text-sm">
+          档案加载失败：{error.message}
+        </p>
+        <Button
+          type="button"
+          variant="outline"
+          disabled={refreshing}
+          onClick={onRetry}
+        >
+          {refreshing ? "正在重试…" : "重新加载"}
+        </Button>
+      </div>
+    )
+  if (loading)
+    return (
+      <div
+        className="surface-panel text-muted-foreground flex items-center gap-2 text-sm"
+        role="status"
+      >
+        <LoaderCircle
+          aria-hidden="true"
+          className="size-4 animate-spin motion-reduce:animate-none"
+        />
+        正在加载档案…
+      </div>
+    )
+  return null
+}
+
 export function MyProfileRecordManage() {
   const client = useQueryClient()
   const [selectedFormId, setSelectedFormId] = useState<string | null>(null)
@@ -145,9 +193,9 @@ export function MyProfileRecordManage() {
     ? (records.data?.find((record) => record.formId === selectedForm.id) ??
       null)
     : null
-  const refresh = () => {
+  const refresh = () =>
     client.invalidateQueries({ queryKey: ["profile-records"] })
-  }
+  const editorReady = forms.data !== undefined && records.data !== undefined
   const archivedCount =
     records.data?.filter((record) => record.status === "LOCKED").length ?? 0
   const pendingCount =
@@ -164,26 +212,35 @@ export function MyProfileRecordManage() {
       <section className="metric-grid page-enter" aria-label="档案概览">
         <MetricCell
           label="档案分卷"
-          value={forms.data?.length ?? 0}
+          value={forms.data?.length ?? "—"}
           detail="按分卷集中维护"
           icon={BookOpenCheck}
           tone="brand"
         />
         <MetricCell
           label="会签中"
-          value={pendingCount}
+          value={records.data ? pendingCount : "—"}
           detail="等待监管员处理"
           icon={FileText}
           tone="warning"
         />
         <MetricCell
           label="已归档"
-          value={archivedCount}
+          value={records.data ? archivedCount : "—"}
           detail="已锁定并编号"
           icon={LockKeyhole}
           tone="success"
         />
       </section>
+      <ProfileLoadFeedback
+        loading={forms.isPending || records.isPending}
+        error={forms.error ?? records.error}
+        refreshing={forms.isFetching || records.isFetching}
+        onRetry={() => {
+          void forms.refetch()
+          void records.refetch()
+        }}
+      />
       {forms.data?.length === 0 ? (
         <div className="surface-panel">
           <EmptyState
@@ -193,7 +250,7 @@ export function MyProfileRecordManage() {
           />
         </div>
       ) : null}
-      {selectedForm ? (
+      {selectedForm && editorReady ? (
         <Card className="page-enter overflow-hidden">
           <CardContent className="grid gap-0 p-0 lg:grid-cols-[15rem_minmax(0,1fr)]">
             <aside className="border-border/70 bg-muted/30 border-b p-3 lg:border-r lg:border-b-0">
@@ -271,6 +328,7 @@ export function MyProfileRecordManage() {
                 ) : null}
               </div>
               <ProfileRecordEditor
+                key={`${selectedForm.id}:${selectedRecord?.id ?? "new"}`}
                 form={
                   selectedRecord?.formSnapshot.fields.length
                     ? {
@@ -323,6 +381,14 @@ export function ProfileRecordManage() {
         eyebrow="档案管理"
         title="档案记录"
         description="集中查看档案填写、会签与归档状态。归档卷宗保留原始填写内容和各级会签意见。"
+      />
+      <ProfileLoadFeedback
+        loading={records.isPending}
+        error={records.error}
+        refreshing={records.isFetching}
+        onRetry={() => {
+          void records.refetch()
+        }}
       />
       <Card>
         <CardContent className="overflow-x-auto p-0">

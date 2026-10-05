@@ -49,4 +49,4 @@ E2E 默认使用 3100 端口，可用 `E2E_BASE_URL` 覆盖。测试包含真实
 
 ## 修改入口
 
-`app/api/` 为 HTTP 接口，`lib/` 为鉴权、领域规则和数据库访问，`components/` 为 Web UI，`realtime-server.mjs` 为 Socket.IO 服务，`scripts/` 为维护工具，`android/` 为客户端。修改 Next.js 代码前按根目录 AGENTS.md 阅读 `node_modules/next/dist/docs/` 中对应版本指南。
+`app/api/` 为 HTTP 接口，`lib/` 为鉴权、领域规则和数据库访问，`components/` 为 Web UI，`realtime-server.mjs` 为 Socket.IO 服务，`scripts/` 为维护工具，`.app-workspace/` 为独立 App 仓库的本地开发 worktree。修改 Next.js 代码前按根目录 AGENTS.md 阅读 `node_modules/next/dist/docs/` 中对应版本指南。

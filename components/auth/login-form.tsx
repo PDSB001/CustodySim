@@ -1,7 +1,7 @@
 "use client"
 
 import { Loader2, Lock, UserRound } from "lucide-react"
-import { useState } from "react"
+import { useRef, useState } from "react"
 
 import { Button } from "@/components/ui/button"
 import {
@@ -13,10 +13,16 @@ import {
 export function LoginForm() {
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const pending = useRef(false)
 
-  async function handleSubmit(formData: FormData) {
+  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (pending.current) return
+    const formData = new FormData(event.currentTarget)
+    pending.current = true
     setSubmitting(true)
     setError(null)
+    let navigating = false
     try {
       const res = await fetch("/api/auth/login", {
         method: "POST",
@@ -33,7 +39,6 @@ export function LoginForm() {
       }
       if (!res.ok || !data.success) {
         setError(data.error?.message || "登录失败，请稍后再试。")
-        setSubmitting(false)
         return
       }
       const requiresMfa =
@@ -43,6 +48,7 @@ export function LoginForm() {
         data.data.requiresMfa === true
       if (requiresMfa) {
         window.location.replace("/mfa")
+        navigating = true
         return
       }
       const mustChangePassword =
@@ -51,14 +57,23 @@ export function LoginForm() {
         "mustChangePassword" in data.data &&
         data.data.mustChangePassword === true
       window.location.replace(mustChangePassword ? "/change-password" : "/")
+      navigating = true
     } catch (e) {
       setError(e instanceof Error ? e.message : "网络异常，请检查连接。")
-      setSubmitting(false)
+    } finally {
+      if (!navigating) {
+        pending.current = false
+        setSubmitting(false)
+      }
     }
   }
 
   return (
-    <form action={handleSubmit} className="flex flex-col gap-3.5">
+    <form
+      onSubmit={handleSubmit}
+      aria-busy={submitting}
+      className="flex flex-col gap-3.5"
+    >
       <div className="flex flex-col gap-1.5">
         <label
           htmlFor="username"
@@ -104,16 +119,28 @@ export function LoginForm() {
         </InputGroup>
       </div>
 
-      {error ? <div className="form-error">{error}</div> : null}
+      {error ? (
+        <div className="form-error" role="alert">
+          {error}
+        </div>
+      ) : null}
 
       {/* 品牌渐变收窄在主蓝紫色相内，避免高饱和霓虹紫；hover/active 只做轻微变化 */}
       <Button
         type="submit"
         size="lg"
         disabled={submitting}
-        className="from-brand-600 to-brand-400 mt-1 h-11 w-full rounded-xl bg-gradient-to-r text-white shadow-md shadow-brand-600/25 hover:from-brand-700 hover:shadow-lg hover:shadow-brand-600/30"
+        aria-label={submitting ? "正在登录" : "登录"}
+        className="from-brand-600 to-brand-400 shadow-brand-600/25 hover:from-brand-700 hover:shadow-brand-600/30 mt-1 h-11 w-full rounded-xl bg-gradient-to-r text-white shadow-md hover:shadow-lg"
       >
-        {submitting ? <Loader2 className="size-4 animate-spin" /> : "登 录"}
+        {submitting ? (
+          <Loader2
+            aria-hidden
+            className="size-4 animate-spin motion-reduce:animate-none"
+          />
+        ) : (
+          "登 录"
+        )}
       </Button>
     </form>
   )

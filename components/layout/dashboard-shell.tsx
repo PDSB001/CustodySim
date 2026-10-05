@@ -13,6 +13,7 @@ import {
   LogIn,
   Menu,
   MessageSquareText,
+  MessagesSquare,
   Stamp,
   Settings2,
   ShieldCheck,
@@ -92,7 +93,7 @@ const navSections: NavSection[] = [
     entries: [
       { href: "/notices", label: "监所通知", icon: MessageSquareText },
       { href: "/chats", label: "聊天监管", icon: MessageSquareText },
-      { href: "/community", label: "匿名社区", icon: MessageSquareText },
+      { href: "/community", label: "匿名社区", icon: MessagesSquare },
       { href: "/official-seals", label: "印章中心", icon: Stamp },
     ],
   },

@@ -5,6 +5,12 @@ import nextCoreWebVitals from "eslint-config-next/core-web-vitals"
 import nextTypeScript from "eslint-config-next/typescript"
 
 const config = [
+  {
+    // Generated bundles and reports contain third-party code. Lint the sources that
+    // produce them, including every repository script and configuration file.
+    ignores: [".next*/**", ".app-workspace/**", "artifacts/**", "coverage/**",
+      "test-results/**", "playwright-report/**", ".pw-tmp-results/**", "out/**", "build/**"],
+  },
   ...nextCoreWebVitals,
   ...nextTypeScript,
   {

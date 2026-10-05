@@ -70,7 +70,8 @@ const columns = {
   content: communityPosts.content,
   createdAt: communityPosts.createdAt,
   profileSnapshot: communityPosts.profileSnapshot,
-  commentCount: sql<number>`(SELECT count(*)::int FROM community_comments WHERE post_id = ${communityPosts.id})`,
+  // 显式限定外层表，避免子查询把 id 解析成评论自己的 id。
+  commentCount: sql<number>`(SELECT count(*)::int FROM community_comments WHERE post_id = "community_posts"."id")`,
 }
 async function serializePosts(
   rows:
@@ -168,15 +169,13 @@ export function createCommunityPost(request: Request) {
         })
         .returning({ id: communityPosts.id })
       if (parsed.data.images.length)
-        await tx
-          .insert(communityImages)
-          .values(
-            parsed.data.images.map((data, position) => ({
-              postId: post.id,
-              data,
-              position,
-            })),
-          )
+        await tx.insert(communityImages).values(
+          parsed.data.images.map((data, position) => ({
+            postId: post.id,
+            data,
+            position,
+          })),
+        )
       return post
     })
     return success(created, { status: 201 })

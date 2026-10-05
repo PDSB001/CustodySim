@@ -26,18 +26,27 @@ import {
 } from "@/lib/community-contract"
 
 const Saved = z.object({ id: z.string() })
+// 与详情接口的评论分页大小一致。
+const COMMENT_PAGE_SIZE = 30
 function PostBody({ post }: { post: CommunityPost }) {
   return (
     <div className="space-y-3">
-      <p className="text-sm leading-7 break-words whitespace-pre-wrap">
+      <p className="text-sm leading-7 wrap-anywhere whitespace-pre-wrap">
         {post.content}
       </p>
       {post.profileSnapshot ? (
         <dl className="bg-muted/40 space-y-2 rounded-xl p-4">
           {post.profileSnapshot.map((field) => (
-            <div key={field.name} className="flex gap-4 text-sm">
-              <dt className="text-muted-foreground shrink-0">{field.name}</dt>
-              <dd className="break-words">{field.value}</dd>
+            <div
+              key={field.name}
+              className="grid grid-cols-[minmax(0,1fr)_minmax(0,2fr)] gap-4 text-sm"
+            >
+              <dt className="text-muted-foreground min-w-0 wrap-anywhere">
+                {field.name}
+              </dt>
+              <dd className="min-w-0 wrap-anywhere whitespace-pre-wrap">
+                {field.value}
+              </dd>
             </div>
           ))}
         </dl>
@@ -56,6 +65,7 @@ export function CommunityWorkspace() {
   const [title, setTitle] = useState("")
   const [content, setContent] = useState("")
   const [images, setImages] = useState<string[]>([])
+  const [imagesProcessing, setImagesProcessing] = useState(false)
   const [comment, setComment] = useState("")
   const feed = useInfiniteQuery({
     queryKey: ["community-feed"],
@@ -99,15 +109,38 @@ export function CommunityWorkspace() {
     onError: (error) => toast.error(error.message),
   })
   const reply = useMutation({
-    mutationFn: () =>
-      requestApi(`/api/community/posts/${selected}/comments`, Saved, {
+    mutationFn: (draft: {
+      postId: string
+      content: string
+      commentCount: number
+    }) =>
+      requestApi(`/api/community/posts/${draft.postId}/comments`, Saved, {
         method: "POST",
-        body: JSON.stringify({ content: comment }),
+        body: JSON.stringify({ content: draft.content }),
       }),
-    onSuccess: async () => {
+    onSuccess: async (_result, draft) => {
       setComment("")
-      setCommentPage(0)
       await refresh()
+      // 评论按时间升序排列，发送后展示包含新评论的末页。
+      try {
+        const updated = await client.fetchQuery({
+          queryKey: ["community-post", draft.postId, 0],
+          queryFn: () =>
+            requestApi(
+              `/api/community/posts/${draft.postId}?page=0`,
+              CommunityDetailSchema,
+            ),
+        })
+        setCommentPage(
+          Math.max(
+            0,
+            Math.ceil(updated.post.commentCount / COMMENT_PAGE_SIZE) - 1,
+          ),
+        )
+      } catch {
+        // 评论已保存；刷新失败仍根据提交时的数量定位，保留正常重试入口。
+        setCommentPage(Math.floor(draft.commentCount / COMMENT_PAGE_SIZE))
+      }
       toast.success("评论已发布")
     },
     onError: (error) => toast.error(error.message),
@@ -127,7 +160,11 @@ export function CommunityWorkspace() {
     },
     onError: (error) => toast.error(error.message),
   })
+  const mutationPending =
+    publish.isPending || reply.isPending || remove.isPending
+  const navigationPending = mutationPending || imagesProcessing
   const open = (id: string) => {
+    if (navigationPending) return
     setSelected(id)
     setCommentPage(0)
     setComment("")
@@ -148,6 +185,7 @@ export function CommunityWorkspace() {
       <div className="flex items-center justify-between">
         <p className="text-muted-foreground text-sm">最新帖子 · 登录用户可见</p>
         <Button
+          disabled={navigationPending}
           onClick={() => {
             setCompose(!compose)
             setSelected(null)
@@ -162,6 +200,13 @@ export function CommunityWorkspace() {
           className="bg-card space-y-4 rounded-2xl border p-5"
           onSubmit={(event) => {
             event.preventDefault()
+            if (
+              publish.isPending ||
+              imagesProcessing ||
+              !title.trim() ||
+              (!content.trim() && !images.length)
+            )
+              return
             publish.mutate()
           }}
         >
@@ -186,14 +231,16 @@ export function CommunityWorkspace() {
             label="帖子图片"
             value={images}
             onChange={setImages}
+            onProcessingChange={setImagesProcessing}
             disabled={publish.isPending}
-            hint="最多 3 张，自动压缩至每张 1MB。"
+            hint="自动压缩至每张 1MB。"
           />
           <div className="flex gap-2">
             <Button
               type="submit"
               disabled={
                 publish.isPending ||
+                imagesProcessing ||
                 !title.trim() ||
                 (!content.trim() && !images.length)
               }
@@ -204,7 +251,7 @@ export function CommunityWorkspace() {
             <Button
               type="button"
               variant="outline"
-              disabled={publish.isPending}
+              disabled={publish.isPending || imagesProcessing}
               onClick={() => setCompose(false)}
             >
               取消
@@ -214,7 +261,11 @@ export function CommunityWorkspace() {
       ) : null}
       {selected ? (
         <section className="bg-card space-y-5 rounded-2xl border p-5">
-          <Button variant="ghost" onClick={() => setSelected(null)}>
+          <Button
+            variant="ghost"
+            disabled={mutationPending}
+            onClick={() => setSelected(null)}
+          >
             <ArrowLeft />
             返回帖子列表
           </Button>
@@ -228,8 +279,8 @@ export function CommunityWorkspace() {
           ) : detail.data ? (
             <>
               <div className="flex items-start justify-between gap-3">
-                <div>
-                  <h2 className="text-xl font-semibold">
+                <div className="min-w-0 flex-1">
+                  <h2 className="text-xl font-semibold wrap-anywhere">
                     {detail.data.post.title}
                   </h2>
                   <p className="text-muted-foreground mt-2 text-xs">
@@ -241,7 +292,7 @@ export function CommunityWorkspace() {
                   <Button
                     variant="ghost"
                     aria-label="删除帖子"
-                    disabled={remove.isPending}
+                    disabled={mutationPending}
                     onClick={() => deleteItem("posts", selected)}
                   >
                     <Trash2 />
@@ -267,14 +318,14 @@ export function CommunityWorkspace() {
                             variant="ghost"
                             size="sm"
                             aria-label="删除评论"
-                            disabled={remove.isPending}
+                            disabled={mutationPending}
                             onClick={() => deleteItem("comments", item.id)}
                           >
                             <Trash2 />
                           </Button>
                         ) : null}
                       </div>
-                      <p className="mt-2 text-sm leading-6 break-words whitespace-pre-wrap">
+                      <p className="mt-2 text-sm leading-6 wrap-anywhere whitespace-pre-wrap">
                         {item.content}
                       </p>
                     </article>
@@ -289,6 +340,7 @@ export function CommunityWorkspace() {
                 {commentPage > 0 ? (
                   <Button
                     variant="outline"
+                    disabled={mutationPending}
                     onClick={() => setCommentPage(commentPage - 1)}
                   >
                     上一页评论
@@ -297,6 +349,7 @@ export function CommunityWorkspace() {
                 {detail.data.hasMore ? (
                   <Button
                     variant="outline"
+                    disabled={mutationPending}
                     onClick={() => setCommentPage(commentPage + 1)}
                   >
                     下一页评论
@@ -307,7 +360,13 @@ export function CommunityWorkspace() {
                 className="space-y-3"
                 onSubmit={(event) => {
                   event.preventDefault()
-                  reply.mutate()
+                  const post = detail.data?.post
+                  if (mutationPending || !comment.trim() || !post) return
+                  reply.mutate({
+                    postId: post.id,
+                    content: comment,
+                    commentCount: post.commentCount,
+                  })
                 }}
               >
                 <Textarea
@@ -315,10 +374,10 @@ export function CommunityWorkspace() {
                   placeholder="发表匿名评论…"
                   value={comment}
                   maxLength={2000}
-                  disabled={reply.isPending}
+                  disabled={mutationPending}
                   onChange={(event) => setComment(event.target.value)}
                 />
-                <Button disabled={reply.isPending || !comment.trim()}>
+                <Button disabled={mutationPending || !comment.trim()}>
                   <Send />
                   {reply.isPending ? "发送中…" : "发表评论"}
                 </Button>
@@ -344,8 +403,10 @@ export function CommunityWorkspace() {
                   className="w-full text-left"
                   onClick={() => open(post.id)}
                 >
-                  <h2 className="text-lg font-semibold">{post.title}</h2>
-                  <p className="text-muted-foreground mt-2 line-clamp-2 text-sm">
+                  <h2 className="text-lg font-semibold wrap-anywhere">
+                    {post.title}
+                  </h2>
+                  <p className="text-muted-foreground mt-2 line-clamp-2 text-sm wrap-anywhere">
                     {post.content}
                   </p>
                   <p className="text-muted-foreground mt-4 flex flex-wrap items-center gap-3 text-xs">

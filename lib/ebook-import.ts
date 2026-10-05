@@ -4,6 +4,7 @@ import { extractRawText } from "mammoth"
 import { posix } from "node:path"
 import { validateBook } from "@/lib/library"
 import { prepareBookCover } from "@/lib/book-cover"
+import { buildReaderDocument, epubPackage } from "@/lib/reader-document"
 
 type ImportedEbook = {
   format: "PDF" | "TXT" | "DOCX" | "EPUB"
@@ -22,41 +23,6 @@ function xml(source: string, ordered = false) {
     parseTagValue: false,
     htmlEntities: true,
   }).parse(source.replace(/<!DOCTYPE[^>]*>/gi, ""))
-}
-
-function documentText(source: string) {
-  const walk = (nodes: unknown): string => {
-    if (!Array.isArray(nodes)) return ""
-    return nodes
-      .map((node: Record<string, unknown>) =>
-        Object.entries(node)
-          .map(([tag, value]) => {
-            if (tag === "#text") return String(value)
-            if ([":@", "script", "style", "head"].includes(tag)) return ""
-            const text = walk(value)
-            return [
-              "p",
-              "div",
-              "section",
-              "br",
-              "h1",
-              "h2",
-              "h3",
-              "h4",
-              "li",
-              "tr",
-            ].includes(tag)
-              ? `\n${text}\n`
-              : text
-          })
-          .join(""),
-      )
-      .join("")
-  }
-  return walk(xml(source, true))
-    .replace(/\n[ \t]+/g, "\n")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim()
 }
 
 export async function importEbook(
@@ -94,15 +60,7 @@ export async function importEbook(
       /^docProps\/thumbnail\.(png|jpe?g|webp)$/i.test(path),
     )
   } else {
-    if (read("mimetype").trim() !== "application/epub+zip")
-      throw new Error("不是有效的 EPUB 文件")
-    if (files["META-INF/encryption.xml"])
-      throw new Error("暂不支持加密 EPUB，请上传无加密版本")
-    const container = xml(read("META-INF/container.xml"))
-    const roots = container.container?.rootfiles?.rootfile
-    const root = (Array.isArray(roots) ? roots[0] : roots)?.["@_full-path"]
-    if (typeof root !== "string") throw new Error("EPUB 缺少目录")
-    const book = xml(read(root)).package
+    const { root, book } = epubPackage(files)
     const list = <T>(value: T | T[]): T[] =>
       Array.isArray(value) ? value : value ? [value] : []
     const manifest = new Map(
@@ -131,25 +89,7 @@ export async function importEbook(
         ),
       )
     }
-    readerText = list<Record<string, string>>(book.spine?.itemref)
-      .filter((item) => item["@_linear"] !== "no")
-      .map((ref) => {
-        const item = manifest.get(ref["@_idref"])
-        if (
-          !item ||
-          !["application/xhtml+xml", "text/html"].includes(item["@_media-type"])
-        )
-          return ""
-        const path = posix.normalize(
-          posix.join(
-            posix.dirname(root),
-            decodeURIComponent(item["@_href"].split("#")[0]),
-          ),
-        )
-        return documentText(read(path))
-      })
-      .filter(Boolean)
-      .join("\n\n")
+    readerText = (await buildReaderDocument(bytes, format)).text.trim()
   }
   if (!readerText.trim()) throw new Error("文件没有可阅读的正文")
   if (readerText.length > 2_000_000) throw new Error("电子书正文过长")

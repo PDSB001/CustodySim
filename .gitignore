@@ -31,6 +31,7 @@
 
 # local review artifacts
 /.audit/
+/artifacts/episteme-upstream/
 
 # deployment backups
 /.backups/
@@ -51,3 +52,11 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+/artifacts/app-split-history/
+/artifacts/prepare-app-repository.ps1
+
+/artifacts/app-split-validation/
+/.app-workspace/
+/artifacts/android-migration-backup/
+/artifacts/simplify-app.mjs

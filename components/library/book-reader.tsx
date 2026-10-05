@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useQueryClient } from "@tanstack/react-query"
 import type { PDFDocumentProxy } from "pdfjs-dist"
 import {
@@ -15,6 +15,10 @@ import {
   Minus,
   Plus,
   BookOpen,
+  List,
+  Search,
+  Bookmark,
+  X,
 } from "lucide-react"
 import { z } from "zod"
 import { requestApi } from "@/components/shared/api-client"
@@ -23,6 +27,12 @@ import { Input } from "@/components/ui/input"
 import { HEARTBEAT_SECONDS } from "@/lib/library"
 import type { BookInfo } from "./library-types"
 import styles from "./library.module.css"
+import { ReaderTools, type ReaderPanel } from "./reader-tools"
+import {
+  ReadingDocumentSchema,
+  StructuredBookPage,
+  type WebReadingDocument,
+} from "./structured-book-page"
 
 const Preferences = z.object({
   fontSize: z.number().min(16).max(28),
@@ -49,7 +59,7 @@ export function BookReader({
   const readingBody = useRef<HTMLDivElement>(null)
   const readingScroll = useRef<HTMLDivElement>(null)
   const [pdf, setPdf] = useState<PDFDocumentProxy | null>(null)
-  const [text, setText] = useState<string | null>(null)
+  const [structured, setStructured] = useState<WebReadingDocument | null>(null)
   const [page, setPage] = useState(book.page)
   const [ready, setReady] = useState(false)
   const [paused, setPaused] = useState(false)
@@ -64,18 +74,99 @@ export function BookReader({
   const [pageInput, setPageInput] = useState("")
   const [acknowledgedPage, setAcknowledgedPage] = useState<number | null>(null)
   const [settlement, setSettlement] = useState("")
-  const characters = useMemo(() => Array.from(text ?? ""), [text])
-  const pages =
-    pdf?.numPages ?? Math.max(1, Math.ceil(characters.length / 2000))
+  const [panel, setPanel] = useState<ReaderPanel>(null)
+  const [targetOffset, setTargetOffset] = useState(0)
+  const [readingOffset, setReadingOffset] = useState(0)
+  const [highlight, setHighlight] = useState("")
+  const [pdfIdentity, setPdfIdentity] = useState("")
+  const [sessionConnected, setSessionConnected] = useState(false)
+  const [liveMillis, setLiveMillis] = useState(0)
+  const [initialSeconds] = useState(book.seconds)
+  const [navigationKey, setNavigationKey] = useState(0)
+  const running =
+    ready &&
+    sessionConnected &&
+    !paused &&
+    !settings &&
+    !panel &&
+    activeWindow &&
+    !error
+  const liveSeconds = initialSeconds + Math.floor(liveMillis / 1000)
+  const onPosition = useCallback((value: number) => setReadingOffset(value), [])
+  useEffect(() => {
+    if (!running) return
+    let last = performance.now()
+    const tick = () => {
+      const now = performance.now()
+      setLiveMillis((value) => value + now - last)
+      last = now
+    }
+    const timer = window.setInterval(tick, 250)
+    return () => {
+      clearInterval(timer)
+      tick()
+    }
+  }, [running])
+  const sections = useMemo(
+    () =>
+      structured?.chapters
+        .map((chapter, index) => ({ chapter, index }))
+        .filter(
+          ({ chapter }) =>
+            chapter.linear &&
+            (chapter.text.trim() || chapter.html.includes("<img")),
+        ) ?? [],
+    [structured],
+  )
+  const pages = pdf?.numPages ?? Math.max(1, sections.length)
   const safePage = Math.max(1, Math.min(page, pages))
-  const current = useRef({ page, paused, settings })
+  const reportedPage =
+    structured && sections[safePage - 1]
+      ? Math.floor(
+          (sections[safePage - 1].chapter.start + readingOffset) / 2000,
+        ) + 1
+      : safePage
+  const current = useRef({
+    page: reportedPage,
+    paused,
+    settings: settings || Boolean(panel),
+  })
+  const [noteChapter, setNoteChapter] = useState<number | null>(null)
+  const [anchor, setAnchor] = useState("")
+  const navigate = useCallback(
+    (chapter: number, fragment: string, offset = 0, query = "") => {
+      setNavigationKey((value) => value + 1)
+      if (pdf) {
+        setPage(chapter + 1)
+        return
+      }
+      setTargetOffset(offset)
+      setReadingOffset(offset)
+      setHighlight(query)
+      const position = sections.findIndex(
+        (section) => section.index === chapter,
+      )
+      if (position >= 0) {
+        setNoteChapter(null)
+        setPage(position + 1)
+      }
+      // Footnotes may be non-linear; expose them without losing their return link.
+      else if (structured?.chapters[chapter]) setNoteChapter(chapter)
+      setAnchor(fragment)
+    },
+    [sections, structured, pdf],
+  )
   const heartbeat = useRef<(() => void) | null>(null)
   useEffect(() => {
-    current.current = { page, paused, settings }
-  }, [page, paused, settings])
+    current.current = {
+      page: reportedPage,
+      paused,
+      settings: settings || Boolean(panel),
+    }
+  }, [reportedPage, paused, settings, panel])
   useEffect(() => {
     heartbeat.current?.()
-  }, [paused, settings])
+  }, [paused, settings, panel])
   useEffect(() => {
     try {
       const stored = localStorage.getItem(preferenceKey)
@@ -98,7 +189,7 @@ export function BookReader({
   }, [preferences, preferencesLoaded])
   useEffect(() => {
     readingScroll.current?.scrollTo({ top: 0, left: 0 })
-  }, [page])
+  }, [page, navigationKey])
   useEffect(() => {
     const update = () =>
       setActiveWindow(
@@ -119,6 +210,7 @@ export function BookReader({
       const target = event.target as HTMLElement
       if (event.key === "Escape") {
         setSettings(false)
+        setPanel(null)
         setFocused(false)
         return
       }
@@ -145,19 +237,27 @@ export function BookReader({
         )
       )
         return
-      if (!ready || error || settings) return
+      if (!ready || error || settings || panel) return
       if (event.key === "ArrowLeft") {
         event.preventDefault()
+        setNoteChapter(null)
+        setAnchor("")
+        setTargetOffset(0)
+        setHighlight("")
         setPage((value) => Math.max(1, value - 1))
       }
       if (event.key === "ArrowRight") {
         event.preventDefault()
+        setNoteChapter(null)
+        setAnchor("")
+        setTargetOffset(0)
+        setHighlight("")
         setPage((value) => Math.min(pages, value + 1))
       }
     }
     window.addEventListener("keydown", keyboard)
     return () => window.removeEventListener("keydown", keyboard)
-  }, [ready, pages, error, settings, focused])
+  }, [ready, pages, error, settings, focused, panel])
   useEffect(() => {
     if (!focused) return
     const previous = document.body.style.overflow
@@ -188,26 +288,55 @@ export function BookReader({
     async function load() {
       try {
         const response = await fetch(
-          `/api/library/${book.id}/${book.format === "PDF" ? "file" : "content"}`,
+          `/api/library/${book.id}/${book.format === "PDF" ? "file" : "document"}`,
           { signal: abort.signal },
         )
         if (!response.ok) throw new Error("书籍加载失败或已下架")
         if (book.format !== "PDF") {
-          const value = await response.text()
+          const payload = await response.json()
+          if (!payload.success)
+            throw new Error(payload.error?.message || "无法打开阅读文档")
+          const value = ReadingDocumentSchema.parse(payload.data)
           if (!disposed) {
-            setText(value)
-            setPage((valuePage) =>
+            setStructured(value)
+            const readable = value.chapters
+              .map((chapter, index) => ({ chapter, index }))
+              .filter(
+                ({ chapter }) =>
+                  chapter.linear &&
+                  (chapter.text.trim() || chapter.html.includes("<img")),
+              )
+            const offset = (book.page - 1) * 2000
+            let initial = readable.findLastIndex(
+              ({ chapter }) => chapter.start <= offset,
+            )
+            if (book.page === 1) {
+              const start = readable.findIndex(
+                ({ index }) => index === value.startChapter,
+              )
+              if (start >= 0) initial = start
+            }
+            setPage(Math.max(0, initial) + 1)
+            setTargetOffset(
               Math.max(
-                1,
-                Math.min(
-                  valuePage,
-                  Math.max(1, Math.ceil(Array.from(value).length / 2000)),
-                ),
+                0,
+                offset - (readable[Math.max(0, initial)]?.chapter.start ?? 0),
               ),
             )
             setReady(true)
           }
         } else {
+          const metadata = await fetch(
+            `/api/library/${book.id}/document?metadata=1`,
+            { signal: abort.signal },
+          )
+          if (metadata.ok) {
+            const identity = await metadata.json()
+            if (!disposed && identity.success)
+              setPdfIdentity(
+                `${identity.data.readerKey}:${identity.data.revision}`,
+              )
+          }
           const pdfjs = await import("pdfjs-dist")
           pdfjs.GlobalWorkerOptions.workerSrc = "/api/library/pdf-worker"
           loadedDocument = await pdfjs.getDocument({
@@ -234,7 +363,7 @@ export function BookReader({
       abort.abort()
       void loadedDocument?.loadingTask.destroy()
     }
-  }, [book.id, book.format])
+  }, [book.id, book.format, book.page])
   useEffect(() => {
     if (!pdf || !canvas.current) return
     let cancelled = false
@@ -301,6 +430,7 @@ export function BookReader({
           if (!disposed) {
             setSeconds((value) => value + result.creditedSeconds)
             setAcknowledgedPage(state.page)
+            setSessionConnected(!close)
             const messages: string[] = []
             if (result.approvedTasks) messages.push("学习任务已自动通过")
             if (result.awardedPoints)
@@ -315,6 +445,7 @@ export function BookReader({
           if (!disposed) {
             setError(`计时保存失败：${(failure as Error).message}`)
             setPaused(true)
+            setSessionConnected(false)
           }
           sessionId = undefined
         }
@@ -358,11 +489,16 @@ export function BookReader({
     event.preventDefault()
     const value = Number(pageInput)
     if (Number.isInteger(value) && value >= 1 && value <= pages) {
+      setNoteChapter(null)
+      setAnchor("")
+      setTargetOffset(0)
+      setHighlight("")
       setPage(value)
       setPageInput("")
     }
   }
-  const running = ready && !paused && !settings && activeWindow && !error
+  const previousLabel = structured ? "上一节" : "上一页"
+  const nextLabel = structured ? "下一节" : "下一页"
   return (
     <section
       ref={reader}
@@ -390,11 +526,12 @@ export function BookReader({
         </div>
         <span
           className={styles.timer}
-          title="有效阅读时长自动保存，切换窗口时暂停"
-          aria-label={`${running ? "阅读中" : paused || settings ? "已暂停" : "等待阅读"}，本书累计${Math.floor(seconds / 60)}分钟${seconds % 60}秒`}
+          title={`有效阅读时长实时显示，切换窗口时暂停；服务端已记录 ${Math.floor(seconds / 60)} 分钟 ${seconds % 60} 秒`}
+          aria-label={`${running ? "阅读中" : paused || settings ? "已暂停" : "等待阅读"}，本书累计${Math.floor(liveSeconds / 60)}分钟${liveSeconds % 60}秒`}
         >
           <span className={running ? styles.activeDot : styles.idleDot} />
-          {Math.floor(seconds / 60)}:{String(seconds % 60).padStart(2, "0")}
+          {Math.floor(liveSeconds / 60)}:
+          {String(liveSeconds % 60).padStart(2, "0")}
         </span>
         <Button
           variant="ghost"
@@ -407,6 +544,30 @@ export function BookReader({
         >
           {paused ? <Play /> : <Pause />}
         </Button>
+        {(
+          [
+            ["contents", "目录", List],
+            ["search", "搜索", Search],
+            ["bookmarks", "书签", Bookmark],
+          ] as const
+        ).map(([value, label, Icon]) => (
+          <Button
+            key={value}
+            variant="ghost"
+            size="icon"
+            className={styles.readerButton}
+            aria-label={label}
+            title={label}
+            disabled={!ready}
+            aria-expanded={panel === value}
+            onClick={() => {
+              setSettings(false)
+              setPanel(panel === value ? null : value)
+            }}
+          >
+            <Icon />
+          </Button>
+        ))}
         <Button
           variant="ghost"
           size="icon"
@@ -415,7 +576,10 @@ export function BookReader({
           title="阅读设置"
           aria-expanded={settings}
           aria-controls="reader-preferences"
-          onClick={() => setSettings(!settings)}
+          onClick={() => {
+            setPanel(null)
+            setSettings(!settings)
+          }}
         >
           <Settings2 />
         </Button>
@@ -432,20 +596,24 @@ export function BookReader({
         </Button>
       </header>
       {settings && (
-        <div id="reader-preferences" className={styles.preferences}>
-          <div className="flex items-center justify-between gap-3">
-            <h2 className="text-sm font-semibold">阅读设置</h2>
+        <aside
+          id="reader-preferences"
+          aria-label="阅读设置"
+          className={styles.readerTools}
+        >
+          <div className={styles.toolHeading}>
+            <h2>阅读设置</h2>
             <Button
               variant="ghost"
-              size="sm"
-              className={styles.readerButton}
+              size="icon-sm"
+              aria-label="关闭阅读设置"
               onClick={() => setSettings(false)}
             >
-              收起
+              <X />
             </Button>
           </div>
           {book.format !== "PDF" ? (
-            <div className="grid gap-4 sm:grid-cols-2">
+            <div className="grid gap-4">
               <label className="space-y-2 text-sm">
                 <span>
                   字号{" "}
@@ -521,9 +689,34 @@ export function BookReader({
           <p className={styles.readerMuted}>
             偏好保存在当前设备。左右方向键翻页，Esc 退出专注模式。
           </p>
-        </div>
+        </aside>
       )}
-      <div ref={readingScroll} className={styles.readingScroll}>
+      <ReaderTools
+        key={
+          structured
+            ? `${structured.readerKey}:${structured.revision}`
+            : pdfIdentity
+        }
+        panel={panel}
+        onClose={() => setPanel(null)}
+        document={structured}
+        pdf={pdf}
+        storageKey={
+          structured
+            ? `library-bookmarks:${structured.readerKey}:${structured.revision}`
+            : pdfIdentity
+              ? `library-bookmarks:${pdfIdentity}`
+              : ""
+        }
+        chapter={noteChapter ?? sections[safePage - 1]?.index ?? safePage - 1}
+        offset={readingOffset}
+        onNavigate={navigate}
+      />
+      <div
+        ref={readingScroll}
+        data-reader-scroll
+        className={styles.readingScroll}
+      >
         {error && (
           <div
             role="alert"
@@ -566,20 +759,41 @@ export function BookReader({
             ready && (
               <>
                 <div className={styles.paperMeta}>
-                  <span>{book.title}</span>
+                  <span>
+                    {sections[safePage - 1]?.chapter.title || book.title}
+                  </span>
                   <span>{String(safePage).padStart(2, "0")}</span>
                 </div>
-                <div
-                  className={styles.prose}
-                  style={{
-                    fontSize: preferences.fontSize,
-                    lineHeight: preferences.lineHeight,
-                  }}
-                >
-                  {characters
-                    .slice((safePage - 1) * 2000, safePage * 2000)
-                    .join("") || "本书暂无可阅读正文。"}
-                </div>
+                {structured && sections[safePage - 1] && (
+                  <>
+                    {noteChapter !== null && (
+                      <Button
+                        variant="ghost"
+                        onClick={() => {
+                          setNoteChapter(null)
+                          setAnchor("")
+                          setTargetOffset(0)
+                          setHighlight("")
+                        }}
+                      >
+                        返回正文
+                      </Button>
+                    )}
+                    <StructuredBookPage
+                      document={structured}
+                      chapter={noteChapter ?? sections[safePage - 1].index}
+                      fontSize={preferences.fontSize}
+                      lineHeight={preferences.lineHeight}
+                      night={preferences.theme === "night"}
+                      onNavigate={navigate}
+                      fragment={anchor}
+                      offset={targetOffset}
+                      highlight={highlight}
+                      onPosition={onPosition}
+                      navigationKey={navigationKey}
+                    />
+                  </>
+                )}
                 <div className={styles.paperEnd}>· {safePage} ·</div>
               </>
             )
@@ -614,20 +828,40 @@ export function BookReader({
             </Button>
           </div>
         )}
+        {structured && sections[safePage - 1] && (
+          <select
+            aria-label="章节目录"
+            className="max-w-48 truncate rounded-md border bg-transparent px-2 py-1 text-xs"
+            value={sections[safePage - 1].index}
+            onChange={(event) => navigate(Number(event.target.value), "")}
+          >
+            {sections.map(({ chapter, index }) => (
+              <option key={index} value={index}>
+                {chapter.title || `第 ${index + 1} 节`}
+              </option>
+            ))}
+          </select>
+        )}
         <nav aria-label="阅读翻页" className={styles.pagination}>
           <Button
             variant="ghost"
             className={styles.readerButton}
             disabled={!ready || safePage <= 1}
-            aria-label="上一页"
-            onClick={() => setPage(safePage - 1)}
+            aria-label={previousLabel}
+            onClick={() => {
+              setNoteChapter(null)
+              setAnchor("")
+              setTargetOffset(0)
+              setHighlight("")
+              setPage(safePage - 1)
+            }}
           >
             <ChevronLeft />
-            <span className="hidden sm:inline">上一页</span>
+            <span className="hidden sm:inline">{previousLabel}</span>
           </Button>
           <form onSubmit={jump} className="flex items-center gap-1.5">
             <label className="sr-only" htmlFor="reader-page">
-              跳转页码
+              {structured ? "跳转章节" : "跳转页码"}
             </label>
             <Input
               id="reader-page"
@@ -653,10 +887,16 @@ export function BookReader({
             variant="ghost"
             className={styles.readerButton}
             disabled={!ready || safePage >= pages}
-            aria-label="下一页"
-            onClick={() => setPage(safePage + 1)}
+            aria-label={nextLabel}
+            onClick={() => {
+              setNoteChapter(null)
+              setAnchor("")
+              setTargetOffset(0)
+              setHighlight("")
+              setPage(safePage + 1)
+            }}
           >
-            <span className="hidden sm:inline">下一页</span>
+            <span className="hidden sm:inline">{nextLabel}</span>
             <ChevronRight />
           </Button>
         </nav>
@@ -665,12 +905,12 @@ export function BookReader({
             ? "保存中断"
             : paused
               ? "已暂停计时"
-              : settings
-                ? "调整设置 · 已暂停计时"
+              : settings || panel
+                ? "阅读工具 · 已暂停计时"
                 : !activeWindow
                   ? "离开窗口 · 已暂停"
                   : settlement ||
-                    (acknowledgedPage === safePage
+                    (acknowledgedPage === reportedPage
                       ? "阅读进度已同步"
                       : "等待同步阅读进度")}
         </span>

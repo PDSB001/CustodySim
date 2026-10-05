@@ -1,27 +1,33 @@
 import { spawnSync } from "node:child_process"
+import { readFileSync } from "node:fs"
+import { dirname, resolve } from "node:path"
 
 import { config } from "dotenv"
 import pg from "pg"
 
-config({ path: ".env.local" })
+config({ path: ".env.local", quiet: true })
 
 const businessDatabaseUrl = process.env.DATABASE_URL
 if (!businessDatabaseUrl) throw new Error(".env.local 未配置 DATABASE_URL")
 
 const databaseName = process.env.E2E_DATABASE_NAME ?? "custodysim_e2e"
-if (!/^[a-zA-Z][a-zA-Z0-9_]{0,62}$/.test(databaseName))
-  throw new Error("E2E_DATABASE_NAME 只能包含字母、数字和下划线")
+if (databaseName !== "custodysim_e2e")
+  throw new Error("E2E 初始化只能操作 custodysim_e2e 隔离数据库")
 
 const businessUrl = new URL(businessDatabaseUrl)
-const businessDatabaseName = businessUrl.pathname.replace(/^\//, "")
+const businessDatabaseName = decodeURIComponent(businessUrl.pathname.slice(1))
 if (businessDatabaseName === databaseName)
   throw new Error("E2E 数据库不能与业务数据库同名")
 
 const e2eUrl = new URL(businessUrl)
 e2eUrl.pathname = `/${databaseName}`
+const maintenanceUrl = new URL(businessUrl)
+maintenanceUrl.pathname = "/postgres"
 
 const { Client } = pg
-const client = new Client({ connectionString: businessDatabaseUrl })
+// Database creation is cluster maintenance; never connect this initializer to
+// the business database, even to inspect pg_database.
+const client = new Client({ connectionString: maintenanceUrl.toString() })
 await client.connect()
 try {
   const existing = await client.query(
@@ -40,6 +46,16 @@ try {
   await client.end()
 }
 
+const targetClient = new Client({ connectionString: e2eUrl.toString() })
+await targetClient.connect()
+try {
+  const result = await targetClient.query("select current_database() as name")
+  if (result.rows[0]?.name !== databaseName)
+    throw new Error("E2E 数据库连接验证失败，拒绝初始化")
+} finally {
+  await targetClient.end()
+}
+
 const childEnv = {
   ...process.env,
   NODE_ENV: "development",
@@ -48,24 +64,25 @@ const childEnv = {
   ALLOW_DEMO_SEED: "true",
 }
 
-function run(args) {
-  const command =
-    process.platform === "win32" ? (process.env.ComSpec ?? "cmd.exe") : "pnpm"
-  const commandArgs =
-    process.platform === "win32" ? ["/d", "/s", "/c", "pnpm", ...args] : args
-  const result = spawnSync(command, commandArgs, {
+function run(tool, args) {
+  // Use the checked-in project's installed CLI with this Node runtime. Windows
+  // pnpm.cmd/PATH and shell quoting must not prevent refreshing the test schema.
+  const manifestPath = resolve("node_modules", tool, "package.json")
+  const manifest = JSON.parse(readFileSync(manifestPath, "utf8"))
+  const bin = typeof manifest.bin === "string" ? manifest.bin : manifest.bin[tool]
+  const result = spawnSync(process.execPath, [resolve(dirname(manifestPath), bin), ...args], {
     cwd: process.cwd(),
     env: childEnv,
     stdio: "inherit",
   })
   if (result.error) throw result.error
   if (result.status !== 0)
-    throw new Error(`命令执行失败：pnpm ${args.join(" ")}`)
+    throw new Error(`命令执行失败：${tool} ${args.join(" ")}`)
 }
 
-run(["exec", "drizzle-kit", "push", "--config=drizzle.config.ts", "--force"])
-run(["exec", "tsx", "scripts/ensure-entry-registration-form.ts"])
-run(["exec", "tsx", "scripts/seed.ts"])
-run(["exec", "tsx", "scripts/seed-scoreboard-demo.ts"])
+run("drizzle-kit", ["push", "--config=drizzle.config.ts", "--force"])
+run("tsx", ["scripts/ensure-entry-registration-form.ts"])
+run("tsx", ["scripts/seed.ts"])
+run("tsx", ["scripts/seed-scoreboard-demo.ts"])
 
 console.log("E2E 数据库结构与测试账号初始化完成")

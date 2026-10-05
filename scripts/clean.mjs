@@ -41,10 +41,10 @@ const SCOPES = {
   android: {
     thresholdMb: 1500,
     targets: [
-      { path: join(repoRoot, "android", ".gradle"), label: "android/.gradle" },
-      { path: join(repoRoot, "android", "app", "build"), label: "android/app/build" },
-      { path: join(repoRoot, "android", "build"), label: "android/build" },
-      { path: join(repoRoot, "android", ".kotlin"), label: "android/.kotlin" },
+      { path: join(repoRoot, ".app-workspace", ".gradle"), label: ".app-workspace/.gradle" },
+      { path: join(repoRoot, ".app-workspace", "app", "build"), label: ".app-workspace/app/build" },
+      { path: join(repoRoot, ".app-workspace", "build"), label: ".app-workspace/build" },
+      { path: join(repoRoot, ".app-workspace", ".kotlin"), label: ".app-workspace/.kotlin" },
     ],
   },
   test: {

@@ -283,6 +283,51 @@ data:image/(jpeg|png|webp);base64,<...>
 - 真机优化包曾出现 `Could not create Input Merger androidx.work.OverwritingInputMerger`：WorkManager 自带 consumer 规则只保留 InputMerger 类名，无参反射构造器被 R8 删除。应用 ProGuard 规则补充保留 InputMerger 子类公共无参构造器；这是队列有数据却未进入上传逻辑的独立故障。
 - 2026-09-26 Redmi 真机回归：5 分钟前台定位服务显示 `isForeground=true`；最终混淆包以 `LaunchState: COLD` 启动，首页显示上传成功（新增 0、跳过 1），队列 0。尚未完成整夜熄屏或完整 5/10 分钟多周期实测。
 
+### R8 优化包与文本加载（2026-10-05）
+
+现象：`development`（debug）包能正常打开书，R8 优化包在加载正文时闪退。按“文本加载链”逐环节核对，先排除已确认无关的项：
+
+| 环节 | 代码位置 | 混淆风险 | 本次核对结果 |
+| --- | --- | --- | --- |
+| 阅读器文本资源 | `HtmlReader.kt` 的 `ReaderAssetClient.shouldInterceptRequest`，`assets/reader/{host.js,host.css,document.css}` | 读取失败时异常会逃出 Chromium 回调 | **无兜底，闪退最短路径** |
+| JS↔Kotlin 事件通道 | `addJavascriptInterface(HtmlReaderBridge(...), "ReaderBridge")` | `@JavascriptInterface` 方法被改名或删除 | 已排除：`configuration.txt` 含 AGP 默认 keep 规则；`mapping.txt` 中 `HtmlReaderBridge`(→`n31`) 的 `publish/controls/link/boundary/failure` 全部保持原名 |
+| 阅读文档 JSON 与本地缓存 | `LibraryReaderRepository`、`ReaderDiskCache`、`ReadingDocument.from` | 依赖类名/字段名的序列化被混淆 | 已排除：只用 `org.json`（平台类）与 SHA-256 文件名，全仓无 `Class.forName`、Gson、Moshi、kotlinx.serialization |
+| 原生 TXT 排版 | `NativeTextPaginator`、`NativeTextPageView` | 类被内联或删除后按名引用会失败 | `NativeTextPaginator` 被内联进 `NativeTextPageView`（mapping 中 `paginate(...)->u`），运行路径正常 |
+| 旧阅读引擎符号 | `DocumentReaderKt`（`readerHtml`/`readerScript`） | 只被 androidTest 使用，R8 会整类删除 | `usage.txt`：`DocumentReaderKt -> R8$$REMOVED$$CLASS$$566`；instrumented 测试指向 R8 变体将抛 `NoSuchMethodError` |
+| 资源收缩 | `isShrinkResources = true` | 误删运行时按名访问的资源 | 已排除：`resources.txt` 中 `xml:network_security_config`、`xml:backup_rules`、`xml:data_extraction_rules` 均 reachable，无 removed 段；assets 不参与资源收缩 |
+| 枚举持久化 | `Appearance`/`EffectsLevel` 的 `valueOf(prefs.getString(...))` | 常量改名后 `valueOf` 与已存名字失配 | 已排除：常量字段确实被改名（`SOFT->g`、`OFF->f`、`GLASS->h`、`SYSTEM->f`），但 dex 字符串表里 `name()` 使用的字面量仍在，`valueOf` 仍能命中 |
+| JS 协议字符串 | `Reader.turn/goTo/location`、`window.ReaderBridge.*`、`reader.invalid`、`host.js` 路径 | 仅在 `-adaptclassstrings`/`-identifiernamestring` 类规则下才会被改写 | 当前配置未见这两项；不要引入 |
+
+事故结论（同日真机日志）：闪退不是资源缺失，也不是混淆，而是加载正文时的 `OutOfMemoryError`。
+`adb logcat -b crash -d` 中 12:29、12:37、12:38 三次都是同一处失败（约 35 MB 单次分配，堆增长上限 256 MiB）：
+
+```
+java.lang.OutOfMemoryError: Failed to allocate a 35248776 byte allocation with 18783296 free bytes …
+  at java.lang.StringBuilder.toString(StringBuilder.java:475)
+  at kotlin.text.StringsKt__IndentKt.replaceIndent / trimIndent        ← Indent.kt:70/76
+  at com.custodysim.app.ui.library.HtmlReaderKt$HtmlReader$prepared$2$1$1
+  at kotlin.coroutines.jvm.internal.BaseContinuationImpl
+  at kotlinx.coroutines.DispatchedTask.run / CoroutineScheduler$Worker.run
+```
+
+还原依据：设备上优化包 dex 里的 `r8-map-id` 与 `build/outputs/mapping/benchmark/mapping.txt`（10-05 12:28）一致，`v31` = `HtmlReaderKt$HtmlReader$prepared$2$1$1`，`u03` = `StringsKt__IndentKt`。前一次构建（另一 `r8-map-id`）在 12:06 也在同一个 `trimIndent` 上 OOM，只是当时经由 WebView 附着路径。
+
+根因：`HtmlReader` 把整本 `chapters[].html` 拼成一个字符串再送进 WebView，而组装过程中对整本书做了多份完整拷贝——
+`config.toString()` → `replace()` ×3 → 模板插值 → `trimIndent()` 各产生一份新字符串，`shouldInterceptRequest` 里还有一份 `toByteArray()`。
+该书约 1760 万字符（单份 ≈ 35 MB），五份拷贝远超该进程可用堆。混淆把 `markup()`/`htmlReaderMarkup()` 内联进一个 lambda，栈里只剩两帧，看起来才像“混淆导致的怪崩溃”。
+
+与 R8 无关的证据：所有变体都没有 `largeHeap`，堆上限同为 256 MiB；R8 不改变字符串长度；debug 包走同一段代码也会 OOM。
+判断“是否只有 R8 包崩”只需用 `development` 包打开同一本书对照一次。
+
+已做的降峰值改动（`reader/html/HtmlReader.kt`）：`htmlReaderMarkup` 改为一次性写入预分配缓冲、转义单遍完成，去掉 `trimIndent()` 与链式 `replace()`；
+host 文档改为缓存字节，`shouldInterceptRequest` 不再每次重新编码整本。结构性改动随后落地：host 文档只带元数据，
+章节正文按 `/reader/chapter/{i}` 逐节取用，长章节的分块只对真正读到的章节计算，整本拷贝与预先分块都不再存在
+（详见 [阅读器分格式翻页重构](android-reader-pagination-refactor.md) 的第 10 节）。
+
+其它仍然成立的检查项：`shouldInterceptRequest` 对 `assets.open` 与 `runBlocking { repository.resource(...) }` 没有兜底，失败时会从 Chromium 线程抛异常，应补 try/catch；
+`DocumentReaderKt`（`readerHtml`/`readerScript`）已被 R8 整类删除，instrumented 测试若指向优化变体会抛 `NoSuchMethodError`；
+装包前用 APK 的 `assets/reader/*` 条目确认资源在包内（`build/outputs/apk/benchmark/` 下曾长期是旧包，AGP 9 的新产物在 `build/intermediates/apk/benchmark/`）。
+
 ### 移动端档案签名
 
 - 档案填写支持规范签名与触屏手写，使用 Miuix 下拉设置、确认控件及按钮；绘图区独立于滚动表单。

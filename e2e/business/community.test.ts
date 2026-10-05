@@ -197,12 +197,22 @@ test("profile consent is persisted without publishing until submission, then pub
     communityShare: true,
     communityShareFields: ["姓名"],
   }
-  expect((await saveProfile(request(input))).status).toBe(400)
+  const identityConsent = await saveProfile(request(input))
+  expect(identityConsent.status).toBe(201)
+  const identityDraft = (await identityConsent.json()).data
+  expect(identityDraft.communityShareFields).toEqual(["姓名"])
+  expect(
+    await db
+      .select()
+      .from(s.communityPosts)
+      .where(eq(s.communityPosts.sourceRecordId, identityDraft.id)),
+  ).toHaveLength(0)
   const saved = await saveProfile(
     request({ ...input, communityShareFields: ["技能"] }),
   )
-  expect(saved.status).toBe(201)
+  expect(saved.status).toBe(200)
   const recordId = (await saved.json()).data.id as string
+  expect(recordId).toBe(identityDraft.id)
   expect(
     await db
       .select()
@@ -227,5 +237,8 @@ test("profile consent is persisted without publishing until submission, then pub
   const detail = (await (await communityDetail(request(), post.id)).json()).data
   expect(JSON.stringify(detail)).not.toContain(recordId)
   expect(JSON.stringify(detail)).not.toContain("真实姓名不公开")
+  expect(JSON.stringify(detail)).not.toContain(`private_${alice}`)
+  expect(JSON.stringify(detail)).not.toContain(`test_${alice}`)
+  expect(JSON.stringify(detail)).not.toContain(alice)
   expect(detail.post.profileSnapshot).toEqual([{ name: "技能", value: "绘画" }])
 })

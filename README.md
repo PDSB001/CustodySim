@@ -4,6 +4,10 @@ CustodySim 包含 Web 管理与业务端、Android 客户端和独立聊天实�
 
 当前版本：**1.5.2-test**。操作权限由服务端角色与组织范围控制。
 
+Android 客户端已建立独立仓库：[CustodySim-app](https://github.com/PDSB001/CustodySim-app)。后续 App 开发与发布以新仓库为准；主目录内的 `.app-workspace/` 是独立 App Git worktree，日常联调在这里进行，发布前同步到独立发布目录；主仓库不再维护 `android/`。
+
+许可证范围：Web 与服务端沿用根目录 MIT；Android 独立仓库的组合应用按 AGPL-3.0-only 分发，原有 MIT 声明保留。详见[独立仓库许可与源码分发说明](https://github.com/PDSB001/CustodySim-app/blob/main/README-LICENSE.md)。
+
 ## 选择适合你的文档
 
 **如果你是使用者**，不需要搭建服务器：使用管理员提供的网址或安装包，按[使用指南](docs/user-guide.md)登录并办理事项。遇到问题先看[常见问题](docs/faq.md)。
@@ -30,8 +34,8 @@ CustodySim 包含 Web 管理与业务端、Android 客户端和独立聊天实�
 | Web / HTTP API | Next.js 16.3.3、React 19、TypeScript                     | app/、components/、lib/ |
 | 数据库         | PostgreSQL、Drizzle ORM、node-postgres                   | lib/db/schema.ts        |
 | 聊天实时服务   | Socket.IO，独立 Node 进程                                | realtime-server.mjs     |
-| Android        | Kotlin 2.4.0、Compose、Miuix 0.9.3                       | android/                |
-| Android 构建   | Gradle 9.8.0、AGP 9.4.1；min 26 / compile 37 / target 37 | android/gradle/         |
+| Android        | Kotlin 2.4.0、Compose、Miuix 0.9.3                       | `.app-workspace/`（独立仓库） |
+| Android 构建   | Gradle 9.8.0、AGP 9.4.1；min 26 / compile 37 / target 37 | `.app-workspace/gradle/` |
 
 ## 本地开发快速启动
 
@@ -53,6 +57,6 @@ pnpm dev
 ## 维护约定
 
 - package.json 和 Android 构建文件是版本、命令和依赖的依据，文档与对应代码一起更新。
-- .env.local、android/local.properties、凭据、签名密钥及数据库备份不提交仓库。
+- .env.local、.app-workspace/local.properties、凭据、签名密钥及数据库备份不提交仓库。
 - 集成测试和 E2E 会写数据库，必须使用独立测试库。
 - 历史截图与测试结果只代表记录时的版本，不代表当前生产已部署或所有设备已验证。

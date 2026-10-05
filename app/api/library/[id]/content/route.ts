@@ -4,6 +4,7 @@ import { db } from "@/lib/db"
 import { libraryBooks } from "@/lib/db/schema"
 import { getSessionUser } from "@/lib/session"
 import { failure } from "@/lib/api-response"
+import { buildReaderDocument } from "@/lib/reader-document"
 
 export async function GET(
   _: Request,
@@ -22,12 +23,25 @@ export async function GET(
       format: libraryBooks.format,
       enabled: libraryBooks.enabled,
       deletedAt: libraryBooks.deletedAt,
+      bytes: libraryBooks.bytes,
     })
     .from(libraryBooks)
     .where(eq(libraryBooks.id, id.data))
   if (!book || book.deletedAt || (!book.enabled && actor.role !== "ADMIN"))
     return failure("NOT_FOUND", "书籍不存在或已下架", 404)
   let text = book.text
+  // Reparse existing uploads too: navigation pages from an older import are not body text.
+  if (["EPUB", "DOCX"].includes(book.format)) {
+    try {
+      text = (await buildReaderDocument(book.bytes, book.format)).text
+    } catch (error) {
+      return failure(
+        "VALIDATION_ERROR",
+        error instanceof Error ? error.message : "无法解析文档",
+        400,
+      )
+    }
+  }
   if (text === null && book.format === "TXT") {
     const [source] = await db
       .select({ bytes: libraryBooks.bytes })

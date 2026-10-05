@@ -60,6 +60,7 @@ export function ImageUploadField({
   showLabel = true,
   max,
   compact,
+  onProcessingChange,
 }: {
   label: string
   required?: boolean
@@ -76,6 +77,8 @@ export function ImageUploadField({
    * 只压缩上传框高度与说明行数，不改变任何上传/压缩/张数逻辑。
    */
   compact?: boolean
+  /** 让外层提交按钮等待本地图片处理完成；不影响现有调用者。 */
+  onProcessingChange?: (processing: boolean) => void
 }) {
   const images = normalizeTaskImages(value)
   const [error, setError] = useState<string | null>(null)
@@ -131,6 +134,7 @@ export function ImageUploadField({
             if (room <= 0) return
             setError(null)
             setCompressing(true)
+            onProcessingChange?.(true)
             try {
               const compressed: string[] = []
               for (const file of files.slice(0, room))
@@ -142,10 +146,13 @@ export function ImageUploadField({
               onChange([...images, ...compressed])
             } catch (uploadError) {
               setError(
-                uploadError instanceof Error ? uploadError.message : "图片处理失败",
+                uploadError instanceof Error
+                  ? uploadError.message
+                  : "图片处理失败",
               )
             } finally {
               setCompressing(false)
+              onProcessingChange?.(false)
             }
           }}
         />
@@ -162,7 +169,12 @@ export function ImageUploadField({
       ) : null}
       {error ? <p className="text-destructive text-xs">{error}</p> : null}
       {images.length ? (
-        <div className={cn("grid grid-cols-2", compact ? "gap-2" : "gap-3 sm:grid-cols-3")}>
+        <div
+          className={cn(
+            "grid grid-cols-2",
+            compact ? "gap-2" : "gap-3 sm:grid-cols-3",
+          )}
+        >
           {images.map((image, index) => (
             <div
               key={`${index}-${image.slice(-12)}`}
@@ -174,7 +186,10 @@ export function ImageUploadField({
                 width={640}
                 height={480}
                 unoptimized
-                className={cn("w-full object-cover", compact ? "h-24" : "h-32")}
+                className={cn(
+                  "w-full object-contain",
+                  compact ? "h-24" : "h-32",
+                )}
               />
               <Button
                 type="button"
@@ -182,7 +197,7 @@ export function ImageUploadField({
                 size="sm"
                 aria-label={`移除第 ${index + 1} 张${label}`}
                 className="bg-background/90 absolute top-1.5 right-1.5 size-7 rounded-full p-0 shadow-sm"
-                disabled={disabled}
+                disabled={disabled || compressing}
                 onClick={() =>
                   onChange(images.filter((_, itemIndex) => itemIndex !== index))
                 }
