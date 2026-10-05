@@ -64,6 +64,7 @@ upgrade_database() {
     node scripts/upgrade-review-snapshot.mjs "--database=$database_name"
     # 社区表与档案自愿分享列：缺了它社区页与档案提交都会 500（幂等，可重复执行）。
     node scripts/upgrade-community.mjs "--database=$database_name"
+    node scripts/upgrade-library.mjs "--database=$database_name"
   fi
 }
 
@@ -91,7 +92,7 @@ mkdir -p .next/standalone/public .next/standalone/.next .logs
 cp -r public/. .next/standalone/public/
 cp -r .next/static/. .next/standalone/.next/static/
 
-echo "==> 5/7 数据库升级（性能索引、聊天图片说明、批阅快照、社区）"
+echo "==> 5/7 数据库升级（性能索引、聊天图片说明、批阅快照、社区、图书馆）"
 upgrade_database --apply
 
 echo "==> 6/7 重启 pm2"

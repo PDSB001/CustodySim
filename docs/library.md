@@ -14,7 +14,7 @@
 
 ## 升级部署
 
-先备份数据库，依次执行 `lib/db/upgrades/20261004-library.up.sql`、`lib/db/upgrades/20261004-library-reading.up.sql`、`lib/db/upgrades/20261004-library-management.up.sql`。脚本可重复执行，不会替换已有电子书。已部署前两版图书馆的环境只需补执行缺少的脚本。若按现有流程 `pnpm db:push` 升级，积分配置表为空时服务端会使用默认的 15 分钟/1 分、每日 3 分策略，管理员保存设置后持久化配置。
+先备份数据库。生产增量部署 `bash scripts/deploy.sh` 会依次执行 `lib/db/upgrades/20261004-library.up.sql`、`lib/db/upgrades/20261004-library-reading.up.sql`、`lib/db/upgrades/20261004-library-management.up.sql`；每份 SQL 幂等并在独立事务中执行。手动升级时也按此顺序运行。已部署前两版图书馆的环境可重复执行，补齐缺少的列，不会替换已有电子书。若按现有流程 `pnpm db:push` 升级，积分配置表为空时服务端会使用默认的 15 分钟/1 分、每日 3 分策略，管理员保存设置后持久化配置。
 
 部署 Web 服务并更新 Android App。Nginx/网关须允许至少 26 MB 请求体，例如在对应 server 配置 `client_max_body_size 26m;`。Next.js 的代理缓冲已设置为 26 MB，以容纳电子书和封面同时上传。
 
