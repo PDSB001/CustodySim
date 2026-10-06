@@ -11,7 +11,7 @@ permissions:
 
 concurrency:
   group: web-ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 env:
   NEXT_TELEMETRY_DISABLED: '1'
