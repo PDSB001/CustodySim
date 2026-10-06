@@ -1,0 +1,107 @@
+name: Web CI
+on:
+  pull_request:
+  push:
+    branches: [master]
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: web-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NEXT_TELEMETRY_DISABLED: '1'
+  AUTH_SECRET: custodysim-ci-only-auth-secret-32-characters
+  MFA_ENCRYPTION_KEY: custodysim-ci-only-mfa-secret-32-characters
+  ARCHIVE_SIGNATURE_ENCRYPTION_KEY: custodysim-ci-only-archive-secret-32-characters
+  APP_ORIGIN: http://127.0.0.1:3100
+  AUTH_COOKIE_SECURE: 'false'
+  DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/custodysim_ci
+  E2E_DATABASE_NAME: custodysim_e2e
+  E2E_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/custodysim_e2e
+
+jobs:
+  quality:
+    name: Lint, types and unit tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-web
+      - run: bash scripts/check-workflows.sh
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: node scripts/test-deploy-flow.mjs
+
+  integration:
+    name: Database and browser regression
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: custodysim_ci
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 12
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-web
+      - run: pnpm db:setup-e2e
+      - name: Isolation schedule migration (including repeat run)
+        run: |
+          DATABASE_URL="$E2E_DATABASE_URL" node scripts/upgrade-isolation-schedule.mjs --database=custodysim_e2e
+          DATABASE_URL="$E2E_DATABASE_URL" node scripts/upgrade-isolation-schedule.mjs --database=custodysim_e2e
+      - run: pnpm exec playwright install --with-deps chromium
+      - name: Scoring API regression
+        run: pnpm exec vitest run --config vitest.scoring-e2e.config.mts
+      - run: pnpm test:e2e:business
+      - run: pnpm test:e2e
+      - name: Scoring browser regression
+        run: pnpm exec playwright test --config playwright.scoring.config.ts
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: web-test-results-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            test-results/
+            playwright-report/
+          if-no-files-found: ignore
+          retention-days: 7
+
+  build:
+    name: Next.js build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-web
+      - run: pnpm build
+
+  gate:
+    name: Web CI gate
+    if: always()
+    needs: [quality, integration, build]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    env:
+      RESULTS: ${{ toJSON(needs) }}
+    steps:
+      - name: Require every check to pass
+        run: |
+          node -e 'const jobs=JSON.parse(process.env.RESULTS); if(Object.values(jobs).some(job=>job.result!=="success")) process.exit(1)'

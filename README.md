@@ -21,6 +21,7 @@ Android 客户端已建立独立仓库：[CustodySim-app](https://github.com/PDS
 | 需要做什么                       | 文档                                            |
 | -------------------------------- | ----------------------------------------------- |
 | 本地启动 Web 和聊天服务          | [开发与测试](docs/development.md)               |
+| CI 检查、测试隔离与构建产物      | [持续集成](docs/ci.md)                          |
 | 首次部署、增量更新、Nginx 与排障 | [生产部署](docs/deployment.md)                  |
 | 数据库、密钥、实时服务与可选能力 | [配置参考](docs/configuration.md)               |
 | 构建、安装和联调 Android         | [Android 开发指南](docs/android-development.md) |

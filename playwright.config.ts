@@ -56,6 +56,12 @@ const baseURL = process.env.E2E_BASE_URL ?? "http://127.0.0.1:3100"
 const port = new URL(baseURL).port || "3000"
 
 export default defineConfig({
+  forbidOnly: Boolean(process.env.CI),
+  retries: process.env.CI ? 1 : 0,
+  workers: process.env.CI ? 2 : undefined,
+  reporter: process.env.CI
+    ? [["github"], ["html", { open: "never" }]]
+    : "list",
   testDir: "./e2e",
   // 每次 e2e 开始前按阈值清理 .next（webServer 直接调 next dev，绕过了 predev 钩子）。
   globalSetup: "./e2e/global-setup.ts",

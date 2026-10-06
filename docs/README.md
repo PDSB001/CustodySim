@@ -17,6 +17,7 @@
 
 - [项目概览](../README.md)
 - [开发与测试](development.md)：本地初始化、双进程启动、检查命令、测试隔离。
+- [持续集成](ci.md)：Web/API 与 Android 的检查、构建产物和维护规则。
 - [配置参考](configuration.md)：环境变量、密钥、代理与可选服务。
 - [生产部署](deployment.md)：首次与增量部署、两份脚本区别、Nginx 和故障排查。
 - [Android 开发指南](android-development.md)：工具链、私有地址、构建变体与运行验证。
