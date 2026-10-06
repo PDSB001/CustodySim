@@ -9,10 +9,10 @@ describe("rule schedule", () => {
         {
           freq: "DAILY",
           scheduleDays: [],
-          startDate: new Date(2026, 7, 1),
-          endDate: new Date(2026, 7, 31),
+          startDate: new Date("2026-08-01T00:00:00.000+08:00"),
+          endDate: new Date("2026-08-31T00:00:00.000+08:00"),
         },
-        new Date(2026, 7, 25),
+        new Date("2026-08-25T00:00:00.000+08:00"),
       ),
     ).toBe(true)
     expect(
@@ -20,17 +20,17 @@ describe("rule schedule", () => {
         {
           freq: "DAILY",
           scheduleDays: [],
-          startDate: new Date(2026, 7, 26),
+          startDate: new Date("2026-08-26T00:00:00.000+08:00"),
           endDate: null,
         },
-        new Date(2026, 7, 25),
+        new Date("2026-08-25T00:00:00.000+08:00"),
       ),
     ).toBe(false)
   })
 
   it("runs weekly rules only on selected weekdays", () => {
-    const monday = new Date(2026, 7, 24)
-    const tuesday = new Date(2026, 7, 25)
+    const monday = new Date("2026-08-24T00:00:00.000+08:00")
+    const tuesday = new Date("2026-08-25T00:00:00.000+08:00")
     const rule = {
       freq: "WEEKLY" as const,
       scheduleDays: [1, 3],
@@ -48,19 +48,27 @@ describe("rule schedule", () => {
       startDate: null,
       endDate: null,
     }
-    expect(isRuleScheduledForDate(rule, new Date(2026, 7, 15))).toBe(true)
-    expect(isRuleScheduledForDate(rule, new Date(2026, 7, 16))).toBe(false)
+    expect(
+      isRuleScheduledForDate(rule, new Date("2026-08-15T00:00:00.000+08:00")),
+    ).toBe(true)
+    expect(
+      isRuleScheduledForDate(rule, new Date("2026-08-16T00:00:00.000+08:00")),
+    ).toBe(false)
   })
 
   it("runs one-time rules on their start date only", () => {
     const rule = {
       freq: "ONCE" as const,
       scheduleDays: [],
-      startDate: new Date(2026, 7, 25, 9),
+      startDate: new Date("2026-08-25T09:00:00.000+08:00"),
       endDate: null,
     }
-    expect(isRuleScheduledForDate(rule, new Date(2026, 7, 25, 20))).toBe(true)
-    expect(isRuleScheduledForDate(rule, new Date(2026, 7, 26))).toBe(false)
+    expect(
+      isRuleScheduledForDate(rule, new Date("2026-08-25T20:00:00.000+08:00")),
+    ).toBe(true)
+    expect(
+      isRuleScheduledForDate(rule, new Date("2026-08-26T00:00:00.000+08:00")),
+    ).toBe(false)
   })
 
   it("uses Shanghai calendar dates at the UTC day boundary", () => {
