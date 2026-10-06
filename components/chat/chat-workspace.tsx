@@ -548,8 +548,13 @@ export function ChatWorkspace({ user }: { user: SessionUser }) {
         toast.error("图片已发送，但服务端未保存说明，请升级服务端后重试")
       }
       setPendingImage(null)
-      // 自己发的消息会出现在增量尾巴里，不必重取历史页（历史页可能含图片）。
-      client.invalidateQueries({ queryKey: ["chat-tail", selectedId] })
+      // 有历史游标时从增量尾巴读取新消息，避免重取可能包含图片的整页历史。
+      // 空会话没有 tail 查询（它需要最新消息 ID 作游标），首条消息必须刷新历史页。
+      if (historyMessages.length === 0) {
+        client.invalidateQueries({ queryKey: ["chat-messages", selectedId] })
+      } else {
+        client.invalidateQueries({ queryKey: ["chat-tail", selectedId] })
+      }
       client.invalidateQueries({ queryKey: ["chat-conversations"] })
     },
     onError: (error) =>
