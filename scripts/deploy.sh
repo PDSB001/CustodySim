@@ -65,6 +65,7 @@ upgrade_database() {
     # 社区表与档案自愿分享列：缺了它社区页与档案提交都会 500（幂等，可重复执行）。
     node scripts/upgrade-community.mjs "--database=$database_name"
     node scripts/upgrade-library.mjs "--database=$database_name"
+    node scripts/upgrade-isolation-schedule.mjs "--database=$database_name"
   fi
 }
 

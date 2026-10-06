@@ -24,7 +24,7 @@ export async function GET() {
     const templateIds = Array.isArray(settings?.templateIds) && settings.templateIds.length
       ? settings.templateIds.filter((id): id is string => typeof id === "string")
       : settings?.templateId ? [settings.templateId] : [defaultTemplate.id]
-    return success({ settings: { templateIds, scheduleTime: settings?.scheduleTime ?? "19:00", timeoutMinutes: settings?.timeoutMinutes ?? 240 }, templates })
+    return success({ settings: { templateIds, scheduleTime: settings?.scheduleTime ?? "00:00", timeoutMinutes: settings?.timeoutMinutes ?? 1380 }, templates })
   } catch (error) {
     console.error("[API isolation-settings GET]", error)
     return failure("INTERNAL_ERROR", "服务器错误", 500)

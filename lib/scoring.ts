@@ -625,10 +625,10 @@ export async function ensureIsolationReflectionTask(
         })),
       }
     }
-    const scheduleTime = settings?.scheduleTime ?? "19:00"
+    const scheduleTime = settings?.scheduleTime ?? "00:00"
     const scheduleAt = new Date(`${dayKey}T${scheduleTime}:00+08:00`)
     const deadline = new Date(
-      scheduleAt.getTime() + (settings?.timeoutMinutes ?? 240) * 60_000,
+      scheduleAt.getTime() + (settings?.timeoutMinutes ?? 1380) * 60_000,
     )
     const taskId = await db.transaction(async (tx) => {
       // Serialize with cancellation so a stale scheduler snapshot cannot create

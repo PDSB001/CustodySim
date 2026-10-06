@@ -1094,8 +1094,8 @@ export const isolationSettings = pgTable("isolation_settings", {
   templateIds: jsonb("template_ids").notNull().default([]),
   scheduleTime: varchar("schedule_time", { length: 5 })
     .notNull()
-    .default("19:00"),
-  timeoutMinutes: integer("timeout_minutes").notNull().default(240),
+    .default("00:00"),
+  timeoutMinutes: integer("timeout_minutes").notNull().default(1380),
   updatedAt: timestamp("updated_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
