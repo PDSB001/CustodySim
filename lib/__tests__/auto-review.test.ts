@@ -5,6 +5,7 @@ import {
 } from "@/lib/auto-review-policy"
 import { reviewWithGlm } from "@/lib/glm-review"
 import { getGlmReviewConfig } from "@/lib/glm-review-config"
+import { getGlmReviewConcurrencyLimit } from "@/lib/glm-review-concurrency"
 
 const template = {
   content: "说明今天完成的一项工作及结果",
@@ -163,6 +164,21 @@ it("服务商之间不回退使用另一站点的密钥", () => {
   expect(domestic.endpoint).toBe(
     "https://open.bigmodel.cn/api/paas/v4/chat/completions",
   )
+})
+it("按模型权益设置并发上限，并允许 Coding 套餐覆盖", () => {
+  expect(getGlmReviewConcurrencyLimit("glm-4.7-flash", {})).toBe(1)
+  expect(getGlmReviewConcurrencyLimit("glm-4.5-flash", {})).toBe(2)
+  expect(getGlmReviewConcurrencyLimit("glm-4.1v-thinking-flash", {})).toBe(5)
+  expect(
+    getGlmReviewConcurrencyLimit("glm-4.7-flash", {
+      GLM_REVIEW_MAX_CONCURRENCY: "3",
+    }),
+  ).toBe(3)
+  expect(
+    getGlmReviewConcurrencyLimit("glm-4.7-flash", {
+      GLM_REVIEW_MAX_CONCURRENCY: "0",
+    }),
+  ).toBe(1)
 })
 it.each([
   { GLM_PROVIDER: "constructor" },

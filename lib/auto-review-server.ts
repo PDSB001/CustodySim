@@ -11,6 +11,7 @@ import {
 } from "@/lib/db/schema"
 import { prepareAutoReview, manualDecision } from "@/lib/auto-review-policy"
 import { reviewWithGlm } from "@/lib/glm-review"
+import { acquireGlmReviewConcurrencySlot } from "@/lib/glm-review-concurrency"
 import { getGlmReviewConfig } from "@/lib/glm-review-config"
 import { applyTaskReview } from "@/lib/task-review"
 import { getSupervisedUserIdsForActor } from "@/lib/supervision-scope"
@@ -20,6 +21,9 @@ import { getAutoReviewSettings } from "@/lib/auto-review-settings"
 import { reviewCheckinMakeup } from "@/lib/checkin"
 
 export const autoReviewVersion = sql<string>`${reportTasks.updatedAt}::text || '/' || ${reportSubmissions.updatedAt}::text`
+// A sweep can issue up to three task reviews and three makeup reviews serially.
+// Keep interrupted-run recovery beyond their combined 6-minute request budget.
+const staleReviewRunMs = 10 * 60_000
 
 export async function runAutoReviewSweep() {
   const { settings } = await getAutoReviewSettings()
@@ -52,7 +56,7 @@ export async function runAutoReviewSweep() {
       .where(
         and(
           eq(autoReviewRuns.status, "PROCESSING"),
-          lt(autoReviewRuns.createdAt, new Date(Date.now() - 300_000)),
+          lt(autoReviewRuns.createdAt, new Date(Date.now() - staleReviewRunMs)),
         ),
       )
   const supervisedIds = [...(await getSupervisedUserIdsForActor(actor))]
@@ -97,16 +101,6 @@ export async function runAutoReviewSweep() {
       currentSettings.revision !== settings.revision
     )
       break
-    const [run] = await db
-      .insert(autoReviewRuns)
-      .values({
-        submissionId: row.submission.id,
-        inputVersion: row.version,
-        model: config.model,
-      })
-      .onConflictDoNothing()
-      .returning()
-    if (!run) continue
     const payload = row.task.payload as { isReflection?: boolean } | null
     const prepared = prepareAutoReview(
       row.task.templateSnapshot,
@@ -116,9 +110,38 @@ export async function runAutoReviewSweep() {
         (row.task.templateSnapshot as { name?: string })?.name ===
           ISOLATION_REPORT_TEMPLATE_NAME,
     )
-    let decision =
-      prepared.decision ??
-      (await reviewWithGlm(prepared.input!, apiKey, config))
+    const releaseSlot = prepared.decision
+      ? null
+      : await acquireGlmReviewConcurrencySlot(config)
+    if (!prepared.decision && !releaseSlot) break
+    let run: typeof autoReviewRuns.$inferSelect | undefined
+    try {
+      const inserted = await db
+        .insert(autoReviewRuns)
+        .values({
+          submissionId: row.submission.id,
+          inputVersion: row.version,
+          model: config.model,
+        })
+        .onConflictDoNothing()
+        .returning()
+      run = inserted[0]
+    } catch (error) {
+      await releaseSlot?.()
+      throw error
+    }
+    if (!run) {
+      await releaseSlot?.()
+      continue
+    }
+    let decision = prepared.decision
+    if (!decision) {
+      try {
+        decision = await reviewWithGlm(prepared.input!, apiKey, config)
+      } finally {
+        await releaseSlot?.()
+      }
+    }
     if (decision.result !== "MANUAL") {
       try {
         // Recheck authorization after the network call, before changing business state.
@@ -178,7 +201,10 @@ export async function runAutoReviewSweep() {
       .where(
         and(
           eq(autoReviewMakeupRuns.status, "PROCESSING"),
-          lt(autoReviewMakeupRuns.createdAt, new Date(Date.now() - 300_000)),
+          lt(
+            autoReviewMakeupRuns.createdAt,
+            new Date(Date.now() - staleReviewRunMs),
+          ),
         ),
       )
     const makeups = await db
@@ -210,16 +236,6 @@ export async function runAutoReviewSweep() {
           ]),
         )
         .digest("hex")
-      const [run] = await db
-        .insert(autoReviewMakeupRuns)
-        .values({
-          makeupId: makeup.id,
-          inputVersion,
-          model: config.model,
-        })
-        .onConflictDoNothing()
-        .returning()
-      if (!run) continue
       const prepared = makeup.photoUrl
         ? { decision: manualDecision("补卡包含图片凭证，请人工核验") }
         : prepareAutoReview(
@@ -238,9 +254,38 @@ export async function runAutoReviewSweep() {
             { 补卡原因: makeup.reason },
             false,
           )
-      let decision =
-        prepared.decision ??
-        (await reviewWithGlm(prepared.input!, apiKey, config))
+      const releaseSlot = prepared.decision
+        ? null
+        : await acquireGlmReviewConcurrencySlot(config)
+      if (!prepared.decision && !releaseSlot) break
+      let run: typeof autoReviewMakeupRuns.$inferSelect | undefined
+      try {
+        const inserted = await db
+          .insert(autoReviewMakeupRuns)
+          .values({
+            makeupId: makeup.id,
+            inputVersion,
+            model: config.model,
+          })
+          .onConflictDoNothing()
+          .returning()
+        run = inserted[0]
+      } catch (error) {
+        await releaseSlot?.()
+        throw error
+      }
+      if (!run) {
+        await releaseSlot?.()
+        continue
+      }
+      let decision = prepared.decision
+      if (!decision) {
+        try {
+          decision = await reviewWithGlm(prepared.input!, apiKey, config)
+        } finally {
+          await releaseSlot?.()
+        }
+      }
       if (decision.result === "APPROVED" || decision.result === "RETURNED") {
         try {
           const [currentActor] = await db

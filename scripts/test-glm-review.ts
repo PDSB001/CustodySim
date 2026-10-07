@@ -2,13 +2,33 @@ import { config } from "dotenv"
 import { mkdir, writeFile } from "node:fs/promises"
 import { prepareAutoReview } from "@/lib/auto-review-policy"
 import { reviewWithGlm } from "@/lib/glm-review"
+import { withGlmReviewConcurrency } from "@/lib/glm-review-concurrency"
 import { getGlmReviewConfig } from "@/lib/glm-review-config"
+import type { GlmReviewModel } from "@/lib/glm-review-config"
 
 config({ path: ".env.local", quiet: true })
 
 // Explicitly invoked live smoke test: synthetic data only; no database imports.
 async function main() {
-  const reviewConfig = getGlmReviewConfig()
+  const providerArg = process.argv.find((arg) => arg.startsWith("--provider="))
+  const provider = providerArg?.slice("--provider=".length)
+  const modelArg = process.argv.find((arg) => arg.startsWith("--model="))
+  const modelOverride = modelArg?.slice("--model=".length)
+  const onlyArg = process.argv.find((arg) => arg.startsWith("--only="))
+  const onlyCase = onlyArg?.slice("--only=".length)
+  const reviewConfig = {
+    ...getGlmReviewConfig(process.env, provider),
+    ...(modelOverride ? { model: modelOverride as GlmReviewModel } : {}),
+  }
+  if (
+    modelOverride &&
+    !["glm-4.5-flash", "glm-4.7-flash"].includes(modelOverride) &&
+    modelOverride !== reviewConfig.model
+  ) {
+    console.error("仅允许诊断当前服务商默认模型或 glm-4.5-flash、glm-4.7-flash")
+    process.exitCode = 1
+    return
+  }
   const key = reviewConfig.apiKey
   if (reviewConfig.configurationError) {
     console.error(reviewConfig.configurationError)
@@ -64,6 +84,14 @@ async function main() {
       expected: ["RETURNED"],
     },
   ]
+  const selectedCases = onlyCase
+    ? cases.filter((sample) => sample.name === onlyCase)
+    : cases
+  if (selectedCases.length === 0) {
+    console.error("未找到指定样例；请使用脚本中定义的样例名称")
+    process.exitCode = 1
+    return
+  }
   const originalFetch = globalThis.fetch
   let httpStatus: number | null = null
   let providerError: { code: string; message: string } | null = null
@@ -88,7 +116,7 @@ async function main() {
   }
   const results = []
   try {
-    for (const sample of cases) {
+    for (const sample of selectedCases) {
       httpStatus = null
       providerError = null
       const prepared = prepareAutoReview(
@@ -102,8 +130,15 @@ async function main() {
         false,
       )
       const started = Date.now()
-      const decision =
-        prepared.decision ?? (await reviewWithGlm(prepared.input!, key))
+      const decision = prepared.decision ??
+        (await withGlmReviewConcurrency(reviewConfig, () =>
+          reviewWithGlm(prepared.input!, key, reviewConfig),
+        )) ?? {
+          result: "MANUAL" as const,
+          confidence: 0,
+          reason: "模型并发已满，本次未发起请求",
+          issues: [],
+        }
       const row = {
         name: sample.name,
         expected: sample.expected,
@@ -136,16 +171,20 @@ async function main() {
     JSON.stringify(
       {
         model: reviewConfig.model,
+        provider: reviewConfig.provider,
         testedAt: new Date().toISOString(),
         syntheticOnly: true,
-        expectedCount: cases.length,
+        expectedCount: selectedCases.length,
         results,
       },
       null,
       2,
     ),
   )
-  if (results.length !== cases.length || results.some((row) => !row.passed))
+  if (
+    results.length !== selectedCases.length ||
+    results.some((row) => !row.passed)
+  )
     process.exitCode = 1
 }
 main().catch(() => {

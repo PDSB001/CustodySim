@@ -34,4 +34,6 @@ const pool =
   })
 if (process.env.NODE_ENV !== "production") globalForDb.custodySimPool = pool
 
+// Session-level advisory locks need a pinned PostgreSQL connection for their lifetime.
+export const dbPool = pool
 export const db = drizzle({ client: pool, schema })

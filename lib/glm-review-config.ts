@@ -11,17 +11,29 @@ const providers = {
   },
 } as const
 
+export type GlmReviewModel =
+  "glm-4.1v-thinking-flash" | "glm-4.5-flash" | "glm-4.7-flash"
+
+export type GlmReviewConfig = {
+  provider: string
+  model: GlmReviewModel
+  endpoint: string | null
+  apiKeyVariable: string
+  apiKey: string
+  configurationError: string | null
+}
+
 /** Server-only configuration. Credentials never fall back across providers. */
 export function getGlmReviewConfig(
   env: Record<string, string | undefined> = process.env,
   providerOverride?: string,
-) {
+): GlmReviewConfig {
   const provider =
     providerOverride?.trim() || env.GLM_PROVIDER?.trim() || "bigmodel"
   const fallback = Object.hasOwn(providers, provider)
     ? providers[provider as keyof typeof providers].defaultModel
     : "glm-4.1v-thinking-flash"
-  const model = fallback
+  const model: GlmReviewModel = fallback
   const selected = Object.hasOwn(providers, provider)
     ? providers[provider as keyof typeof providers]
     : undefined

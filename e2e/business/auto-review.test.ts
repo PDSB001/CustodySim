@@ -168,6 +168,41 @@ test("自动通过与并发扫描只产生一份审核和积分", async () => {
       .where(eq(s.scoreEvents.supervisedId, user)),
   ).toMatchObject([{ points: 2 }])
 })
+test("重叠扫描共享数据库模型并发槽", async () => {
+  await fixture()
+  await fixture()
+  vi.stubEnv("GLM_REVIEW_MAX_CONCURRENCY", "1")
+  let signalFirstCallStarted!: () => void
+  let releaseFirstCall!: () => void
+  const firstCallStarted = new Promise<void>((resolve) => {
+    signalFirstCallStarted = resolve
+  })
+  const firstCallGate = new Promise<void>((resolve) => {
+    releaseFirstCall = resolve
+  })
+  let inFlight = 0
+  let maxInFlight = 0
+  const fetcher = vi.fn(async () => {
+    inFlight += 1
+    maxInFlight = Math.max(maxInFlight, inFlight)
+    if (fetcher.mock.calls.length === 1) {
+      signalFirstCallStarted()
+      await firstCallGate
+    }
+    inFlight -= 1
+    return reply()
+  })
+  vi.stubGlobal("fetch", fetcher)
+
+  const firstSweep = runAutoReviewSweep()
+  await firstCallStarted
+  expect(await runAutoReviewSweep()).toBe(0)
+  releaseFirstCall()
+  await firstSweep
+
+  expect(maxInFlight).toBe(1)
+  expect(fetcher).toHaveBeenCalledTimes(2)
+})
 test("有证据的退回不加分，并保存修改说明", async () => {
   const row = await fixture()
   vi.stubGlobal(
@@ -365,7 +400,7 @@ test("开关保存立即影响扫描，写入审计并阻止旧版本覆盖", as
       }),
       expect.objectContaining({
         entityType: "auto_review_settings",
-        actionLabel: "启用自动审核",
+        actionLabel: "更新自动审核设置",
       }),
     ]),
   )
@@ -377,6 +412,8 @@ test("首次保存并发只有一个成功，默认不继承环境变量开关",
   expect((await getAutoReviewSettings()).settings.enabled).toBe(false)
   const value = {
     enabled: false,
+    makeupEnabled: false,
+    provider: "bigmodel",
     actorId: admin,
     templateIds: [templateId],
     revision: null,
