@@ -7,7 +7,7 @@ const providers = {
   zai: {
     endpoint: "https://api.z.ai/api/paas/v4/chat/completions",
     apiKeyVariable: "ZAI_API_KEY",
-    defaultModel: "glm-4.7-flash",
+    defaultModel: "glm-4.5-flash",
   },
 } as const
 

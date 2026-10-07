@@ -101,7 +101,7 @@ export function AutoReviewManage() {
                 {settings.provider === "zai" ? "z.ai" : "智谱 BigModel"} ·
                 模型：
                 {settings.provider === "zai"
-                  ? "glm-4.7-flash"
+                  ? "glm-4.5-flash"
                   : "glm-4.1v-thinking-flash"}
               </p>
               <div className="space-y-2">

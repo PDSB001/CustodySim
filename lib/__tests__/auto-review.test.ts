@@ -136,8 +136,8 @@ it("严格解析模型输出并限制模型为免费 Flash", async () => {
   expect(fetcher.mock.calls[0][0]).toBe(
     "https://api.z.ai/api/paas/v4/chat/completions",
   )
-  expect(call.model).toBe("glm-4.7-flash")
-  expect(call.thinking).toEqual({ type: "enabled" })
+  expect(call.model).toBe("glm-4.5-flash")
+  expect(call.thinking).toBeUndefined()
   expect(call.response_format).toEqual({ type: "json_object" })
   expect(call.messages[1].role).toBe("user")
 })

@@ -1,6 +1,6 @@
 # GLM 自动任务审核
 
-服务端每分钟扫描待审核任务，每批最多 3 个，串行请求所选智谱服务商。默认保留原 BigModel 地址及 `glm-4.1v-thinking-flash`；管理员可切换至 z.ai 的免费 `glm-4.7-flash`。同一服务商和模型的请求使用 PostgreSQL 会话级 advisory lock 跨进程限制并发；默认按余额 API 上限配置：`glm-4.1v-thinking-flash` 为 5、`glm-4.5-flash` 为 2、`glm-4.7-flash` 为 1，其他模型保守设为 1。若账号属于 Coding 套餐或权益不同，可用 `GLM_REVIEW_MAX_CONCURRENCY` 按其套餐权益覆盖。没有可用并发槽时本轮暂缓，留待后续扫描，不会占用审核记录。每次模型调用最多等待 60 秒；超时或输出截断转人工。任务审核与补卡审核各最多串行处理 3 项，过期运行在 10 分钟后回收为人工审核。仅对明确启用的模板处理，模型不能获得人员档案、账号、历史积分；发送模板要求和本次模板字段的回答。回答本身如果包含个人信息，仍会传给所选服务商，因此只启用适合外部模型处理的模板。
+服务端每分钟扫描待审核任务，每批最多 3 个，串行请求所选智谱服务商。默认保留原 BigModel 地址及 `glm-4.1v-thinking-flash`；管理员可切换至 z.ai 的 `glm-4.5-flash`。同一服务商和模型的请求使用 PostgreSQL 会话级 advisory lock 跨进程限制并发；默认按余额 API 上限配置：`glm-4.1v-thinking-flash` 为 5、`glm-4.5-flash` 为 2、`glm-4.7-flash` 为 1，其他模型保守设为 1。若账号属于 Coding 套餐或权益不同，可用 `GLM_REVIEW_MAX_CONCURRENCY` 按其套餐权益覆盖。没有可用并发槽时本轮暂缓，留待后续扫描，不会占用审核记录。每次模型调用最多等待 60 秒；超时或输出截断转人工。任务审核与补卡审核各最多串行处理 3 项，过期运行在 10 分钟后回收为人工审核。仅对明确启用的模板处理，模型不能获得人员档案、账号、历史积分；发送模板要求和本次模板字段的回答。回答本身如果包含个人信息，仍会传给所选服务商，因此只启用适合外部模型处理的模板。
 
 ## 启用
 
@@ -17,7 +17,7 @@ ZAI_API_KEY=your-z-ai-key-if-selected
 
 开关和范围保存在当前数据库，默认关闭；旧的 `AUTO_TASK_REVIEW_ENABLED`、`AUTO_TASK_REVIEW_ACTOR_ID`、`AUTO_TASK_REVIEW_TEMPLATE_IDS` 环境变量不再控制审核。保存后无需重启，下次扫描（最多一分钟）读取新设置，符合条件的已有待审核提交也会处理。关闭或更改范围后，尚未应用的旧模型结论会转人工；审核事务与设置更新通过数据库锁排序，关闭保存成功后旧结论不会再提交。设置变更与审计在同一事务中保存，多管理员同时编辑发生冲突时须刷新。
 
-默认接口保留 `https://open.bigmodel.cn/api/paas/v4/chat/completions` 与原来的 `glm-4.1v-thinking-flash`，升级后既有部署继续使用原密钥。管理员可在页面切换到 z.ai；此时使用 `https://api.z.ai/api/paas/v4/chat/completions` 与免费 `glm-4.7-flash`，不会切换到收费 FlashX。官方定价：https://docs.z.ai/guides/overview/pricing 。
+默认接口保留 `https://open.bigmodel.cn/api/paas/v4/chat/completions` 与原来的 `glm-4.1v-thinking-flash`，升级后既有部署继续使用原密钥。管理员可在页面切换到 z.ai；此时使用 `https://api.z.ai/api/paas/v4/chat/completions` 与 `glm-4.5-flash`，不会切换到收费 FlashX。官方定价：https://docs.z.ai/guides/overview/pricing 。
 
 密钥按服务商隔离，不会互相回退或转发。切换前需在服务端配置对应密钥；更换服务器密钥后重启服务。没有配置时无法保存开启状态，扫描也不会外发内容。
 
