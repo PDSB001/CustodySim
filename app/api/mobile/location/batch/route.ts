@@ -61,6 +61,17 @@ export async function POST(request: NextRequest) {
       await tx.execute(
         sql`select pg_advisory_xact_lock(hashtext(${`geofence:${actor.id}`}))`,
       )
+      const latest = await getLatestElectronicFenceLocation(actor.id, tx)
+      // Retries and duplicate timestamps are skipped below; only points that
+      // can actually be inserted should consume the rolling daily allowance.
+      let newestAt = latest?.reportedAt?.getTime() ?? -Infinity
+      let incomingCount = 0
+      for (const point of points) {
+        const capturedAt = new Date(point.capturedAt).getTime()
+        if (capturedAt <= newestAt) continue
+        newestAt = capturedAt
+        incomingCount += 1
+      }
       // 每日点数上限：与最小间隔配套 —— 遵守最小间隔的客户端永远碰不到它，
       // 只有异常高频或伪造流量的客户端会被拦下。
       const [counted] = await tx
@@ -76,7 +87,7 @@ export async function POST(request: NextRequest) {
             ),
           ),
         )
-      if ((counted?.used ?? 0) + points.length > LOCATION_MAX_POINTS_PER_DAY)
+      if ((counted?.used ?? 0) + incomingCount > LOCATION_MAX_POINTS_PER_DAY)
         return { ok: false as const }
 
       const profile = await getCustodyProfileForUser(actor.id)
@@ -84,7 +95,6 @@ export async function POST(request: NextRequest) {
         profile?.custodyStatus ?? "",
       )
       const fence = await getCurrentElectronicFence(actor.id, tx)
-      const latest = await getLatestElectronicFenceLocation(actor.id, tx)
 
       let previousAt = latest?.reportedAt ?? null
       let previousVerdict: string | null = latest?.insideFence ?? null

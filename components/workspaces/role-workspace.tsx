@@ -155,8 +155,8 @@ const serviceLinks = {
   SUPERVISOR: [
     {
       href: "/supervisor/tasks",
-      label: "呈报批阅",
-      detail: "核对呈报内容并给出批阅意见",
+      label: "审核工作台",
+      detail: "批阅任务内容与核准补卡申请",
       icon: ClipboardCheck,
     },
     {
@@ -164,12 +164,6 @@ const serviceLinks = {
       label: "点名总览",
       detail: "查看本班点名记录",
       icon: CalendarCheck2,
-    },
-    {
-      href: "/supervisor/makeups",
-      label: "补点核准",
-      detail: "核实漏点原因与补点凭据",
-      icon: TimerReset,
     },
     {
       href: "/supervisor/reports",
@@ -545,7 +539,7 @@ export function RoleWorkspaceHome({
                     detail: "核对呈报内容，给出批阅意见",
                   },
                   {
-                    href: "/supervisor/makeups",
+                    href: "/supervisor/tasks?tab=makeups",
                     label: "补点核准",
                     count: summary.data?.pendingMakeups,
                     detail: "核实漏点原因与补点凭据",

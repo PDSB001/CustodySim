@@ -13,7 +13,6 @@ import {
   MessagesSquare,
   Route,
   ShieldCheck,
-  TimerReset,
   Trophy,
   UserRound,
 } from "lucide-react"
@@ -46,10 +45,9 @@ const workspaceConfig = {
     roleLabel: "监管员",
     entries: [
       { href: "/supervisor", label: "执勤总览", icon: ClipboardCheck },
-      { href: "/supervisor/tasks", label: "呈报批阅", icon: ClipboardCheck },
+      { href: "/supervisor/tasks", label: "审核工作台", icon: ClipboardCheck },
       { href: "/supervisor/library", label: "图书馆", icon: BookOpen },
       { href: "/supervisor/checkins", label: "点名记录", icon: CalendarCheck2 },
-      { href: "/supervisor/makeups", label: "补点核准", icon: TimerReset },
       {
         href: "/supervisor/location-tracks",
         label: "位置轨迹",
@@ -117,7 +115,6 @@ function WorkspaceSidebar({
               "/supervisor/tasks",
               "/supervisor/library",
               "/supervisor/checkins",
-              "/supervisor/makeups",
               "/supervisor/location-tracks",
               "/supervisor/alerts",
             ],

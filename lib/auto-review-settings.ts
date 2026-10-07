@@ -6,6 +6,8 @@ import { autoReviewSettings } from "@/lib/db/schema"
 export const AutoReviewSettingsSchema = z
   .object({
     enabled: z.boolean(),
+    makeupEnabled: z.boolean(),
+    provider: z.enum(["bigmodel", "zai"]),
     actorId: z.string().uuid().nullable(),
     templateIds: z
       .array(z.string().uuid())
@@ -15,18 +17,20 @@ export const AutoReviewSettingsSchema = z
   })
   .strict()
 
-export function isMissingAutoReviewTable(error: unknown): boolean {
+export function isMissingAutoReviewStorage(error: unknown): boolean {
   if (!error || typeof error !== "object") return false
   const value = error as { code?: string; cause?: unknown }
   return (
-    value.code === "42P01" ||
-    (value.cause !== error && isMissingAutoReviewTable(value.cause))
+    ["42P01", "42703"].includes(value.code ?? "") ||
+    (value.cause !== error && isMissingAutoReviewStorage(value.cause))
   )
 }
 
 export async function getAutoReviewSettings() {
   const defaults = {
     enabled: false,
+    makeupEnabled: false,
+    provider: "bigmodel" as const,
     actorId: null,
     templateIds: [] as string[],
     revision: null,
@@ -40,6 +44,9 @@ export async function getAutoReviewSettings() {
       settings: row
         ? {
             enabled: row.enabled,
+            makeupEnabled: row.makeupEnabled,
+            provider:
+              row.provider === "zai" ? ("zai" as const) : ("bigmodel" as const),
             actorId: row.actorId,
             templateIds: row.templateIds,
             revision: row.revision,
@@ -48,7 +55,7 @@ export async function getAutoReviewSettings() {
       storageReady: true,
     }
   } catch (error) {
-    if (isMissingAutoReviewTable(error))
+    if (isMissingAutoReviewStorage(error))
       return { settings: defaults, storageReady: false }
     throw error
   }

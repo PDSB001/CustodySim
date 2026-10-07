@@ -1,5 +1,5 @@
-import { MakeupReview } from "@/components/checkin/checkin-workspaces"
+import { redirect } from "next/navigation"
 
 export default function SupervisorMakeupsPage() {
-  return <MakeupReview />
+  redirect("/supervisor/tasks?tab=makeups")
 }

@@ -8,7 +8,7 @@ import { z } from "zod"
 
 import { formatDate, requestApi } from "@/components/shared/api-client"
 import { PageHeader } from "@/components/shared/page-header"
-import { LoadingBlock } from "@/components/shared/query-state-view"
+import { ErrorState, LoadingBlock } from "@/components/shared/query-state-view"
 import { TaskSubmissionContent } from "@/components/tasks/task-submission-content"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -181,6 +181,17 @@ export function ReviewHistory() {
         <CardContent className="p-5 sm:p-7">
           {reviews.isLoading ? (
             <LoadingBlock rows={5} />
+          ) : reviews.isError ? (
+            <ErrorState
+              compact
+              title="加载批阅记录失败"
+              description={
+                reviews.error instanceof Error
+                  ? reviews.error.message
+                  : undefined
+              }
+              onRetry={() => void reviews.refetch()}
+            />
           ) : records.length === 0 ? (
             <p className="text-muted-foreground py-10 text-center text-sm">
               暂无批阅记录

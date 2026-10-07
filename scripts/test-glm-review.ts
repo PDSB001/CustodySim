@@ -1,15 +1,22 @@
 import { config } from "dotenv"
 import { mkdir, writeFile } from "node:fs/promises"
 import { prepareAutoReview } from "@/lib/auto-review-policy"
-import { GLM_REVIEW_MODEL, reviewWithGlm } from "@/lib/glm-review"
+import { reviewWithGlm } from "@/lib/glm-review"
+import { getGlmReviewConfig } from "@/lib/glm-review-config"
 
 config({ path: ".env.local", quiet: true })
 
 // Explicitly invoked live smoke test: synthetic data only; no database imports.
 async function main() {
-  const key = process.env.GLM_API_KEY?.trim()
+  const reviewConfig = getGlmReviewConfig()
+  const key = reviewConfig.apiKey
+  if (reviewConfig.configurationError) {
+    console.error(reviewConfig.configurationError)
+    process.exitCode = 1
+    return
+  }
   if (!key) {
-    console.error("GLM_API_KEY 未配置")
+    console.error(`${reviewConfig.apiKeyVariable} 未配置`)
     process.exitCode = 1
     return
   }
@@ -128,7 +135,7 @@ async function main() {
     ".logs/glm-live-review.json",
     JSON.stringify(
       {
-        model: GLM_REVIEW_MODEL,
+        model: reviewConfig.model,
         testedAt: new Date().toISOString(),
         syntheticOnly: true,
         expectedCount: cases.length,

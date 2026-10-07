@@ -61,7 +61,9 @@ test("移动尺寸登录后保留会话并进入个人服务台", async ({ page 
   await page.setViewportSize({ width: 390, height: 844 })
   await login(page, "user", "user12345")
   await expect(page).toHaveURL("/my")
-  await expect(page.getByRole("heading", { name: "刘晨，监室日程" })).toBeVisible()
+  await expect(
+    page.getByRole("heading", { name: "刘晨，监室日程" }),
+  ).toBeVisible()
   await expect(page.getByLabel("今日打卡")).toBeVisible()
 })
 
@@ -182,25 +184,122 @@ test("监管者可以查看辖区日常打卡", async ({ page }) => {
   await expect(page.locator('input[type="date"]')).toHaveCount(0)
 })
 
-test("监管侧可以从汇总下钻查看某人的打卡明细", async ({ page }) => {
-  await login(page, "admin", "admin123")
-  // 管理侧支持 ?date= 直达；未选日期时汇总表不渲染（`enabled: Boolean(date)`），也就没有下钻入口。
-  const today = new Date().toLocaleDateString("en-CA")
-  await page.goto(`/supervision/checkins?date=${today}`)
-  await expect(
-    page.getByRole("heading", { name: "历史打卡记录" }),
-  ).toBeVisible()
+test.describe("监管打卡日期下钻", () => {
+  // 非上海设备上，汇总日期仍按上海计划日解释；时间文字按设备本地时区显示。
+  test.use({ timezoneId: "America/New_York" })
 
-  const drill = page.getByRole("button", { name: /打卡记录/ }).first()
-  // 造数不同（该日期可能没有在押人员）时跳过，避免把种子数据差异当成回归。
-  if ((await drill.count()) === 0)
-    test.skip(true, "该日期下没有可下钻的人员")
+  test("指定汇总日期按上海计划日查询并包含跨午夜打卡", async ({ page }) => {
+    await login(page, "admin", "admin123")
+    const date = "2026-09-26"
+    const personId = "11111111-1111-4111-8111-111111111111"
+    await page.route(/\/api\/supervision\/checkins\?date=/, async (route) => {
+      await route.fulfill({
+        json: {
+          success: true,
+          data: [
+            {
+              supervisedId: personId,
+              supervisedName: "指定日期人员",
+              scheduledCount: 2,
+              completedCount: 2,
+              exceptionCount: 0,
+              pendingCount: 0,
+              latestCheckinAt: "2026-09-26T16:15:00.000Z",
+              slots: [
+                {
+                  slotIndex: 0,
+                  scheduleAt: "2026-09-26T00:00:00.000Z",
+                  status: "COMPLETED",
+                },
+                {
+                  slotIndex: 1,
+                  scheduleAt: "2026-09-26T15:00:00.000Z",
+                  status: "COMPLETED",
+                },
+              ],
+            },
+          ],
+        },
+      })
+    })
+    const daytimeRecord = {
+      id: "22222222-2222-4222-8222-222222222222",
+      taskId: "33333333-3333-4333-8333-333333333333",
+      checkinAt: "2026-09-26T00:15:00.000Z",
+      status: "ON_TIME",
+      slotIndex: 0,
+      photoUrl: null,
+      location: null,
+      lat: null,
+      lng: null,
+      locationSource: "IP",
+      ip: null,
+      clientType: "WEB",
+      browserType: null,
+      remark: null,
+      taskStatus: "COMPLETED",
+      scheduleAt: "2026-09-26T00:00:00.000Z",
+      deadline: "2026-09-26T01:00:00.000Z",
+      makeupId: null,
+      makeupReason: null,
+      makeupStatus: null,
+      makeupComment: null,
+      makeupReviewedAt: null,
+      makeupPhotoUrl: null,
+    }
+    await page.route(
+      /\/api\/supervision\/checkins\/records\?/,
+      async (route) => {
+        await route.fulfill({
+          json: {
+            success: true,
+            data: {
+              items: [
+                {
+                  ...daytimeRecord,
+                  id: "44444444-4444-4444-8444-444444444444",
+                  taskId: "55555555-5555-4555-8555-555555555555",
+                  slotIndex: 1,
+                  // 上海 9/26 23:00 的计划，实际在 9/27 00:15 打卡。
+                  scheduleAt: "2026-09-26T15:00:00.000Z",
+                  checkinAt: "2026-09-26T16:15:00.000Z",
+                  deadline: "2026-09-26T17:00:00.000Z",
+                },
+                daytimeRecord,
+              ],
+              nextCursor: null,
+            },
+          },
+        })
+      },
+    )
 
-  await drill.click()
-  await expect(page.getByRole("heading", { name: /的打卡记录$/ })).toBeVisible()
-  // 明细弹层内的日期控件仍是私有日历控件（项目约定：不出现原生 input[type=date]）。
-  await expect(page.getByLabel("明细起始日期")).toBeVisible()
-  await expect(page.locator('input[type="date"]')).toHaveCount(0)
+    await page.goto(`/supervision/checkins?date=${date}`)
+    const drill = page
+      .getByRole("button", { name: "查看指定日期人员的打卡记录" })
+      .first()
+    await expect(drill).toBeVisible()
+    const recordsRequest = page.waitForRequest(
+      /\/api\/supervision\/checkins\/records\?/,
+    )
+    await drill.click()
+    const params = new URL((await recordsRequest).url()).searchParams
+    expect(params.get("userId")).toBe(personId)
+    expect(params.get("scheduleFrom")).toBe("2026-09-25T16:00:00.000Z")
+    expect(params.get("scheduleTo")).toBe("2026-09-26T16:00:00.000Z")
+    expect(params.has("from")).toBe(false)
+    expect(params.has("to")).toBe(false)
+    await expect(
+      page.getByRole("heading", { name: "指定日期人员的打卡记录" }),
+    ).toBeVisible()
+    await expect(page.getByText(/第 1 时段 · .*20:15/)).toBeVisible()
+    await expect(page.getByText(/第 2 时段 · .*12:15/)).toBeVisible()
+    await expect(
+      page.getByText("按任务计划日期筛选；跨日完成的打卡仍计入计划当天。"),
+    ).toBeVisible()
+    await expect(page.getByLabel("明细起始日期")).toBeVisible()
+    await expect(page.locator('input[type="date"]')).toHaveCount(0)
+  })
 })
 
 test("监管者可在任务页切换待审队列与批阅记录", async ({ page }) => {
@@ -229,9 +328,68 @@ test("批阅记录可展开查看当次提交内容", async ({ page }) => {
 test("补点核准默认仍是待审队列，并提供审核状态筛选", async ({ page }) => {
   await login(page, "admin", "admin123")
   await page.goto("/supervision/makeups")
+  await expect(page).toHaveURL(/\/supervision\/tasks\?tab=makeups$/)
   await expect(page.getByRole("heading", { name: "补点核准" })).toBeVisible()
   // 默认值与接口默认一致（PENDING）：既有观感不变，另给已审回看的入口。
   await expect(page.getByLabel("补卡审核状态筛选")).toBeVisible()
+})
+
+test("任务工作台处理补卡后更新待办，并在记录中显示审核意见", async ({
+  page,
+}) => {
+  await login(page, "supervisor", "supervisor123")
+  const id = "11111111-1111-4111-8111-111111111111"
+  let handled = false
+  let submitted: unknown
+  const makeup = {
+    id,
+    taskId: "22222222-2222-4222-8222-222222222222",
+    userName: "补卡回归人员",
+    ruleName: "晚间点名",
+    reason: "设备故障，申请补卡",
+    photoUrl: null,
+    status: "PENDING",
+    createdAt: "2026-10-07T12:00:00Z",
+  }
+  await page.route("**/api/dashboard-summary", (route) =>
+    route.fulfill({
+      json: {
+        success: true,
+        data: { pendingTasks: 0, pendingMakeups: handled ? 0 : 1 },
+      },
+    }),
+  )
+  await page.route(/\/api\/makeups\?/, (route) => {
+    const status = new URL(route.request().url()).searchParams.get("status")
+    const rows =
+      status === "PENDING"
+        ? handled
+          ? []
+          : [makeup]
+        : status === "APPROVED" && handled
+          ? [{ ...makeup, status: "APPROVED", reviewComment: "已核实设备故障" }]
+          : []
+    return route.fulfill({ json: { success: true, data: rows } })
+  })
+  await page.route(`**/api/makeups/${id}`, (route) => {
+    submitted = route.request().postDataJSON()
+    handled = true
+    return route.fulfill({ json: { success: true, data: { id } } })
+  })
+  await page.goto("/supervisor/makeups")
+  await expect(page).toHaveURL(/\/supervisor\/tasks\?tab=makeups$/)
+  await expect(page.getByRole("tab", { name: "待审补卡 (1)" })).toHaveAttribute(
+    "aria-selected",
+    "true",
+  )
+  await page.getByRole("tabpanel").getByRole("textbox").fill("已核实设备故障")
+  await page.getByRole("button", { name: "通过补卡" }).click()
+  await expect(page.getByRole("tab", { name: "待审补卡 (0)" })).toBeVisible()
+  expect(submitted).toEqual({ result: "APPROVED", comment: "已核实设备故障" })
+  await page.getByRole("tab", { name: "批阅记录", exact: true }).click()
+  await page.getByRole("tab", { name: "补卡记录", exact: true }).click()
+  await expect(page.getByText("审核意见：已核实设备故障")).toBeVisible()
+  await expect(page.getByRole("button", { name: "通过补卡" })).toHaveCount(0)
 })
 
 test("监管者可以进入申请审核页", async ({ page }) => {
@@ -300,10 +458,29 @@ test("管理员可查看并编辑电子围栏越界说明系统模板", async ({
   await expect(page.getByLabel(`删除模板：${templateName}`)).toBeDisabled()
 })
 
-test("填写任务会自动保存草稿", async ({ page }) => {
+test("连续填写任务时旧草稿不会覆盖新内容", async ({ page }) => {
   await login(page, "user", "user12345")
   const taskId = "11111111-1111-4111-8111-111111111111"
   let savedDraft: unknown
+  let completedSaves = 0
+  let receivedSaves = 0
+  let failNextSave = false
+  let firstRequestReceived!: () => void
+  const firstRequest = new Promise<void>((resolve) => {
+    firstRequestReceived = resolve
+  })
+  let releaseFirstSave!: () => void
+  const heldFirstSave = new Promise<void>((resolve) => {
+    releaseFirstSave = resolve
+  })
+  let thirdRequestReceived!: () => void
+  const thirdRequest = new Promise<void>((resolve) => {
+    thirdRequestReceived = resolve
+  })
+  let releaseThirdSave!: () => void
+  const heldThirdSave = new Promise<void>((resolve) => {
+    releaseThirdSave = resolve
+  })
   await page.route("**/api/tasks", async (route) => {
     await route.fulfill({
       json: {
@@ -338,7 +515,28 @@ test("填写任务会自动保存草稿", async ({ page }) => {
     })
   })
   await page.route("**/api/submissions/draft", async (route) => {
-    savedDraft = route.request().postDataJSON()
+    const nextDraft: unknown = route.request().postDataJSON()
+    receivedSaves += 1
+    if (receivedSaves === 1) {
+      firstRequestReceived()
+      await heldFirstSave
+    } else if (receivedSaves === 3) {
+      thirdRequestReceived()
+      await heldThirdSave
+    }
+    if (failNextSave) {
+      failNextSave = false
+      await route.fulfill({
+        status: 503,
+        json: {
+          success: false,
+          error: { code: "UNAVAILABLE", message: "暂时无法保存草稿" },
+        },
+      })
+      return
+    }
+    savedDraft = nextDraft
+    completedSaves += 1
     await route.fulfill({
       json: {
         success: true,
@@ -348,12 +546,44 @@ test("填写任务会自动保存草稿", async ({ page }) => {
   })
 
   await page.goto("/my/tasks")
-  await page.locator('input[type="text"]').first().fill("已填写的原因")
+  const answer = page.locator('input[type="text"]').first()
+  await answer.fill("先写的原因")
+  await firstRequest
+  await answer.fill("最后确认的原因")
+  // 给第二次 800ms 防抖留足时间，再让第一次请求结束。
+  await page.waitForTimeout(1_000)
+  releaseFirstSave()
+  await expect.poll(() => completedSaves).toBe(2)
   await expect
     .poll(() => savedDraft)
     .toEqual({
       taskId,
-      data: { 填写说明: "已填写的原因" },
+      data: { 填写说明: "最后确认的原因" },
+    })
+  await expect(page.getByText("草稿已自动保存")).toBeVisible()
+
+  await answer.fill("稍后撤回的原因")
+  await thirdRequest
+  await answer.fill("最后确认的原因")
+  await expect(page.getByText("正在自动保存草稿…")).toBeVisible()
+  releaseThirdSave()
+  await expect.poll(() => completedSaves).toBe(4)
+  await expect(savedDraft).toEqual({
+    taskId,
+    data: { 填写说明: "最后确认的原因" },
+  })
+  await expect(page.getByText("草稿已自动保存")).toBeVisible()
+
+  failNextSave = true
+  await answer.fill("网络失败后重试的原因")
+  await expect(page.getByText("草稿保存失败，将在下次编辑时重试")).toBeVisible()
+  await answer.fill("临时改动")
+  await answer.fill("网络失败后重试的原因")
+  await expect
+    .poll(() => savedDraft)
+    .toEqual({
+      taskId,
+      data: { 填写说明: "网络失败后重试的原因" },
     })
   await expect(page.getByText("草稿已自动保存")).toBeVisible()
 })

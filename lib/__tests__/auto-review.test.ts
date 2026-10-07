@@ -4,6 +4,7 @@ import {
   validateAutoDecision,
 } from "@/lib/auto-review-policy"
 import { reviewWithGlm } from "@/lib/glm-review"
+import { getGlmReviewConfig } from "@/lib/glm-review-config"
 
 const template = {
   content: "说明今天完成的一项工作及结果",
@@ -16,7 +17,10 @@ const approved = {
   reason: "回答具体，符合要求",
   issues: [],
 }
-afterEach(() => vi.unstubAllGlobals())
+afterEach(() => {
+  vi.unstubAllGlobals()
+  vi.unstubAllEnvs()
+})
 it("只发送模板定义的答案字段", () => {
   expect(
     prepareAutoReview(template, { ...data, secret: "不发送" }, false).input
@@ -110,6 +114,8 @@ it("调用超时保留人工审核", async () => {
   ).toBe("MANUAL")
 })
 it("严格解析模型输出并限制模型为免费 Flash", async () => {
+  vi.stubEnv("GLM_PROVIDER", "zai")
+  vi.stubEnv("GLM_REVIEW_MODEL", "glm-4.7-flash")
   const fetcher = vi.fn().mockResolvedValue(
     Response.json({
       choices: [
@@ -126,9 +132,55 @@ it("严格解析模型输出并限制模型为免费 Flash", async () => {
       .result,
   ).toBe("APPROVED")
   const call = JSON.parse(fetcher.mock.calls[0][1].body)
-  expect(call.model).toBe("glm-4.1v-thinking-flash")
-  expect(call).not.toHaveProperty("thinking")
+  expect(fetcher.mock.calls[0][0]).toBe(
+    "https://api.z.ai/api/paas/v4/chat/completions",
+  )
+  expect(call.model).toBe("glm-4.7-flash")
+  expect(call.thinking).toEqual({ type: "enabled" })
+  expect(call.response_format).toEqual({ type: "json_object" })
   expect(call.messages[1].role).toBe("user")
+})
+it("服务商之间不回退使用另一站点的密钥", () => {
+  expect(
+    getGlmReviewConfig({ GLM_API_KEY: "domestic-secret" }, "zai").apiKey,
+  ).toBe("")
+  expect(
+    getGlmReviewConfig(
+      {
+        ZAI_API_KEY: "overseas-secret",
+        GLM_API_KEY: "domestic-secret",
+      },
+      "zai",
+    ).apiKey,
+  ).toBe("overseas-secret")
+  const domestic = getGlmReviewConfig({
+    GLM_PROVIDER: "bigmodel",
+    GLM_REVIEW_MODEL: "glm-4.1v-thinking-flash",
+    GLM_API_KEY: "domestic-secret",
+    ZAI_API_KEY: "overseas-secret",
+  })
+  expect(domestic.apiKey).toBe("domestic-secret")
+  expect(domestic.endpoint).toBe(
+    "https://open.bigmodel.cn/api/paas/v4/chat/completions",
+  )
+})
+it.each([
+  { GLM_PROVIDER: "constructor" },
+  { GLM_PROVIDER: "https://other.example" },
+])("不支持的服务商不会发起请求: %j", async (env) => {
+  const fetcher = vi.fn()
+  vi.stubGlobal("fetch", fetcher)
+  const config = getGlmReviewConfig(env)
+  expect(
+    (
+      await reviewWithGlm(
+        { requirements: template, answers: data },
+        "test-key",
+        config,
+      )
+    ).result,
+  ).toBe("MANUAL")
+  expect(fetcher).not.toHaveBeenCalled()
 })
 it("截断或非 JSON 响应不应用", async () => {
   vi.stubGlobal(

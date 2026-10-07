@@ -262,6 +262,8 @@ function MakeupReviewCard({ makeup }: { makeup: z.infer<typeof Makeup> }) {
       }),
     onSuccess: () => {
       client.invalidateQueries({ queryKey: ["makeup-review"] })
+      client.invalidateQueries({ queryKey: ["dashboard-summary"] })
+      client.invalidateQueries({ queryKey: ["review-counts"] })
       toast.success("补点核准已完成")
     },
     onError: (error) =>
@@ -295,38 +297,53 @@ function MakeupReviewCard({ makeup }: { makeup: z.infer<typeof Makeup> }) {
             <ImageGallery value={makeup.photoUrl} label="补卡凭证" />
           </div>
         ) : null}
-        <div className="space-y-2">
-          <Label>审核说明</Label>
-          <Input
-            value={comment}
-            onChange={(event) => setComment(event.target.value)}
-            placeholder="可选"
-          />
-        </div>
-        <div className="flex gap-2">
-          <Button
-            disabled={review.isPending}
-            onClick={() => review.mutate("APPROVED")}
-          >
-            <ShieldCheck />
-            通过补卡
-          </Button>
-          <Button
-            variant="outline"
-            disabled={review.isPending}
-            onClick={() => review.mutate("REJECTED")}
-          >
-            驳回
-          </Button>
-        </div>
+        {makeup.status !== "PENDING" && makeup.reviewComment ? (
+          <p className="text-muted-foreground text-sm">
+            审核意见：{makeup.reviewComment}
+          </p>
+        ) : null}
+        {makeup.status === "PENDING" && (
+          <>
+            <div className="space-y-2">
+              <Label>审核说明</Label>
+              <Input
+                value={comment}
+                onChange={(event) => setComment(event.target.value)}
+                placeholder="可选"
+              />
+            </div>
+            <div className="flex gap-2">
+              <Button
+                disabled={review.isPending}
+                onClick={() => review.mutate("APPROVED")}
+              >
+                <ShieldCheck />
+                通过补卡
+              </Button>
+              <Button
+                variant="outline"
+                disabled={review.isPending}
+                onClick={() => review.mutate("REJECTED")}
+              >
+                驳回
+              </Button>
+            </div>
+          </>
+        )}
       </CardContent>
     </Card>
   )
 }
 
-export function MakeupReview() {
+export function MakeupReview({
+  historyOnly = false,
+}: {
+  historyOnly?: boolean
+}) {
   // 默认只看待审（接口默认值也是 PENDING）；切到已审即可回看历史结论与审批意见。
-  const [status, setStatus] = useState<string>("PENDING")
+  const [status, setStatus] = useState<string>(
+    historyOnly ? "APPROVED" : "PENDING",
+  )
   const makeups = useQuery({
     queryKey: ["makeup-review", status],
     queryFn: () =>
@@ -336,7 +353,7 @@ export function MakeupReview() {
     <div className="workspace-stack mx-auto max-w-5xl">
       <PageHeader
         eyebrow="监管执行"
-        title="补点核准"
+        title={historyOnly ? "补卡审核记录" : "补点核准"}
         description="核实所辖人员的漏点原因与补卡凭据，作出审核决定并留存意见。"
       />
       <div className="w-full px-1 sm:w-52">
@@ -347,10 +364,10 @@ export function MakeupReview() {
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="PENDING">待审核</SelectItem>
+              {!historyOnly && <SelectItem value="PENDING">待审核</SelectItem>}
               <SelectItem value="APPROVED">已批准</SelectItem>
               <SelectItem value="REJECTED">已拒绝</SelectItem>
-              <SelectItem value="ALL">全部</SelectItem>
+              {!historyOnly && <SelectItem value="ALL">全部</SelectItem>}
             </SelectContent>
           </Select>
         </div>
@@ -366,7 +383,9 @@ export function MakeupReview() {
             <EmptyState
               icon={TimerReset}
               title={
-                status === "PENDING" ? "暂无待审核补卡申请" : "该状态下没有补卡记录"
+                status === "PENDING"
+                  ? "暂无待审核补卡申请"
+                  : "该状态下没有补卡记录"
               }
               description={
                 status === "PENDING"
@@ -475,7 +494,7 @@ function CheckinHistory({ initialDate }: { initialDate?: string }) {
               <Button
                 variant="ghost"
                 size="sm"
-                className="-ml-2 mt-2"
+                className="mt-2 -ml-2"
                 aria-label={`查看${item.supervisedName}的打卡记录`}
                 onClick={() => setRecordTarget(item)}
               >

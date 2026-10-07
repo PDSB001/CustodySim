@@ -20,7 +20,6 @@ import {
   Trophy,
   MapPinned,
   Route,
-  TimerReset,
   UserRound,
   UsersRound,
 } from "lucide-react"
@@ -50,13 +49,12 @@ const navSections: NavSection[] = [
   {
     label: "当班执行",
     entries: [
-      { href: "/supervision/tasks", label: "任务批阅", icon: ClipboardList },
+      { href: "/supervision/tasks", label: "审核工作台", icon: ClipboardList },
       {
         href: "/supervision/checkins",
         label: "点名记录",
         icon: CalendarCheck2,
       },
-      { href: "/supervision/makeups", label: "补卡审核", icon: TimerReset },
       { href: "/location-tracks", label: "位置轨迹", icon: Route },
       { href: "/applications", label: "申请审核", icon: ClipboardList },
       { href: "/profile-reviews", label: "档案审核", icon: FileCheck2 },

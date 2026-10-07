@@ -10,7 +10,7 @@ Web/API 与 Android 分别在各自仓库运行 GitHub Actions。PR、主分支�
 
 | Job | 检查内容 |
 | --- | --- |
-| Lint, types and unit tests | ESLint、TypeScript、全部 Vitest 单元测试、部署脚本的隔离模拟测试 |
+| Lint, types and unit tests | ESLint、TypeScript、全部 Vitest 单元测试、缓存清理守卫与实时服务断库重连回归、部署脚本的隔离模拟测试 |
 | Database and browser regression | 临时 PostgreSQL 18；初始化独立测试库；积分与业务 API 测试；桌面/移动浏览器与积分页面回归 |
 | Next.js build | 按锁文件安装依赖，执行 Next.js 构建 |
 | Web CI gate | 所有上游 Job 成功才通过；失败、取消或跳过都不会放行 |
@@ -18,8 +18,10 @@ Web/API 与 Android 分别在各自仓库运行 GitHub Actions。PR、主分支�
 Node 版本集中在 `.node-version`，pnpm 版本来自 `package.json` 的 `packageManager`。
 依赖安装统一使用 `--frozen-lockfile`，缓存键随锁文件变化。
 测试数据库和测试用密钥都是当前 runner 的一次性公开测试配置，不访问真实服务。
-业务/积分测试严格限定 `custodysim_e2e`，与 `custodysim_ci` 分开。
+业务、积分和普通浏览器测试严格限定 `custodysim_e2e`，与 `custodysim_ci` 分开。
+显式配置 `E2E_DATABASE_URL` 时，初始化和测试都使用该连接；其他数据库名称会被拒绝。
 业务 API 测试和浏览器测试顺序执行，避免同时改写测试数据。
+浏览器测试在 Next 启动前执行缓存清理守卫；检测到开发端口占用时跳过清理。
 
 失败时展开失败步骤查看日志；浏览器 trace 保留在 `web-test-results-*` artifact 中，
 保存 7 天。构建成功只说明代码能生成产物，仍需根据改动验收实际功能。
@@ -55,7 +57,7 @@ Lint 保持 warnings-as-errors，仅排除依赖更新提醒和 Timber 的日志
 
 两份 workflow 都只申请 `contents: read`，不读取仓库 Secrets。
 第三方 Action 固定到提交 SHA，由 Dependabot 每周提出版本更新 PR。
-同分支新检查会取消旧检查，每个 Job 都有限时，避免重复占用 runner。
+同分支检查按队列运行，后续检查不会自动取消正在运行的检查；每个 Job 都有限时。
 主分支不要提交本机 `.env.local`、`local.properties`、签名文件或私有测试截图。
 
 新增数据库变更时，补充隔离库回归；新增 Android 上游源文件时，通过 vendor

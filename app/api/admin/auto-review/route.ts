@@ -6,16 +6,17 @@ import { writeAuditLog } from "@/lib/audit"
 import {
   AutoReviewSettingsSchema,
   getAutoReviewSettings,
-  isMissingAutoReviewTable,
+  isMissingAutoReviewStorage,
 } from "@/lib/auto-review-settings"
 import { db } from "@/lib/db"
 import {
+  autoReviewMakeupRuns,
   autoReviewRuns,
   autoReviewSettings,
   reportTemplates,
   users,
 } from "@/lib/db/schema"
-import { GLM_REVIEW_MODEL } from "@/lib/glm-review"
+import { getGlmReviewConfig } from "@/lib/glm-review-config"
 import { ISOLATION_REPORT_TEMPLATE_NAME } from "@/lib/isolation-report-template"
 
 export async function GET() {
@@ -48,9 +49,18 @@ export async function GET() {
     let storageReady = state.storageReady
     try {
       await db.select({ id: autoReviewRuns.id }).from(autoReviewRuns).limit(1)
+      await db
+        .select({ id: autoReviewMakeupRuns.id })
+        .from(autoReviewMakeupRuns)
+        .limit(1)
     } catch (error) {
-      if (!isMissingAutoReviewTable(error)) throw error
+      if (!isMissingAutoReviewStorage(error)) throw error
       storageReady = false
+    }
+    const config = getGlmReviewConfig(process.env, state.settings.provider)
+    const providerConfigs = {
+      bigmodel: getGlmReviewConfig(process.env, "bigmodel"),
+      zai: getGlmReviewConfig(process.env, "zai"),
     }
     return success({
       ...state,
@@ -60,8 +70,15 @@ export async function GET() {
         ...t,
         restricted: t.name === ISOLATION_REPORT_TEMPLATE_NAME,
       })),
-      apiKeyConfigured: Boolean(process.env.GLM_API_KEY?.trim()),
-      model: GLM_REVIEW_MODEL,
+      apiKeyConfigured: Boolean(config.apiKey),
+      model: config.model,
+      provider: config.provider,
+      apiKeyVariable: config.apiKeyVariable,
+      configurationError: config.configurationError,
+      apiKeysConfigured: {
+        bigmodel: Boolean(providerConfigs.bigmodel.apiKey),
+        zai: Boolean(providerConfigs.zai.apiKey),
+      },
     })
   } catch {
     return failure("INTERNAL_ERROR", "读取自动审核设置失败", 500)
@@ -102,11 +119,15 @@ export async function PUT(request: Request) {
         throw new SettingsError("设置已被其他管理员修改，请刷新后重试", 409)
       if (revision === null && !inserted.length)
         throw new SettingsError("设置已被其他管理员修改，请刷新后重试", 409)
-      if (values.enabled) {
-        if (!process.env.GLM_API_KEY?.trim())
-          throw new SettingsError("请先在服务端配置 GLM_API_KEY")
-        if (!values.actorId || !values.templateIds.length)
-          throw new SettingsError("请选择审核账号和至少一个模板")
+      if (values.enabled || values.makeupEnabled) {
+        const config = getGlmReviewConfig(process.env, values.provider)
+        if (config.configurationError)
+          throw new SettingsError(config.configurationError)
+        if (!config.apiKey)
+          throw new SettingsError(`请先在服务端配置 ${config.apiKeyVariable}`)
+        if (!values.actorId) throw new SettingsError("请选择审核账号")
+        if (values.enabled && !values.templateIds.length)
+          throw new SettingsError("请选择至少一个自动审核模板")
         const [reviewer] = await tx
           .select({ id: users.id })
           .from(users)
@@ -125,11 +146,23 @@ export async function PUT(request: Request) {
           .from(reportTemplates)
           .where(inArray(reportTemplates.id, values.templateIds))
           .for("share")
-        if (templates.length !== values.templateIds.length)
+        if (values.enabled && templates.length !== values.templateIds.length)
           throw new SettingsError("部分模板已删除，请重新选择")
-        if (templates.some((t) => t.name === ISOLATION_REPORT_TEMPLATE_NAME))
+        if (
+          values.enabled &&
+          templates.some((t) => t.name === ISOLATION_REPORT_TEMPLATE_NAME)
+        )
           throw new SettingsError("禁闭检讨必须人工审核")
-        await tx.select({ id: autoReviewRuns.id }).from(autoReviewRuns).limit(1)
+        if (values.enabled)
+          await tx
+            .select({ id: autoReviewRuns.id })
+            .from(autoReviewRuns)
+            .limit(1)
+        if (values.makeupEnabled)
+          await tx
+            .select({ id: autoReviewMakeupRuns.id })
+            .from(autoReviewMakeupRuns)
+            .limit(1)
       }
       const [row] = await tx
         .update(autoReviewSettings)
@@ -140,11 +173,16 @@ export async function PUT(request: Request) {
         {
           actor,
           action: "UPDATE",
-          actionLabel: values.enabled ? "启用自动审核" : "关闭自动审核",
+          actionLabel:
+            values.enabled || values.makeupEnabled
+              ? "更新自动审核设置"
+              : "关闭自动审核",
           entityType: "auto_review_settings",
           detail: {
             before: {
               enabled: current.enabled,
+              makeupEnabled: current.makeupEnabled,
+              provider: current.provider,
               actorId: current.actorId,
               templateIds: current.templateIds,
             },
@@ -159,7 +197,7 @@ export async function PUT(request: Request) {
   } catch (error) {
     if (error instanceof SettingsError)
       return failure("VALIDATION_ERROR", error.message, error.status)
-    if (isMissingAutoReviewTable(error))
+    if (isMissingAutoReviewStorage(error))
       return failure("INTERNAL_ERROR", "请先完成自动审核数据库升级", 503)
     return failure("INTERNAL_ERROR", "保存自动审核设置失败", 500)
   }

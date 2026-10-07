@@ -72,14 +72,14 @@ function get(url: string) {
 /** 造一条点名规则与对应打卡任务，规则显式允许无定位，避免依赖真实网络位置。 */
 async function checkinTask(
   supervisedId: string,
-  status: "PENDING" | "MISSED" = "PENDING",
+  status: "PENDING" | "MISSED" | "COMPLETED" = "PENDING",
+  scheduleAt = new Date(),
 ) {
   const [rule] = await db
     .insert(s.rules)
     .values({ name: `e2e_${randomUUID()}`, allowNoLocation: true })
     .returning()
   ruleIds.push(rule!.id)
-  const scheduleAt = new Date()
   const [task] = await db
     .insert(s.checkinTasks)
     .values({
@@ -141,6 +141,12 @@ test("打卡明细按人下发：状态筛选与游标分页可用，非法参�
   ).toBe(201)
 
   await as(admin, "ADMIN")
+  const defaultPage = (await (
+    await listRecords(get(recordsUrl(supervised)))
+  ).json()).data as { items: unknown[]; nextCursor: string | null }
+  expect(defaultPage.items).toHaveLength(2)
+  expect(defaultPage.nextCursor).toBeNull()
+
   const first = await listRecords(get(recordsUrl(supervised, "&limit=1")))
   expect(first.status).toBe(200)
   const page1 = (await first.json()).data as {
@@ -199,6 +205,49 @@ test("打卡明细按人下发：状态筛选与游标分页可用，非法参�
         get(recordsUrl(supervised, `&from=2026-01-02&to=2026-01-01`)),
       )
     ).status,
+  ).toBe(400)
+})
+
+test("按计划日期筛选可包含次日打卡，原打卡时间筛选语义不变", async () => {
+  const supervised = await account("SUPERVISED")
+  const scheduleAt = new Date("2026-09-26T23:50:00+08:00")
+  const checkinAt = new Date("2026-09-27T00:05:00+08:00")
+  const task = await checkinTask(supervised, "COMPLETED", scheduleAt)
+  const [record] = await db
+    .insert(s.checkinRecords)
+    .values({
+      taskId: task.id,
+      userId: supervised,
+      checkinAt,
+      status: "ON_TIME",
+      slotIndex: 0,
+      locationSource: "IP",
+    })
+    .returning({ id: s.checkinRecords.id })
+  const day26 = new Date("2026-09-26T00:00:00+08:00").toISOString()
+  const day27 = new Date("2026-09-27T00:00:00+08:00").toISOString()
+  const day28 = new Date("2026-09-28T00:00:00+08:00").toISOString()
+
+  await as(admin, "ADMIN")
+  const rowsFor = async (extra: string) => {
+    const response = await listRecords(get(recordsUrl(supervised, extra)))
+    expect(response.status).toBe(200)
+    return ((await response.json()).data as { items: Array<{ id: string }> }).items
+  }
+  expect(await rowsFor(`&scheduleFrom=${day26}&scheduleTo=${day27}`)).toEqual([
+    expect.objectContaining({ id: record.id }),
+  ])
+  expect(await rowsFor(`&scheduleFrom=${day27}&scheduleTo=${day28}`)).toEqual([])
+  expect(await rowsFor(`&from=${day26}&to=${day27}`)).toEqual([])
+  expect(await rowsFor(`&from=${day27}&to=${day28}`)).toEqual([
+    expect.objectContaining({ id: record.id }),
+  ])
+
+  expect(
+    (await listRecords(get(recordsUrl(supervised, "&scheduleFrom=2026-09-26")))).status,
+  ).toBe(400)
+  expect(
+    (await listRecords(get(recordsUrl(supervised, `&scheduleFrom=${day27}&scheduleTo=${day26}`)))).status,
   ).toBe(400)
 })
 

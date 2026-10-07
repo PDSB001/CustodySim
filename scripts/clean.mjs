@@ -200,7 +200,13 @@ async function main() {
   if (args.guard) {
     // 钩子场景：正常时不输出噪音，超阈值才动手，且永不因清理失败而中断链路。
     if (!over.length) return 0
-    for (const scope of over) prune(scope)
+    for (const scope of over) {
+      if (scope.busy) {
+        console.warn(`\n[${scope.name}] 检测到端口占用（dev server 在跑），跳过。`)
+        continue
+      }
+      prune(scope)
+    }
     return 0
   }
 

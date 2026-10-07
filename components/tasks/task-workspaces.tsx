@@ -216,7 +216,13 @@ function CopywriteField({
 function TaskPayloadForm({ task }: { task: z.infer<typeof Task> }) {
   const client = useQueryClient()
   const [data, setData] = useState<Record<string, unknown>>(task.data ?? {})
+  const serializedData = JSON.stringify(data)
+  const currentSerializedData = useRef(serializedData)
+  currentSerializedData.current = serializedData
+  const currentData = useRef(data)
+  currentData.current = data
   const lastSavedData = useRef(JSON.stringify(task.data ?? {}))
+  const lastRequestedData = useRef(lastSavedData.current)
   const [draftState, setDraftState] = useState<
     "idle" | "saving" | "saved" | "error"
   >(task.data && Object.keys(task.data).length ? "saved" : "idle")
@@ -239,7 +245,8 @@ function TaskPayloadForm({ task }: { task: z.infer<typeof Task> }) {
     onError: (error) =>
       toast.error(error instanceof Error ? error.message : "提交失败"),
   })
-  const saveDraft = useMutation({
+  const { mutate: saveDraft } = useMutation({
+    scope: { id: `task-draft-${task.id}` },
     mutationFn: ({
       nextData,
     }: {
@@ -252,19 +259,47 @@ function TaskPayloadForm({ task }: { task: z.infer<typeof Task> }) {
       }),
     onSuccess: (_, variables) => {
       lastSavedData.current = variables.serialized
-      setDraftState("saved")
+      const latest = currentSerializedData.current
+      const needsLatestSave = latest !== lastRequestedData.current
+      if (needsLatestSave) {
+        lastRequestedData.current = latest
+        saveDraft({ nextData: currentData.current, serialized: latest })
+      }
+      if (!needsLatestSave && variables.serialized === latest)
+        setDraftState("saved")
     },
-    onError: () => setDraftState("error"),
+    onError: (_, variables) => {
+      const latest = currentSerializedData.current
+      const failedLatestRequest = variables.serialized === lastRequestedData.current
+      if (failedLatestRequest)
+        lastRequestedData.current = lastSavedData.current
+      const needsLatestSave =
+        latest !== variables.serialized &&
+        (failedLatestRequest || latest !== lastRequestedData.current)
+      if (needsLatestSave) {
+        lastRequestedData.current = latest
+        saveDraft({ nextData: currentData.current, serialized: latest })
+      } else if (failedLatestRequest && variables.serialized === latest) {
+        setDraftState("error")
+      }
+    },
   })
-  const serializedData = JSON.stringify(data)
   useEffect(() => {
-    if (serializedData === lastSavedData.current) return
+    if (serializedData === lastSavedData.current) {
+      if (serializedData === lastRequestedData.current)
+        setDraftState((state) =>
+          state === "saving" || state === "error" ? "saved" : state,
+        )
+      return
+    }
     // 首次打开一个空表单不建草稿；但已保存过草稿时，清空最后一项也要同步。
     if (!Object.keys(data).length && lastSavedData.current === "{}") return
 
     setDraftState("saving")
     const timer = window.setTimeout(() => {
-      saveDraft.mutate({ nextData: data, serialized: serializedData })
+      if (serializedData === lastRequestedData.current) return
+      lastRequestedData.current = serializedData
+      saveDraft({ nextData: data, serialized: serializedData })
     }, 800)
     return () => window.clearTimeout(timer)
   }, [data, saveDraft, serializedData])
@@ -632,6 +667,7 @@ export function SupervisorTasks() {
     onSuccess: () => {
       client.invalidateQueries({ queryKey: ["tasks"] })
       client.invalidateQueries({ queryKey: ["dashboard-summary"] })
+      client.invalidateQueries({ queryKey: ["review-counts"] })
       toast.success("审核结果已提交")
     },
     onError: (error) =>

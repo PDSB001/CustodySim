@@ -26,7 +26,7 @@ import { getSupervisedUserIdsForActor } from "@/lib/supervision-scope"
 import { ensureUserTasks } from "@/lib/task-engine"
 import {
   getAutoReviewSettings,
-  isMissingAutoReviewTable,
+  isMissingAutoReviewStorage,
 } from "@/lib/auto-review-settings"
 
 /** 单页上限，避免客户端用超大 limit 把整表拉回来。 */
@@ -192,7 +192,7 @@ export async function GET(request: NextRequest) {
             .where(inArray(autoReviewRuns.submissionId, submissionIds))
             .orderBy(desc(autoReviewRuns.createdAt))
             .catch((error: unknown) => {
-              if (isMissingAutoReviewTable(error)) return []
+              if (isMissingAutoReviewStorage(error)) return []
               throw error
             })
         : []

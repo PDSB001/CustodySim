@@ -101,16 +101,16 @@ beforeEach(async () => {
   await db
     .insert(s.reportTemplates)
     .values({ id: templateId, name: `E2E ${templateId}` })
+  vi.stubEnv("GLM_PROVIDER", "bigmodel")
   vi.stubEnv("GLM_API_KEY", "e2e-placeholder")
   await db.delete(s.autoReviewSettings)
-  await db
-    .insert(s.autoReviewSettings)
-    .values({
-      id: "default",
-      enabled: true,
-      actorId: admin,
-      templateIds: [templateId],
-    })
+  await db.insert(s.autoReviewSettings).values({
+    id: "default",
+    enabled: true,
+    provider: "bigmodel",
+    actorId: admin,
+    templateIds: [templateId],
+  })
   cookie.token = await signToken({
     userId: admin,
     role: "ADMIN",
@@ -320,6 +320,10 @@ test("管理员读取当前数据库账号和模板，密钥仅返回是否配�
     false,
   )
   expect(payload.data.apiKeyConfigured).toBe(true)
+  expect(payload.data.provider).toBe("bigmodel")
+  expect(payload.data.model).toBe("glm-4.1v-thinking-flash")
+  expect(payload.data.apiKeyVariable).toBe("GLM_API_KEY")
+  expect(JSON.stringify(payload)).not.toContain("e2e-placeholder")
   expect(JSON.stringify(payload)).not.toContain("e2e-placeholder")
 })
 
@@ -419,16 +423,14 @@ test.each(["关闭", "移除模板", "切换账号"])(
     await fixture()
     const fetcher = vi.fn().mockImplementation(async () => {
       // Simulate an administrator committing a newer settings revision during inference.
-      await db
-        .update(s.autoReviewSettings)
-        .set({
-          revision: randomUUID(),
-          ...(change === "关闭"
-            ? { enabled: false }
-            : change === "移除模板"
-              ? { templateIds: [] }
-              : { actorId: user }),
-        })
+      await db.update(s.autoReviewSettings).set({
+        revision: randomUUID(),
+        ...(change === "关闭"
+          ? { enabled: false }
+          : change === "移除模板"
+            ? { templateIds: [] }
+            : { actorId: user }),
+      })
       return reply()
     })
     vi.stubGlobal("fetch", fetcher)

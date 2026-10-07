@@ -77,7 +77,8 @@ function deadlinePreview(slot: string, timeoutMinutes: number) {
   const total = (hour * 60 + minute + timeoutMinutes) % 1440
   const days = Math.floor((hour * 60 + minute + timeoutMinutes) / 1440)
   const deadline = `${`${Math.floor(total / 60)}`.padStart(2, "0")}:${`${total % 60}`.padStart(2, "0")}`
-  return days ? `次日 ${deadline} 截止` : `${deadline} 截止`
+  const dayLabel = days === 0 ? "" : days === 1 ? "次日 " : `${days} 天后 `
+  return `${dayLabel}${deadline} 截止`
 }
 
 export function RuleManage() {
@@ -518,7 +519,7 @@ export function RuleManage() {
               </div>
               <div className="border-success/30 bg-success/10 text-success flex items-start gap-2 rounded-xl border px-3 py-2.5 text-[12px]">
                 <CheckCircle2 className="mt-0.5 size-3.5 shrink-0" />
-                <span>跨日无需额外配置，系统会准确落到次日截止。</span>
+                <span>跨日无需额外配置，系统会按有效时长计算截止时间。</span>
               </div>
               <div className="border-border/70 bg-card text-muted-foreground flex items-start gap-2 rounded-xl border px-3 py-2.5 text-[12px]">
                 <FileText className="text-brand-700 mt-0.5 size-3.5 shrink-0" />

@@ -119,7 +119,7 @@ function PendingStatusStrip({
           任务审核
           <span className="status-strip__count">{pendingTasks}</span>
         </Link>
-        <Link href="/supervision/makeups" className="status-strip__item">
+        <Link href="/supervision/tasks?tab=makeups" className="status-strip__item">
           补卡审核
           <span className="status-strip__count">{pendingMakeups}</span>
         </Link>
@@ -246,7 +246,7 @@ function PendingQueue({
       icon: ClipboardCheck,
     },
     {
-      href: "/supervision/makeups",
+      href: "/supervision/tasks?tab=makeups",
       label: "补卡审核",
       detail: "核实漏点原因与补卡凭据",
       count: pendingMakeups,

@@ -12,6 +12,8 @@ import { toast } from "@/components/ui/toast"
 
 const Settings = z.object({
   enabled: z.boolean(),
+  makeupEnabled: z.boolean(),
+  provider: z.enum(["bigmodel", "zai"]),
   actorId: z.string().nullable(),
   templateIds: z.array(z.string()),
   revision: z.string().nullable(),
@@ -21,6 +23,10 @@ const ResponseSchema = z.object({
   storageReady: z.boolean(),
   apiKeyConfigured: z.boolean(),
   model: z.string(),
+  provider: z.string(),
+  apiKeyVariable: z.string(),
+  configurationError: z.string().nullable(),
+  apiKeysConfigured: z.object({ bigmodel: z.boolean(), zai: z.boolean() }),
   actors: z.array(
     z.object({
       id: z.string(),
@@ -86,15 +92,46 @@ export function AutoReviewManage() {
           <CardContent className="space-y-6 p-5 sm:p-6">
             <div className="space-y-2 text-sm">
               <p role="status">
-                当前状态：{query.data.settings.enabled ? "已开启" : "已关闭"} ·
-                模型：{query.data.model}
+                当前状态：
+                {query.data.settings.enabled ||
+                query.data.settings.makeupEnabled
+                  ? "已开启"
+                  : "已关闭"}{" "}
+                · 服务商：
+                {settings.provider === "zai" ? "z.ai" : "智谱 BigModel"} ·
+                模型：
+                {settings.provider === "zai"
+                  ? "glm-4.7-flash"
+                  : "glm-4.1v-thinking-flash"}
               </p>
+              <div className="space-y-2">
+                <Label htmlFor="auto-review-provider">模型服务商</Label>
+                <select
+                  id="auto-review-provider"
+                  aria-label="模型服务商"
+                  className="border-input bg-background w-full rounded-md border p-2 text-sm"
+                  value={settings.provider}
+                  onChange={(event) =>
+                    change({
+                      provider: event.target.value as "bigmodel" | "zai",
+                    })
+                  }
+                >
+                  <option value="bigmodel">智谱 BigModel（原接口）</option>
+                  <option value="zai">z.ai（海外站）</option>
+                </select>
+              </div>
               <p>
                 API Key：
-                {query.data.apiKeyConfigured
+                {query.data.apiKeysConfigured[settings.provider]
                   ? "已在服务端配置"
-                  : "未配置，请在服务端设置 GLM_API_KEY"}
+                  : `未配置，请在服务端设置 ${settings.provider === "zai" ? "ZAI_API_KEY" : "GLM_API_KEY"}`}
               </p>
+              {query.data.configurationError && (
+                <p role="alert" className="text-destructive">
+                  {query.data.configurationError}
+                </p>
+              )}
               {!query.data.storageReady && (
                 <p role="alert" className="text-destructive">
                   数据库尚未升级，请部署时运行 pnpm db:push 后刷新。
@@ -117,6 +154,19 @@ export function AutoReviewManage() {
                   className="size-5"
                 />
                 启用自动审核
+              </label>
+              <label className="flex items-center gap-3 font-medium">
+                <input
+                  type="checkbox"
+                  role="switch"
+                  aria-label="自动审核补卡"
+                  checked={settings.makeupEnabled}
+                  onChange={(event) =>
+                    change({ makeupEnabled: event.target.checked })
+                  }
+                  className="size-5"
+                />
+                自动审核补卡申请
               </label>
               <div className="space-y-2">
                 <Label htmlFor="auto-review-actor">审核账号</Label>
@@ -215,10 +265,10 @@ export function AutoReviewManage() {
                 <Button
                   variant="brand"
                   disabled={
-                    settings.enabled &&
-                    (!query.data.apiKeyConfigured ||
+                    (settings.enabled || settings.makeupEnabled) &&
+                    (!query.data.apiKeysConfigured[settings.provider] ||
                       !settings.actorId ||
-                      !settings.templateIds.length)
+                      (settings.enabled && !settings.templateIds.length))
                   }
                   onClick={() => save.mutate(settings)}
                 >

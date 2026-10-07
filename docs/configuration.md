@@ -30,19 +30,22 @@
 
 普通用户读取窗口 14 天、监管审计窗口 28 天由 `lib/chat.ts` 定义，修改清理变量不会同步改变读取窗口。实时服务启动时及此后每 6 小时清理。PM2 配置加载 `.env.local`，修改服务端参数需 `--update-env`；公开构建变量变化还需重新构建。
 
+实时服务的 `/health` 在 PostgreSQL `LISTEN` 就绪时返回 `200` 和 `{"ok":true}`；连接未建立或断开时返回 `503` 和 `{"ok":false}`。断开后每 5 秒安排一次重连，失败事件不会创建重复监听。
+
 部署自检按单个 `APP_ORIGIN=https://example.com` 读取公开地址，建议采用这一格式，不带路径和尾斜杠。服务端密钥不可加 `NEXT_PUBLIC_` 前缀。
 
 ## 可选与一次性参数
 
-| 配置                                         | 用途                                                               |
-| -------------------------------------------- | ------------------------------------------------------------------ |
-| `NEXT_PUBLIC_TENCENT_MAP_KEY`                | 腾讯地图浏览器 Key，控制台限制域名，电子围栏使用 GCJ-02            |
-| `MAXMIND_LICENSE_KEY` / `MAXMIND_GEOIP_CONF` | 本地 GeoIP 数据更新，命令 `pnpm geoip:update`                      |
-| `GLM_API_KEY`                                | 自动任务审核服务端 Key，还需[管理端设置](automatic-task-review.md) |
-| `TENCENT_SES_*`                              | 安全邮箱验证码与通知，具体字段见[SES 指南](security-email.md)      |
-| `INITIAL_ADMIN_*`                            | 一次性管理员初始化，密码使用后移除，不保存进 shell 历史            |
-| `ALLOW_DEMO_SEED`                            | 非生产演示数据显式开关，生产禁止启用                               |
-| `E2E_DATABASE_NAME` / `E2E_DATABASE_URL`     | 独立测试库，URL 优先                                               |
-| `E2E_BASE_URL`                               | Playwright 地址                                                    |
+| 配置                                         | 用途                                                          |
+| -------------------------------------------- | ------------------------------------------------------------- |
+| `NEXT_PUBLIC_TENCENT_MAP_KEY`                | 腾讯地图浏览器 Key，控制台限制域名，电子围栏使用 GCJ-02       |
+| `MAXMIND_LICENSE_KEY` / `MAXMIND_GEOIP_CONF` | 本地 GeoIP 数据更新，命令 `pnpm geoip:update`                 |
+| `GLM_API_KEY`                                | 原智谱 BigModel 服务端 Key，默认服务商继续使用该密钥          |
+| `ZAI_API_KEY`                                | 切换至 z.ai 后使用的服务端 Key，不会接收 BigModel 密钥        |
+| `TENCENT_SES_*`                              | 安全邮箱验证码与通知，具体字段见[SES 指南](security-email.md) |
+| `INITIAL_ADMIN_*`                            | 一次性管理员初始化，密码使用后移除，不保存进 shell 历史       |
+| `ALLOW_DEMO_SEED`                            | 非生产演示数据显式开关，生产禁止启用                          |
+| `E2E_DATABASE_NAME` / `E2E_DATABASE_URL`     | 独立测试库，URL 优先                                          |
+| `E2E_BASE_URL`                               | Playwright 地址                                               |
 
 打卡关闭 GPS 时采用本地 geoip-lite 的 IP 粗略城市信息，不把 IP 发到第三方定位接口；精确定位另行使用移动端权限和服务端策略。可选服务未配置时，不应视对应能力为已上线。

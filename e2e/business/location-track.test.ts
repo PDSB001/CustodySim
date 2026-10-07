@@ -253,7 +253,7 @@ test("超出滞后窗口或点数上限的批次被拒绝", async () => {
   expect((await reportBatch(report(tooMany))).status).toBe(400)
 })
 
-test("近 24 小时点数达到上限后返回 429", async () => {
+test("达到日上限后仍可重试旧点，但新点返回 429", async () => {
   const user = await account("SUPERVISED")
   await createPersonalFence(user)
   await as(user, "SUPERVISED")
@@ -277,7 +277,12 @@ test("近 24 小时点数达到上限后返回 429", async () => {
     })),
   )
 
-  const response = await reportBatch(report([pointAt(1)]))
+  const retry = await reportBatch(report([pointAtMs(now - 30_000)]))
+  expect(retry.status).toBe(201)
+  expect((await retry.json()).data).toMatchObject({ accepted: 0, skipped: 1 })
+  expect(await locationRows(user)).toHaveLength(LOCATION_MAX_POINTS_PER_DAY)
+
+  const response = await reportBatch(report([pointAtMs(now + 10_000)]))
   expect(response.status).toBe(429)
 })
 

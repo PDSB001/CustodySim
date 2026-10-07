@@ -32,10 +32,17 @@ const configuredOrigins = (process.env.APP_ORIGIN || "")
   .map((value) => value.trim())
   .filter(Boolean)
 
+let listener = null
+let listenerReady = false
+let listenerConnecting = false
+let reconnectTimer = null
+let shuttingDown = false
 const httpServer = createServer((request, response) => {
   if (request.url === "/health") {
-    response.writeHead(200, { "content-type": "application/json" })
-    response.end(JSON.stringify({ ok: true }))
+    response.writeHead(listenerReady ? 200 : 503, {
+      "content-type": "application/json",
+    })
+    response.end(JSON.stringify({ ok: listenerReady }))
     return
   }
   response.writeHead(404)
@@ -114,9 +121,28 @@ io.on("connection", (socket) => {
   })
 })
 
-async function listenForChatEvents() {
-  const client = new pg.Client({ connectionString: databaseUrl })
+function scheduleListenerReconnect() {
+  if (shuttingDown || reconnectTimer) return
+  reconnectTimer = setTimeout(() => {
+    reconnectTimer = null
+    void connectListener()
+  }, 5000)
+}
+
+function disconnectListener(client) {
+  if (listener !== client) return
+  listener = null
+  listenerReady = false
+  scheduleListenerReconnect()
+}
+
+function createChatListener() {
+  const client = new pg.Client({
+    connectionString: databaseUrl,
+    connectionTimeoutMillis: 10_000,
+  })
   client.on("notification", (notification) => {
+    if (listener !== client || shuttingDown) return
     if (notification.channel !== "custodysim_chat" || !notification.payload)
       return
     try {
@@ -128,18 +154,16 @@ async function listenForChatEvents() {
     }
   })
   client.on("error", (error) => {
+    disconnectListener(client)
+    void client.end().catch(() => undefined)
     console.error("[chat realtime postgres]", error)
   })
   client.on("end", () => {
-    if (!shuttingDown) setTimeout(connectListener, 5000)
+    disconnectListener(client)
   })
-  await client.connect()
-  await client.query("LISTEN custodysim_chat")
   return client
 }
 
-let listener = null
-let shuttingDown = false
 let cleanupRunning = false
 async function cleanupExpiredChatMessages() {
   if (cleanupRunning) return
@@ -158,17 +182,33 @@ async function cleanupExpiredChatMessages() {
   }
 }
 async function connectListener() {
+  if (shuttingDown || listenerConnecting || listenerReady) return
+  listenerConnecting = true
+  const client = createChatListener()
+  listener = client
   try {
-    listener = await listenForChatEvents()
+    await client.connect()
+    await client.query("LISTEN custodysim_chat")
+    if (shuttingDown || listener !== client) {
+      await client.end().catch(() => undefined)
+      return
+    }
+    listenerReady = true
     console.log("> Chat realtime listener connected")
   } catch (error) {
+    disconnectListener(client)
+    await client.end().catch(() => undefined)
     console.error("[chat realtime connect]", error)
-    setTimeout(connectListener, 5000)
+    scheduleListenerReconnect()
+  } finally {
+    listenerConnecting = false
   }
 }
 
 process.on("SIGTERM", async () => {
   shuttingDown = true
+  listenerReady = false
+  if (reconnectTimer) clearTimeout(reconnectTimer)
   if (listener) await listener.end().catch(() => undefined)
   await maintenancePool.end().catch(() => undefined)
   io.close()

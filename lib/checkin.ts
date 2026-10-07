@@ -1,6 +1,7 @@
 import { and, desc, eq, gte, inArray, lt, notInArray } from "drizzle-orm"
 
 import { db } from "@/lib/db"
+import { writeAuditLog } from "@/lib/audit"
 import {
   checkinMakeups,
   checkinRecords,
@@ -47,6 +48,7 @@ import {
   legacyDateAllDay,
 } from "@/lib/shanghai-datetime"
 import type { SessionUser } from "@/lib/session"
+import { SYSTEM_AI_ACTOR } from "@/lib/system-identity"
 import {
   getActiveIsolationOrder,
   runCheckinDailyScoreSweep,
@@ -805,7 +807,8 @@ export async function createCheckinMakeup({
       .from(checkinMakeups)
       .where(eq(checkinMakeups.taskId, taskId))
       .limit(1)
-    if (existing?.status === "PENDING") throw new CheckinError("补卡申请正在审核")
+    if (existing?.status === "PENDING")
+      throw new CheckinError("补卡申请正在审核")
     const [makeup] = existing
       ? await tx
           .update(checkinMakeups)
@@ -859,11 +862,13 @@ export async function reviewCheckinMakeup({
   makeupId,
   result,
   comment,
+  automated = false,
 }: {
   actor: SessionUser
   makeupId: string
   result: "APPROVED" | "REJECTED"
   comment?: string
+  automated?: boolean
 }) {
   const [makeup] = await db
     .select({
@@ -889,7 +894,7 @@ export async function reviewCheckinMakeup({
       .update(checkinMakeups)
       .set({
         status: result,
-        reviewerId: actor.id,
+        reviewerId: automated ? null : actor.id,
         reviewComment: comment?.trim() || null,
         reviewedAt: now,
       })
@@ -975,6 +980,21 @@ export async function reviewCheckinMakeup({
         .set({ status: "MAKEUP_REJECTED", updatedAt: now })
         .where(eq(checkinTasks.id, makeup.taskId))
     }
+    await writeAuditLog(
+      {
+        actor: automated ? SYSTEM_AI_ACTOR : actor,
+        action: "REVIEW",
+        actionLabel: automated ? "AI 自动审核补卡" : "审核补卡",
+        entityType: "checkin_makeup",
+        entityId: makeup.id,
+        detail: {
+          result,
+          comment: comment?.trim() || null,
+          ...(automated ? { authorizedReviewerId: actor.id } : {}),
+        },
+      },
+      tx,
+    )
   })
 }
 

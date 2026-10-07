@@ -32,6 +32,8 @@ const e2eDatabaseUrl =
     : undefined)
 if (!e2eDatabaseUrl)
   throw new Error("运行 E2E 前必须配置 E2E_DATABASE_NAME 或 E2E_DATABASE_URL")
+if (decodeURIComponent(new URL(e2eDatabaseUrl).pathname) !== "/custodysim_e2e")
+  throw new Error("E2E_DATABASE_URL 必须指向 custodysim_e2e 隔离数据库")
 if (
   businessDatabaseUrl &&
   databaseIdentity(businessDatabaseUrl) === databaseIdentity(e2eDatabaseUrl)
@@ -48,6 +50,8 @@ const e2eEnv = {
   ...inheritedEnv,
   DATABASE_URL: e2eDatabaseUrl,
   GLM_API_KEY: "",
+  ZAI_API_KEY: "",
+  GLM_PROVIDER: "bigmodel",
   TENCENT_SES_SECRET_ID: "",
   TENCENT_SES_SECRET_KEY: "",
 }
@@ -59,12 +63,8 @@ export default defineConfig({
   forbidOnly: Boolean(process.env.CI),
   retries: process.env.CI ? 1 : 0,
   workers: process.env.CI ? 2 : undefined,
-  reporter: process.env.CI
-    ? [["github"], ["html", { open: "never" }]]
-    : "list",
+  reporter: process.env.CI ? [["github"], ["html", { open: "never" }]] : "list",
   testDir: "./e2e",
-  // 每次 e2e 开始前按阈值清理 .next（webServer 直接调 next dev，绕过了 predev 钩子）。
-  globalSetup: "./e2e/global-setup.ts",
   testIgnore: [
     "**/scoring/**/*.test.ts",
     "**/business/**/*.test.ts",
@@ -82,7 +82,9 @@ export default defineConfig({
   ],
   webServer: [
     {
-      command: `node ./node_modules/next/dist/bin/next dev --hostname 0.0.0.0 --port ${port}`,
+      // Playwright starts webServer before globalSetup. Run the cache guard
+      // in the same command before Next starts writing to .next.
+      command: `node scripts/clean.mjs --guard && node ./node_modules/next/dist/bin/next dev --hostname 0.0.0.0 --port ${port}`,
       url: baseURL,
       // 必须由 Playwright 自己拉起连 e2e 库的服务，避免复用连业务库的 dev server。
       reuseExistingServer: false,

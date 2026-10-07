@@ -4,25 +4,15 @@ import { dirname, resolve } from "node:path"
 
 import { config } from "dotenv"
 import pg from "pg"
+import { resolveE2eDatabaseTarget } from "./e2e-database-target.mjs"
 
 config({ path: ".env.local", quiet: true })
 
-const businessDatabaseUrl = process.env.DATABASE_URL
-if (!businessDatabaseUrl) throw new Error(".env.local 未配置 DATABASE_URL")
-
-const databaseName = process.env.E2E_DATABASE_NAME ?? "custodysim_e2e"
-if (databaseName !== "custodysim_e2e")
-  throw new Error("E2E 初始化只能操作 custodysim_e2e 隔离数据库")
-
-const businessUrl = new URL(businessDatabaseUrl)
-const businessDatabaseName = decodeURIComponent(businessUrl.pathname.slice(1))
-if (businessDatabaseName === databaseName)
-  throw new Error("E2E 数据库不能与业务数据库同名")
-
-const e2eUrl = new URL(businessUrl)
-e2eUrl.pathname = `/${databaseName}`
-const maintenanceUrl = new URL(businessUrl)
-maintenanceUrl.pathname = "/postgres"
+const { databaseName, e2eUrl, maintenanceUrl } = resolveE2eDatabaseTarget({
+  businessDatabaseUrl: process.env.DATABASE_URL,
+  explicitE2eDatabaseUrl: process.env.E2E_DATABASE_URL,
+  databaseName: process.env.E2E_DATABASE_NAME,
+})
 
 const { Client } = pg
 // Database creation is cluster maintenance; never connect this initializer to

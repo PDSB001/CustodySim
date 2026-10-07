@@ -5,7 +5,7 @@ import { CalendarDays, MapPin, ShieldCheck, TimerReset } from "lucide-react"
 import { useState } from "react"
 import { z } from "zod"
 
-import { requestApi } from "@/components/shared/api-client"
+import { formatDate, requestApi } from "@/components/shared/api-client"
 import { EmptyState } from "@/components/shared/empty-state"
 import { ImageGallery } from "@/components/shared/image-upload-field"
 import { ErrorState, LoadingBlock } from "@/components/shared/query-state-view"
@@ -88,10 +88,10 @@ const STATUS_FILTERS = [
   { value: "SYSTEM_MAKEUP", label: "系统补卡" },
 ] as const
 
-/** `YYYY-MM-DD`（本地时区）当天的 00:00 对应的 ISO 瞬间。 */
-function localDayStartIso(dateKey: string, addDays = 0) {
-  const [year, month, day] = dateKey.split("-").map(Number)
-  return new Date(year, month - 1, day + addDays).toISOString()
+/** 汇总按上海计划日统计；浏览器所在时区不能改变下钻查询范围。 */
+function shanghaiDayStartIso(dateKey: string, addDays = 0) {
+  const start = new Date(`${dateKey}T00:00:00+08:00`)
+  return new Date(start.getTime() + addDays * 86_400_000).toISOString()
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -114,10 +114,6 @@ function locationText(item: CheckinRecord) {
   if (item.lat && item.lng) return `${item.lat}, ${item.lng}`
   if (item.ip) return `IP ${item.ip}`
   return null
-}
-
-function timeText(value: string) {
-  return value.replace("T", " ").slice(0, 16)
 }
 
 /**
@@ -170,14 +166,14 @@ export function CheckinRecordsDialog({
     completedCount: number
     exceptionCount: number
   }
-  /** 汇总页所选日期，拼进空态文案。 */
+  /** 汇总页所选日期；明细默认只查当天，关闭重开时重新初始化。 */
   dateKey?: string
   open: boolean
   onOpenChange: (open: boolean) => void
 }) {
   const [status, setStatus] = useState("")
-  const [fromDate, setFromDate] = useState("")
-  const [toDate, setToDate] = useState("")
+  const [fromDate, setFromDate] = useState(() => dateKey ?? "")
+  const [toDate, setToDate] = useState(() => dateKey ?? "")
 
   const query = useInfiniteQuery({
     queryKey: ["checkin-records", person.id, status, fromDate, toDate],
@@ -187,9 +183,9 @@ export function CheckinRecordsDialog({
     queryFn: ({ pageParam }) => {
       const params = new URLSearchParams({ userId: person.id, limit: "15" })
       if (status) params.set("status", status)
-      if (fromDate) params.set("from", localDayStartIso(fromDate))
-      // to 是开区间（服务端 < ），所以取所选日期的次日 00:00。
-      if (toDate) params.set("to", localDayStartIso(toDate, 1))
+      if (fromDate) params.set("scheduleFrom", shanghaiDayStartIso(fromDate))
+      // 上界是开区间（服务端 < ），取所选计划日期的次日 00:00。
+      if (toDate) params.set("scheduleTo", shanghaiDayStartIso(toDate, 1))
       if (pageParam) params.set("cursor", pageParam)
       return requestApi(
         `/api/supervision/checkins/records?${params.toString()}`,
@@ -200,7 +196,9 @@ export function CheckinRecordsDialog({
   })
 
   const items = query.data?.pages.flatMap((page) => page.items) ?? []
-  const filtersActive = Boolean(status || fromDate || toDate)
+  const filtersActive = Boolean(
+    status || fromDate !== (dateKey ?? "") || toDate !== (dateKey ?? ""),
+  )
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -241,14 +239,17 @@ export function CheckinRecordsDialog({
               size="sm"
               onClick={() => {
                 setStatus("")
-                setFromDate("")
-                setToDate("")
+                setFromDate(dateKey ?? "")
+                setToDate(dateKey ?? "")
               }}
             >
               清除筛选
             </Button>
           ) : null}
         </div>
+        <p className="text-muted-foreground text-xs">
+          按任务计划日期筛选；跨日完成的打卡仍计入计划当天。
+        </p>
 
         {query.isLoading ? <LoadingBlock rows={3} /> : null}
         {query.error ? (
@@ -276,15 +277,15 @@ export function CheckinRecordsDialog({
               <div key={item.id} className="bg-muted/35 rounded-xl p-3.5">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <p className="text-foreground font-medium">
-                    第 {item.slotIndex + 1} 时段 · {timeText(item.checkinAt)}
+                    第 {item.slotIndex + 1} 时段 · {formatDate(item.checkinAt)}
                   </p>
                   <StatusPill tone={item.status === "ON_TIME" ? "success" : "warning"}>
                     {RECORD_STATUS_LABELS[item.status] ?? item.status}
                   </StatusPill>
                 </div>
                 <div className="text-muted-foreground font-numeric mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs">
-                  <span>计划 {timeText(item.scheduleAt)}</span>
-                  <span>截止 {timeText(item.deadline)}</span>
+                  <span>计划 {formatDate(item.scheduleAt)}</span>
+                  <span>截止 {formatDate(item.deadline)}</span>
                   <span>
                     {LOCATION_SOURCE_LABELS[item.locationSource] ?? item.locationSource}
                   </span>
@@ -316,7 +317,7 @@ export function CheckinRecordsDialog({
                         <span>
                           审批意见：{item.makeupComment}
                           {item.makeupReviewedAt
-                            ? `（${timeText(item.makeupReviewedAt)}）`
+                            ? `（${formatDate(item.makeupReviewedAt)}）`
                             : ""}
                         </span>
                       </p>

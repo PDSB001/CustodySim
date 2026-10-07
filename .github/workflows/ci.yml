@@ -38,6 +38,8 @@ jobs:
       - run: pnpm lint
       - run: pnpm typecheck
       - run: pnpm test
+      - run: node scripts/test-clean-guard.mjs
+      - run: node scripts/test-realtime-flow.mjs
       - run: node scripts/test-deploy-flow.mjs
 
   integration:

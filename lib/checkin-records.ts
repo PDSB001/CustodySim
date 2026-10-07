@@ -7,6 +7,7 @@ import {
   checkinTasks,
 } from "@/lib/db/schema"
 import { getSessionUser } from "@/lib/session"
+import { parseIso } from "@/lib/shanghai-datetime"
 import { getSupervisedUserIdsForActor } from "@/lib/supervision-scope"
 
 type Actor = NonNullable<Awaited<ReturnType<typeof getSessionUser>>>
@@ -39,6 +40,10 @@ export type CheckinRecordDetailParams = {
   from?: Date | null
   /** 打卡时间上界（不含）。 */
   to?: Date | null
+  /** 任务计划时间下界（含），与实际打卡时间过滤独立。 */
+  scheduleFrom?: Date | null
+  /** 任务计划时间上界（不含）。 */
+  scheduleTo?: Date | null
   /** 只取这些打卡状态；不传表示全部。 */
   statuses?: readonly string[] | null
   cursor?: CheckinRecordCursor | null
@@ -77,6 +82,10 @@ export async function getCheckinRecordDetail(
   const filters = [eq(checkinRecords.userId, params.userId)]
   if (params.from) filters.push(gte(checkinRecords.checkinAt, params.from))
   if (params.to) filters.push(lt(checkinRecords.checkinAt, params.to))
+  if (params.scheduleFrom)
+    filters.push(gte(checkinTasks.scheduleAt, params.scheduleFrom))
+  if (params.scheduleTo)
+    filters.push(lt(checkinTasks.scheduleAt, params.scheduleTo))
   if (params.statuses?.length) {
     filters.push(inArray(checkinRecords.status, [...params.statuses]))
   }
@@ -140,8 +149,9 @@ export async function getCheckinRecordDetail(
 /**
  * 解析明细接口的查询参数。
  *
- * 返回 `null` 表示参数不合法（由调用方给出 400）；`from`/`to` 用宽松解析，
- * 既接受 `2026-09-26` 也接受完整 ISO 时间戳。
+ * 返回 `null` 表示参数不合法（由调用方给出 400）；`from`/`to` 按实际打卡时间
+ * 宽松解析，既接受 `2026-09-26` 也接受完整 ISO 时间戳。`scheduleFrom`/
+ * `scheduleTo` 按任务计划时间筛选，要求带时区的 ISO 时间戳。
  */
 export function parseCheckinRecordQuery(searchParams: URLSearchParams) {
   const UUID_PATTERN =
@@ -161,6 +171,13 @@ export function parseCheckinRecordQuery(searchParams: URLSearchParams) {
   if (from === undefined || to === undefined) return null
   if (from && to && from >= to) return null
 
+  const parseScheduleDate = (value: string | null): Date | null | undefined =>
+    value === null ? null : (parseIso(value) ?? undefined)
+  const scheduleFrom = parseScheduleDate(searchParams.get("scheduleFrom"))
+  const scheduleTo = parseScheduleDate(searchParams.get("scheduleTo"))
+  if (scheduleFrom === undefined || scheduleTo === undefined) return null
+  if (scheduleFrom && scheduleTo && scheduleFrom >= scheduleTo) return null
+
   const rawStatus = searchParams.get("status")
   const statuses = rawStatus
     ? rawStatus
@@ -177,7 +194,8 @@ export function parseCheckinRecordQuery(searchParams: URLSearchParams) {
     return null
   }
 
-  const rawLimit = Number(searchParams.get("limit"))
+  const limitParam = searchParams.get("limit")
+  const rawLimit = limitParam === null ? DEFAULT_RECORD_PAGE_SIZE : Number(limitParam)
   const [cursorTime, cursorId] = (searchParams.get("cursor") ?? "").split("|")
   const cursorDate = cursorTime ? new Date(cursorTime) : null
   const hasCursor =
@@ -189,6 +207,8 @@ export function parseCheckinRecordQuery(searchParams: URLSearchParams) {
     userId,
     from,
     to,
+    scheduleFrom,
+    scheduleTo,
     statuses,
     limit: Number.isFinite(rawLimit) ? rawLimit : DEFAULT_RECORD_PAGE_SIZE,
     cursor: hasCursor ? ({ at: cursorDate, id: cursorId } as CheckinRecordCursor) : null,

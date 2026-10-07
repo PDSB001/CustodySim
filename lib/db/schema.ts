@@ -839,6 +839,8 @@ export const reportReviews = pgTable(
 export const autoReviewSettings = pgTable("auto_review_settings", {
   id: varchar("id", { length: 20 }).primaryKey(),
   enabled: boolean("enabled").notNull().default(false),
+  makeupEnabled: boolean("makeup_enabled").notNull().default(false),
+  provider: varchar("provider", { length: 20 }).notNull().default("bigmodel"),
   actorId: uuid("actor_id").references(() => users.id, {
     onDelete: "set null",
   }),
@@ -991,6 +993,30 @@ export const checkinMakeups = pgTable(
     index("checkin_makeups_supervisor_status_idx").on(
       table.supervisorId,
       table.status,
+    ),
+  ],
+)
+
+export const autoReviewMakeupRuns = pgTable(
+  "auto_review_makeup_runs",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    makeupId: uuid("makeup_id")
+      .notNull()
+      .references(() => checkinMakeups.id, { onDelete: "cascade" }),
+    inputVersion: text("input_version").notNull(),
+    status: varchar("status", { length: 20 }).notNull().default("PROCESSING"),
+    result: varchar("result", { length: 20 }),
+    reason: text("reason"),
+    model: varchar("model", { length: 80 }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("auto_review_makeup_runs_input_unique").on(
+      table.makeupId,
+      table.inputVersion,
     ),
   ],
 )
