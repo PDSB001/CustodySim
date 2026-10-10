@@ -18,6 +18,7 @@ function runtime() {
   let cacheable = true
   let originalStatus = 200
   let contentRevision: string | null = null
+  let contentType = "image/png"
   const fetch = vi.fn(async (input: Request | string, init?: RequestInit) => {
     const url = new URL(typeof input === "string" ? input : input.url)
     if (url.pathname === "/api/media/authorize") {
@@ -41,7 +42,7 @@ function runtime() {
       )
       return new Response("picture-bytes", {
         headers: {
-          "Content-Type": "image/png",
+          "Content-Type": contentType,
           "Cache-Control": "private, no-store",
           "Set-Cookie": "must-not-be-stored",
           "X-CustodySim-Media-Revision": contentRevision ?? version,
@@ -60,6 +61,8 @@ function runtime() {
       )
       expect(response.headers.has("set-cookie")).toBe(false)
       expect(response.headers.has("vary")).toBe(false)
+      expect(key.headers.has("cache-control")).toBe(false)
+      expect(key.headers.has("pragma")).toBe(false)
       cachedKeys.push(key.url)
       entries.set(key.url, response.clone())
     }),
@@ -67,12 +70,14 @@ function runtime() {
   let listener: (event: unknown) => void = () => {
     throw new Error("Missing listener")
   }
+  const warn = vi.fn()
   runInNewContext(source, {
     Request,
     Response,
     Headers,
     URL,
     fetch,
+    console: { warn },
     caches: {
       open: async (name: string) => {
         expect(name).toBe("custodysim-private-media-v1")
@@ -86,6 +91,7 @@ function runtime() {
   return {
     fetch,
     cache,
+    warn,
     cachedKeys,
     authorize: (status: number) => {
       authStatus = status
@@ -99,6 +105,9 @@ function runtime() {
     noCache: () => {
       cacheable = false
     },
+    contentType: (next: string) => {
+      contentType = next
+    },
     original: (status: number) => {
       originalStatus = status
     },
@@ -110,6 +119,8 @@ function runtime() {
           method,
           headers: {
             authorization: "Bearer user-token",
+            "cache-control": "no-cache",
+            pragma: "no-cache",
             "x-custodysim-media-permit": "attacker-value",
           },
         }),
@@ -146,7 +157,7 @@ test("second image request checks live authorization but does not fetch picture 
   expect(
     (await app.request("GET", new URL(app.cachedKeys[0]).pathname)).status,
   ).toBe(404)
-  expect(app.cache.match).toHaveBeenCalledTimes(2)
+  expect(app.cache.match).toHaveBeenCalledTimes(3)
 })
 
 test("withdrawn, deleted, logged-out and failed auth requests never access a populated cache", async () => {
@@ -158,7 +169,7 @@ test("withdrawn, deleted, logged-out and failed auth requests never access a pop
     expect(denied.status).toBe(status === 500 ? 503 : status)
     expect(await denied.text()).toBe("")
   }
-  expect(app.cache.match).toHaveBeenCalledTimes(1)
+  expect(app.cache.match).toHaveBeenCalledTimes(2)
   expect(app.cache.put).toHaveBeenCalledTimes(1)
 })
 
@@ -193,4 +204,59 @@ test("HEAD has no body; expired cache entries refetch; disabled feature preserve
   app.original(401)
   expect((await app.request()).status).toBe(401)
   expect((await app.request("POST")).status).toBe(405)
+})
+
+test("miss diagnostics confirm storage and accept MIME parameters", async () => {
+  const app = runtime()
+  app.contentType("image/png; charset=binary")
+  const miss = await app.request()
+  expect(miss.headers.get("X-CustodySim-Media-Cache-Read")).toBe("MISS")
+  expect(miss.headers.get("X-CustodySim-Media-Cache-Write")).toBe("STORED")
+  const hit = await app.request()
+  expect(hit.headers.get("X-CustodySim-Media-Cache-Write")).toBe("NOT-NEEDED")
+  expect(await hit.text()).toBe("picture-bytes")
+})
+
+test("failed and silently ignored writes still serve authorized bytes with explicit diagnostics", async () => {
+  for (const mode of ["throw", "silent"] as const) {
+    const app = runtime()
+    if (mode === "throw")
+      app.cache.put.mockRejectedValue(new Error("413 private user-token"))
+    else app.cache.put.mockResolvedValue(undefined)
+    const result = await app.request()
+    expect(result.status).toBe(200)
+    expect(await result.text()).toBe("picture-bytes")
+    expect(result.headers.get("Cache-Control")).toBe("private, no-store")
+    expect(result.headers.get("X-CustodySim-Media-Cache-Write")).toBe(
+      mode === "throw" ? "ERROR" : "NOT-STORED",
+    )
+    expect(app.warn).toHaveBeenCalledTimes(1)
+    expect(JSON.stringify(app.warn.mock.calls)).not.toMatch(
+      /private|user-token/,
+    )
+    expect(result.headers.get("X-CustodySim-Media-Cache-Error")).toBe(
+      mode === "throw" ? "413" : null,
+    )
+    app.authorize(401)
+    expect((await app.request()).status).toBe(401)
+  }
+})
+
+test("skipped and failed cache reads remain distinct from failed writes", async () => {
+  const legacy = runtime()
+  legacy.noCache()
+  expect(
+    (await legacy.request()).headers.get("X-CustodySim-Media-Cache-Write"),
+  ).toBe("SKIP-LEGACY")
+  const svg = runtime()
+  svg.contentType("image/svg+xml")
+  expect(
+    (await svg.request()).headers.get("X-CustodySim-Media-Cache-Write"),
+  ).toBe("SKIP-TYPE")
+  expect(svg.cache.put).not.toHaveBeenCalled()
+  const expired = runtime()
+  expired.cache.match.mockRejectedValueOnce(new Error("504 expired"))
+  const response = await expired.request()
+  expect(response.headers.get("X-CustodySim-Media-Cache-Read")).toBe("ERROR")
+  expect(response.headers.get("X-CustodySim-Media-Cache-Write")).toBe("STORED")
 })

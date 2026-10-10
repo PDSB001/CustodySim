@@ -27,6 +27,17 @@ function credentials(request) {
   return headers
 }
 
+function cacheErrorStatus(error) {
+  const status = Number(error?.status ?? error?.statusCode ?? error?.code)
+  if (Number.isInteger(status) && status >= 100 && status <= 599)
+    return String(status)
+  // Return only a numeric status prefix, never the raw message or stack.
+  return (
+    /^\s*(\d{3})(?:\D|$)/.exec(String(error?.message ?? error ?? ""))?.[1] ||
+    "UNKNOWN"
+  )
+}
+
 async function handleMediaRequest(event) {
   const request = event.request
   const url = new URL(request.url)
@@ -84,11 +95,13 @@ async function handleMediaRequest(event) {
     // must also trigger this function: direct requests to it fail the image allowlist above.
     const cache = await caches.open("custodysim-private-media-v1")
     let cached
+    let readState = grant.cacheable ? "MISS" : "SKIPPED"
     if (grant.cacheable) {
       try {
         cached = await cache.match(key)
       } catch {
         /* EdgeOne throws 504 for an expired entry. Treat it as a miss. */
+        readState = "ERROR"
       }
     }
     if (cached) {
@@ -98,6 +111,8 @@ async function handleMediaRequest(event) {
         cached.headers,
       )
       result.headers.set("X-CustodySim-Media-Cache", "HIT")
+      result.headers.set("X-CustodySim-Media-Cache-Read", "HIT")
+      result.headers.set("X-CustodySim-Media-Cache-Write", "NOT-NEEDED")
       return result
     }
 
@@ -117,10 +132,13 @@ async function handleMediaRequest(event) {
         null,
         [401, 403, 404].includes(source.status) ? source.status : 503,
       )
-    if (
-      grant.cacheable &&
-      /^image\/(png|jpeg|webp)$/.test(source.headers.get("Content-Type") || "")
-    ) {
+    const contentType = (source.headers.get("Content-Type") || "")
+      .split(";", 1)[0]
+      .trim()
+      .toLowerCase()
+    let writeState = grant.cacheable ? "SKIP-TYPE" : "SKIP-LEGACY"
+    let writeError
+    if (grant.cacheable && /^image\/(png|jpeg|webp)$/.test(contentType)) {
       const storageHeaders = new Headers({
         "Content-Type": source.headers.get("Content-Type"),
         "Cache-Control": `public, max-age=${CACHE_TTL_SECONDS}`,
@@ -130,7 +148,24 @@ async function handleMediaRequest(event) {
       const storage = new Response(source.clone().body, {
         headers: storageHeaders,
       })
-      event.waitUntil(cache.put(key, storage).catch(() => {}))
+      // put() can resolve even when nothing was stored. Confirm the entry instead of
+      // silently discarding write failures. This adds work only on cache misses.
+      try {
+        await cache.put(key, storage)
+        const stored = await cache.match(key)
+        writeState = stored?.status === 200 ? "STORED" : "NOT-STORED"
+        // A cloned stream's cancellation may wait for another reader; never block delivery on it.
+        void stored?.body?.cancel().catch(() => {})
+        if (writeState !== "STORED")
+          console.warn("[edgeone-media] cache write not retained")
+      } catch (error) {
+        writeState = "ERROR"
+        writeError = cacheErrorStatus(error)
+        console.warn(
+          "[edgeone-media] cache write/verification failed",
+          writeError,
+        )
+      }
     }
     const result = privateResponse(
       request.method === "HEAD" ? null : source.body,
@@ -138,6 +173,10 @@ async function handleMediaRequest(event) {
       source.headers,
     )
     result.headers.set("X-CustodySim-Media-Cache", "MISS")
+    result.headers.set("X-CustodySim-Media-Cache-Read", readState)
+    result.headers.set("X-CustodySim-Media-Cache-Write", writeState)
+    if (writeError)
+      result.headers.set("X-CustodySim-Media-Cache-Error", writeError)
     return result
   } catch {
     // Auth/server/network failures must never fall back to a previously authorized image.
