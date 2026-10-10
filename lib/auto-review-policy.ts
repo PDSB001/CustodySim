@@ -59,7 +59,7 @@ export function prepareAutoReview(
   // Explicit external-evidence requirements are outside text review. Do not
   // rely on a model to decide whether missing signatures warrant rejection.
   const requirements = (parsed.data.content ?? "").replace(
-    /(?:无需|不需要|不必)(?:核实|核验|验证|确认)(?:现场|线下)事实/g,
+    /(?:无需|不需要|不必|不)(?:核实|核验|验证|确认)(?:现场|线下)事实/g,
     "",
   )
   if (

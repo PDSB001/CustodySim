@@ -229,13 +229,18 @@ test.describe("监管打卡日期下钻", () => {
       status: "ON_TIME",
       slotIndex: 0,
       photoUrl: null,
-      location: null,
+      location: {
+        source: "IP",
+        label: "北京 · CN",
+        city: "北京",
+        country: "CN",
+      },
       lat: null,
       lng: null,
       locationSource: "IP",
-      ip: null,
+      ip: "203.0.113.7",
       clientType: "WEB",
-      browserType: null,
+      browserType: "okhttp/4.12.0",
       remark: null,
       taskStatus: "COMPLETED",
       scheduleAt: "2026-09-26T00:00:00.000Z",
@@ -298,6 +303,18 @@ test.describe("监管打卡日期下钻", () => {
       page.getByText("按任务计划日期筛选；跨日完成的打卡仍计入计划当天。"),
     ).toBeVisible()
     await expect(page.getByLabel("明细起始日期")).toBeVisible()
+    await expect(page.getByText("App", { exact: true }).first()).toBeVisible()
+    await expect(
+      page.getByText("北京 · CN", { exact: true }).first(),
+    ).toBeVisible()
+    await page
+      .locator("summary")
+      .filter({ hasText: "UA（已保存内容）" })
+      .first()
+      .click()
+    await expect(
+      page.getByText("okhttp/4.12.0", { exact: true }).first(),
+    ).toBeVisible()
     await expect(page.locator('input[type="date"]')).toHaveCount(0)
   })
 })

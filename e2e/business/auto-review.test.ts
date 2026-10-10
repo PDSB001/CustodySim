@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto"
+import { NextRequest } from "next/server"
 import {
   afterAll,
   afterEach,
@@ -17,6 +18,8 @@ import { runAutoReviewSweep } from "@/lib/auto-review-server"
 import { GET, PUT } from "@/app/api/admin/auto-review/route"
 import { getAutoReviewSettings } from "@/lib/auto-review-settings"
 import { ISOLATION_REPORT_TEMPLATE_NAME } from "@/lib/isolation-report-template"
+import { GET as listMakeups } from "@/app/api/makeups/route"
+import { PATCH as reviewMakeup } from "@/app/api/makeups/[id]/route"
 
 // 只替身 Next 的 cookie 读取；JWT 校验、角色判断与路由逻辑保持真实。
 const cookie = vi.hoisted(() => ({ token: "" }))
@@ -32,6 +35,7 @@ vi.mock("next/headers", () => ({
 
 const ids: string[] = []
 const templates: string[] = []
+const makeupFixtures: Array<{ id: string; taskId: string; ruleId: string }> = []
 let user: string
 let admin: string
 let templateId: string
@@ -77,6 +81,40 @@ async function fixture(source = "RULE") {
     .returning()
   return { task: task!, submission: submission! }
 }
+async function makeupFixture(photoUrl: string | null = null) {
+  const [rule] = await db
+    .insert(s.rules)
+    .values({ name: `E2E ${randomUUID()}` })
+    .returning()
+  const [task] = await db
+    .insert(s.checkinTasks)
+    .values({
+      ruleId: rule.id,
+      supervisedId: user,
+      slotIndex: 0,
+      scheduleAt: new Date(),
+      deadline: new Date(),
+      status: "MAKEUP_PENDING",
+    })
+    .returning()
+  const [makeup] = await db
+    .insert(s.checkinMakeups)
+    .values({
+      taskId: task.id,
+      userId: user,
+      ruleId: rule.id,
+      date: task.scheduleAt,
+      slotIndex: 0,
+      reason: "点名时手机没电，充电开机后申请补卡，避免当日记录缺失。",
+      photoUrl,
+    })
+    .returning()
+  makeupFixtures.push({ id: makeup.id, taskId: task.id, ruleId: rule.id })
+  await db
+    .update(s.autoReviewSettings)
+    .set({ enabled: false, makeupEnabled: true })
+  return makeup
+}
 beforeAll(async () => {
   expect(
     (await db.execute(sql`select current_database() as name`)).rows[0]?.name,
@@ -117,9 +155,45 @@ beforeEach(async () => {
     tokenVersion: 0,
   })
 })
-afterEach(() => {
+afterEach(async () => {
   vi.unstubAllGlobals()
   vi.unstubAllEnvs()
+  if (makeupFixtures.length) {
+    await db.delete(s.auditLogs).where(
+      and(
+        eq(s.auditLogs.entityType, "checkin_makeup"),
+        inArray(
+          s.auditLogs.entityId,
+          makeupFixtures.map((row) => row.id),
+        ),
+      ),
+    )
+    await db.delete(s.checkinRecords).where(
+      inArray(
+        s.checkinRecords.taskId,
+        makeupFixtures.map((row) => row.taskId),
+      ),
+    )
+    await db.delete(s.checkinMakeups).where(
+      inArray(
+        s.checkinMakeups.id,
+        makeupFixtures.map((row) => row.id),
+      ),
+    )
+    await db.delete(s.checkinTasks).where(
+      inArray(
+        s.checkinTasks.id,
+        makeupFixtures.map((row) => row.taskId),
+      ),
+    )
+    await db.delete(s.rules).where(
+      inArray(
+        s.rules.id,
+        makeupFixtures.map((row) => row.ruleId),
+      ),
+    )
+    makeupFixtures.length = 0
+  }
 })
 afterAll(async () => {
   await db.delete(s.autoReviewSettings)
@@ -140,6 +214,158 @@ afterAll(async () => {
     .delete(s.reportTemplates)
     .where(inArray(s.reportTemplates.id, templates))
   await db.$client.end()
+})
+
+test("纯文字补卡调用模型后自动通过，审核轨迹区分 AI 身份", async () => {
+  const makeup = await makeupFixture()
+  const fetcher = vi.fn().mockResolvedValue(reply())
+  vi.stubGlobal("fetch", fetcher)
+  await runAutoReviewSweep()
+  expect(fetcher).toHaveBeenCalledTimes(1)
+  const response = await listMakeups(
+    new NextRequest("http://localhost/api/makeups?status=APPROVED"),
+  )
+  expect(response.status).toBe(200)
+  expect(
+    (await response.json()).data.find(
+      (row: { id: string }) => row.id === makeup.id,
+    ),
+  ).toMatchObject({
+    status: "APPROVED",
+    autoReviewReason: null,
+    autoReviewHistory: [
+      {
+        status: "APPLIED",
+        result: "APPROVED",
+        reason: approved.reason,
+        model: "glm-4.1v-thinking-flash",
+        isCurrent: true,
+      },
+    ],
+    reviewHistory: [
+      {
+        actorType: "SYSTEM_AI",
+        actorName: "AI 自动审核",
+        result: "APPROVED",
+        comment: `自动审核：${approved.reason}`,
+        isCurrent: true,
+      },
+    ],
+  })
+})
+
+test("补卡限流降级原因可见，人工通过后仍保留自动审核和人工轨迹", async () => {
+  const makeup = await makeupFixture()
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockResolvedValue(new Response("rate limit", { status: 429 })),
+  )
+  await runAutoReviewSweep()
+  const queue = (await (await listMakeups()).json()).data
+  expect(
+    queue.find((row: { id: string }) => row.id === makeup.id),
+  ).toMatchObject({
+    status: "PENDING",
+    autoReviewReason: "模型服务暂不可用，请人工审核",
+    autoReviewHistory: [
+      { status: "MANUAL", result: "MANUAL", isCurrent: true },
+    ],
+    reviewHistory: [],
+  })
+  expect(
+    (
+      await reviewMakeup(
+        new NextRequest("http://localhost/api/makeups", {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            result: "APPROVED",
+            comment: "核实后同意补卡",
+          }),
+        }),
+        { params: Promise.resolve({ id: makeup.id }) },
+      )
+    ).status,
+  ).toBe(200)
+  const history = (
+    await (
+      await listMakeups(
+        new NextRequest("http://localhost/api/makeups?status=APPROVED"),
+      )
+    ).json()
+  ).data
+  expect(
+    history.find((row: { id: string }) => row.id === makeup.id),
+  ).toMatchObject({
+    status: "APPROVED",
+    reviewComment: "核实后同意补卡",
+    autoReviewReason: null,
+    autoReviewHistory: [
+      { reason: "模型服务暂不可用，请人工审核", result: "MANUAL" },
+    ],
+    reviewHistory: [
+      {
+        actorName: admin,
+        actorType: "USER",
+        result: "APPROVED",
+        comment: "核实后同意补卡",
+      },
+    ],
+  })
+  const outsider = randomUUID()
+  ids.push(outsider)
+  await db.insert(s.users).values({
+    id: outsider,
+    username: `e2e_${outsider}`,
+    name: outsider,
+    role: "SUPERVISOR",
+    passwordHash: "unused",
+    mustChangePassword: false,
+  })
+  cookie.token = await signToken({
+    userId: outsider,
+    role: "SUPERVISOR",
+    tokenVersion: 0,
+  })
+  expect(
+    (
+      await (
+        await listMakeups(
+          new NextRequest("http://localhost/api/makeups?status=ALL"),
+        )
+      ).json()
+    ).data,
+  ).toEqual([])
+})
+
+test("补卡重新申请不显示旧版本转人工提示，但保留历史原因", async () => {
+  const makeup = await makeupFixture("data:image/png;base64,proof")
+  const fetcher = vi.fn()
+  vi.stubGlobal("fetch", fetcher)
+  await runAutoReviewSweep()
+  expect(fetcher).not.toHaveBeenCalled()
+  await db
+    .update(s.checkinMakeups)
+    .set({
+      reason: "重新申请，现已说明漏卡原因",
+      createdAt: new Date(Date.now() + 1000),
+    })
+    .where(eq(s.checkinMakeups.id, makeup.id))
+  expect(
+    (await (await listMakeups()).json()).data.find(
+      (row: { id: string }) => row.id === makeup.id,
+    ),
+  ).toMatchObject({
+    status: "PENDING",
+    autoReviewReason: null,
+    autoReviewHistory: [
+      {
+        result: "MANUAL",
+        reason: "补卡包含图片凭证，请人工核验",
+        isCurrent: false,
+      },
+    ],
+  })
 })
 
 test("自动通过与并发扫描只产生一份审核和积分", async () => {

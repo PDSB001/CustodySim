@@ -16,9 +16,14 @@ const databaseUrl = process.env.DATABASE_URL
 if (!authSecret || authSecret.length < 32)
   throw new Error("AUTH_SECRET must contain at least 32 characters")
 if (
-  ["replace-this", "changeme", "change-me", "your-secret", "placeholder", "example"].some(
-    (marker) => authSecret.toLowerCase().includes(marker),
-  )
+  [
+    "replace-this",
+    "changeme",
+    "change-me",
+    "your-secret",
+    "placeholder",
+    "example",
+  ].some((marker) => authSecret.toLowerCase().includes(marker))
 )
   throw new Error(
     "AUTH_SECRET is still the example placeholder; generate a unique random secret",
@@ -57,6 +62,10 @@ const io = new Server(httpServer, {
     credentials: true,
   },
   transports: ["websocket", "polling"],
+  // Engine.IO sends actual text data frames (2/3), keeping CDN idle timers active.
+  // Both Socket.IO Web clients and the existing Android client handle these frames.
+  pingInterval: 20_000,
+  pingTimeout: 10_000,
 })
 
 io.use(async (socket, next) => {

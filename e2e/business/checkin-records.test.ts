@@ -8,7 +8,10 @@ import { db } from "@/lib/db"
 import * as s from "@/lib/db/schema"
 import { getAdminUserId } from "@/lib/supervision-scope"
 import { POST as checkin } from "@/app/api/checkins/route"
-import { GET as listMakeups, POST as applyMakeup } from "@/app/api/makeups/route"
+import {
+  GET as listMakeups,
+  POST as applyMakeup,
+} from "@/app/api/makeups/route"
 import { GET as listHistory } from "@/app/api/supervision/checkins/route"
 import { GET as listRecords } from "@/app/api/supervision/checkins/records/route"
 
@@ -112,9 +115,15 @@ afterAll(async () => {
   if (ids.length) {
     await db.delete(s.auditLogs).where(inArray(s.auditLogs.actorId, ids))
     // rules 被 checkin_tasks / checkin_makeups 引用且无级联，必须先清子表。
-    await db.delete(s.checkinMakeups).where(inArray(s.checkinMakeups.userId, ids))
-    await db.delete(s.checkinRecords).where(inArray(s.checkinRecords.userId, ids))
-    await db.delete(s.checkinTasks).where(inArray(s.checkinTasks.supervisedId, ids))
+    await db
+      .delete(s.checkinMakeups)
+      .where(inArray(s.checkinMakeups.userId, ids))
+    await db
+      .delete(s.checkinRecords)
+      .where(inArray(s.checkinRecords.userId, ids))
+    await db
+      .delete(s.checkinTasks)
+      .where(inArray(s.checkinTasks.supervisedId, ids))
     await db.delete(s.persons).where(inArray(s.persons.userId, ids))
   }
   if (ruleIds.length)
@@ -122,6 +131,53 @@ afterAll(async () => {
   if (ids.length) await db.delete(s.users).where(inArray(s.users.id, ids))
   await db.$client.end()
 })
+
+test.each([
+  { "user-agent": "okhttp/4.12.0" },
+  { "user-agent": "Mozilla/5.0", "x-custodysim-client": "android-app/1" },
+])(
+  "原生打卡正确记录 App，旧记录读取时解析客户端和缺失的 IP 地点: %j",
+  async (headers) => {
+    const supervised = await account("SUPERVISED")
+    const task = await checkinTask(supervised)
+    await as(supervised, "SUPERVISED")
+    const input = request({ taskId: task.id, locationSource: "IP" })
+    for (const [name, value] of Object.entries(headers))
+      input.headers.set(name, value)
+    const response = await checkin(input)
+    expect(response.status).toBe(201)
+    const record = (await response.json()).data
+    expect(record.clientType).toBe("APP")
+    expect(record.browserType).toBe(headers["user-agent"])
+    // Simulate an older record with the wrong WEB marker and missing saved location.
+    await db
+      .update(s.checkinRecords)
+      .set({ clientType: "WEB", browserType: "okhttp/4.12.0", location: {} })
+      .where(eq(s.checkinRecords.id, record.id))
+    await as(admin, "ADMIN")
+    const listed = (
+      await (await listRecords(get(recordsUrl(supervised)))).json()
+    ).data.items
+    expect(listed).toMatchObject([
+      {
+        id: record.id,
+        clientType: "APP",
+        userAgent: "okhttp/4.12.0",
+        ipLocation: {
+          source: "IP",
+          precision: "CITY",
+          country: expect.any(String),
+        },
+      },
+    ])
+    expect(listed[0].ipLocation).not.toHaveProperty("lat")
+    const [persisted] = await db
+      .select()
+      .from(s.checkinRecords)
+      .where(eq(s.checkinRecords.id, record.id))
+    expect(persisted.location).toEqual({})
+  },
+)
 
 test("打卡明细按人下发：状态筛选与游标分页可用，非法参数被拒绝", async () => {
   const supervised = await account("SUPERVISED")
@@ -141,9 +197,9 @@ test("打卡明细按人下发：状态筛选与游标分页可用，非法参�
   ).toBe(201)
 
   await as(admin, "ADMIN")
-  const defaultPage = (await (
-    await listRecords(get(recordsUrl(supervised)))
-  ).json()).data as { items: unknown[]; nextCursor: string | null }
+  const defaultPage = (
+    await (await listRecords(get(recordsUrl(supervised)))).json()
+  ).data as { items: unknown[]; nextCursor: string | null }
   expect(defaultPage.items).toHaveLength(2)
   expect(defaultPage.nextCursor).toBeNull()
 
@@ -179,7 +235,9 @@ test("打卡明细按人下发：状态筛选与游标分页可用，非法参�
 
   // 用响应里真实存在的状态值做正向筛选，避免把状态枚举硬编码进测试。
   const status = page1.items[0]!.status
-  const filtered = await listRecords(get(recordsUrl(supervised, `&status=${status}`)))
+  const filtered = await listRecords(
+    get(recordsUrl(supervised, `&status=${status}`)),
+  )
   const filteredBody = (await filtered.json()).data as {
     items: Array<{ status: string }>
   }
@@ -187,18 +245,27 @@ test("打卡明细按人下发：状态筛选与游标分页可用，非法参�
   expect(filteredBody.items.every((row) => row.status === status)).toBe(true)
 
   expect(
-    (await listRecords(get(recordsUrl(supervised, "&status=NOT_A_STATUS")))).status,
+    (await listRecords(get(recordsUrl(supervised, "&status=NOT_A_STATUS"))))
+      .status,
   ).toBe(400)
-  expect((await listRecords(get(recordsUrl(supervised, "&limit=2")))).status).toBe(
-    200,
-  )
-  expect((await listRecords(get("http://localhost/api/supervision/checkins/records?limit=2"))).status).toBe(
-    400,
-  )
+  expect(
+    (await listRecords(get(recordsUrl(supervised, "&limit=2")))).status,
+  ).toBe(200)
+  expect(
+    (
+      await listRecords(
+        get("http://localhost/api/supervision/checkins/records?limit=2"),
+      )
+    ).status,
+  ).toBe(400)
   // from 含 / to 不含，且 from >= to 视为参数非法。
   const future = new Date(Date.now() + 86_400_000).toISOString()
-  const emptyRange = await listRecords(get(recordsUrl(supervised, `&from=${future}`)))
-  expect(((await emptyRange.json()).data as { items: unknown[] }).items).toHaveLength(0)
+  const emptyRange = await listRecords(
+    get(recordsUrl(supervised, `&from=${future}`)),
+  )
+  expect(
+    ((await emptyRange.json()).data as { items: unknown[] }).items,
+  ).toHaveLength(0)
   expect(
     (
       await listRecords(
@@ -232,22 +299,32 @@ test("按计划日期筛选可包含次日打卡，原打卡时间筛选语义�
   const rowsFor = async (extra: string) => {
     const response = await listRecords(get(recordsUrl(supervised, extra)))
     expect(response.status).toBe(200)
-    return ((await response.json()).data as { items: Array<{ id: string }> }).items
+    return ((await response.json()).data as { items: Array<{ id: string }> })
+      .items
   }
   expect(await rowsFor(`&scheduleFrom=${day26}&scheduleTo=${day27}`)).toEqual([
     expect.objectContaining({ id: record.id }),
   ])
-  expect(await rowsFor(`&scheduleFrom=${day27}&scheduleTo=${day28}`)).toEqual([])
+  expect(await rowsFor(`&scheduleFrom=${day27}&scheduleTo=${day28}`)).toEqual(
+    [],
+  )
   expect(await rowsFor(`&from=${day26}&to=${day27}`)).toEqual([])
   expect(await rowsFor(`&from=${day27}&to=${day28}`)).toEqual([
     expect.objectContaining({ id: record.id }),
   ])
 
   expect(
-    (await listRecords(get(recordsUrl(supervised, "&scheduleFrom=2026-09-26")))).status,
+    (await listRecords(get(recordsUrl(supervised, "&scheduleFrom=2026-09-26"))))
+      .status,
   ).toBe(400)
   expect(
-    (await listRecords(get(recordsUrl(supervised, `&scheduleFrom=${day27}&scheduleTo=${day26}`)))).status,
+    (
+      await listRecords(
+        get(
+          recordsUrl(supervised, `&scheduleFrom=${day27}&scheduleTo=${day26}`),
+        ),
+      )
+    ).status,
   ).toBe(400)
 })
 
@@ -327,17 +404,27 @@ test("补卡审核后可按状态回看已审记录与审批意见", async () =>
     status: "APPROVED",
     reviewComment: "凭证有效，同意补卡",
   })
-  expect(approvedRows.find((row) => row.id === makeupId)?.reviewedAt).toBeTruthy()
+  expect(
+    approvedRows.find((row) => row.id === makeupId)?.reviewedAt,
+  ).toBeTruthy()
 
-  const all = (await (
-    await listMakeups(new NextRequest("http://localhost/api/makeups?status=ALL"))
-  ).json()).data as Array<{ id: string }>
+  const all = (
+    await (
+      await listMakeups(
+        new NextRequest("http://localhost/api/makeups?status=ALL"),
+      )
+    ).json()
+  ).data as Array<{ id: string }>
   expect(all.map((row) => row.id)).toContain(makeupId)
 
   // 未知状态值回落到默认待审队列，不会退化成"全量下发"。
-  const bogus = (await (
-    await listMakeups(new NextRequest("http://localhost/api/makeups?status=BOGUS"))
-  ).json()).data as Array<{ id: string }>
+  const bogus = (
+    await (
+      await listMakeups(
+        new NextRequest("http://localhost/api/makeups?status=BOGUS"),
+      )
+    ).json()
+  ).data as Array<{ id: string }>
   expect(bogus.map((row) => row.id)).not.toContain(makeupId)
 })
 
@@ -356,9 +443,7 @@ test("当日概览下发逐时段分布，且与异常/完成计数同源", asyn
     timeZone: "Asia/Shanghai",
   }).format(new Date())
   const response = await listHistory(
-    new NextRequest(
-      `http://localhost/api/supervision/checkins?date=${today}`,
-    ),
+    new NextRequest(`http://localhost/api/supervision/checkins?date=${today}`),
   )
   expect(response.status).toBe(200)
   const rows = (await response.json()).data as Array<{
@@ -377,7 +462,9 @@ test("当日概览下发逐时段分布，且与异常/完成计数同源", asyn
   const slots = mine?.slots ?? []
   const completed = slots.filter((slot) => slot.status === "COMPLETED").length
   const exception = slots.filter((slot) =>
-    ["LATE", "MISSED", "MAKEUP_PENDING", "MAKEUP_REJECTED"].includes(slot.status),
+    ["LATE", "MISSED", "MAKEUP_PENDING", "MAKEUP_REJECTED"].includes(
+      slot.status,
+    ),
   ).length
   expect(completed).toBe(mine?.completedCount)
   expect(exception).toBe(mine?.exceptionCount)

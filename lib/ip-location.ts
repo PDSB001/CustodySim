@@ -34,3 +34,37 @@ export function getCoarseIpLocation(
     timezone: result?.timezone ?? null,
   }
 }
+
+/** Prefer the check-in-time snapshot; resolve missing legacy metadata locally. */
+export function getRecordIpLocation(record: {
+  locationSource: string
+  location: unknown
+  ip: string | null
+}): IpCoarseLocation | null {
+  if (record.locationSource === "SYSTEM") return null
+  const object = (value: unknown): Record<string, unknown> | null =>
+    value && typeof value === "object" && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : null
+  const location = object(record.location)
+  const cached =
+    record.locationSource === "IP" ? location : object(location?.ip)
+  const text = (value: unknown) =>
+    typeof value === "string" && value.trim() ? value.trim() : null
+  if (
+    cached &&
+    text(cached.label) &&
+    (text(cached.country) || text(cached.region) || text(cached.city))
+  ) {
+    return {
+      source: "IP",
+      precision: "CITY",
+      label: text(cached.label)!,
+      country: text(cached.country),
+      region: text(cached.region),
+      city: text(cached.city),
+      timezone: text(cached.timezone),
+    }
+  }
+  return record.ip ? getCoarseIpLocation(record.ip) : null
+}

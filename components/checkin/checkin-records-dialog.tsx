@@ -11,6 +11,8 @@ import { ImageGallery } from "@/components/shared/image-upload-field"
 import { ErrorState, LoadingBlock } from "@/components/shared/query-state-view"
 import { StatusPill } from "@/components/shared/status-pill"
 import { Button } from "@/components/ui/button"
+import { getCheckinClientInfo } from "@/lib/checkin-client"
+import { getCheckinLocationText } from "@/lib/checkin-location-display"
 import { DatePicker } from "@/components/ui/date-picker"
 import {
   Dialog,
@@ -42,6 +44,8 @@ const CheckinRecordItem = z.object({
   ip: z.string().nullable(),
   clientType: z.string().nullable(),
   browserType: z.string().nullable(),
+  userAgent: z.string().nullable().optional(),
+  ipLocation: z.unknown().optional(),
   remark: z.string().nullable(),
   taskStatus: z.string(),
   scheduleAt: z.string(),
@@ -59,8 +63,6 @@ const CheckinRecordPage = z.object({
   nextCursor: z.string().nullable(),
 })
 
-type CheckinRecord = z.infer<typeof CheckinRecordItem>
-
 /** `checkin_records.status` 的中文标签（与任务状态那套不是一回事）。 */
 const RECORD_STATUS_LABELS: Record<string, string> = {
   ON_TIME: "按时打卡",
@@ -76,11 +78,6 @@ const LOCATION_SOURCE_LABELS: Record<string, string> = {
   SYSTEM: "系统记录",
 }
 
-const CLIENT_TYPE_LABELS: Record<string, string> = {
-  WEB: "网页端",
-  SYSTEM: "系统",
-}
-
 const STATUS_FILTERS = [
   { value: "ON_TIME", label: "按时打卡" },
   { value: "LATE", label: "迟到打卡" },
@@ -92,28 +89,6 @@ const STATUS_FILTERS = [
 function shanghaiDayStartIso(dateKey: string, addDays = 0) {
   const start = new Date(`${dateKey}T00:00:00+08:00`)
   return new Date(start.getTime() + addDays * 86_400_000).toISOString()
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
-}
-
-/**
- * 地点文案。
- *
- * GPS 只保留 3 天（`lib/privacy-retention.ts`），超期后服务端会把地点改成
- * `GPS_PURGED` 并清空 lat/lng —— 这里如实说明，不给"看起来有地点"的错觉。
- */
-function locationText(item: CheckinRecord) {
-  if (item.locationSource === "GPS_PURGED") return "地点已按保留策略清除（GPS 保留 3 天）"
-  const address =
-    isRecord(item.location) && typeof item.location.address === "string"
-      ? item.location.address
-      : null
-  if (address) return address
-  if (item.lat && item.lng) return `${item.lat}, ${item.lng}`
-  if (item.ip) return `IP ${item.ip}`
-  return null
 }
 
 /**
@@ -272,14 +247,17 @@ export function CheckinRecordsDialog({
 
         <div className="space-y-3">
           {items.map((item) => {
-            const location = locationText(item)
+            const location = getCheckinLocationText(item)
+            const client = getCheckinClientInfo(item)
             return (
               <div key={item.id} className="bg-muted/35 rounded-xl p-3.5">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <p className="text-foreground font-medium">
                     第 {item.slotIndex + 1} 时段 · {formatDate(item.checkinAt)}
                   </p>
-                  <StatusPill tone={item.status === "ON_TIME" ? "success" : "warning"}>
+                  <StatusPill
+                    tone={item.status === "ON_TIME" ? "success" : "warning"}
+                  >
                     {RECORD_STATUS_LABELS[item.status] ?? item.status}
                   </StatusPill>
                 </div>
@@ -287,14 +265,16 @@ export function CheckinRecordsDialog({
                   <span>计划 {formatDate(item.scheduleAt)}</span>
                   <span>截止 {formatDate(item.deadline)}</span>
                   <span>
-                    {LOCATION_SOURCE_LABELS[item.locationSource] ?? item.locationSource}
+                    {LOCATION_SOURCE_LABELS[item.locationSource] ??
+                      item.locationSource}
                   </span>
-                  {item.clientType ? (
+                  {client.clientType ? (
                     <span>
-                      {CLIENT_TYPE_LABELS[item.clientType] ?? item.clientType}
-                      {item.browserType ? ` · ${item.browserType}` : ""}
+                      {client.label}
+                      {client.browserName ? ` · ${client.browserName}` : ""}
                     </span>
                   ) : null}
+                  {item.ip ? <span>IP {item.ip}</span> : null}
                 </div>
                 {location ? (
                   <p className="text-muted-foreground mt-2 flex items-start gap-1.5 text-xs">
@@ -302,8 +282,18 @@ export function CheckinRecordsDialog({
                     <span>{location}</span>
                   </p>
                 ) : null}
+                {client.userAgent ? (
+                  <details className="text-muted-foreground mt-2 text-xs">
+                    <summary className="cursor-pointer">
+                      UA（已保存内容）
+                    </summary>
+                    <p className="mt-1 break-all">{client.userAgent}</p>
+                  </details>
+                ) : null}
                 {item.remark ? (
-                  <p className="text-muted-foreground mt-2 text-xs">备注：{item.remark}</p>
+                  <p className="text-muted-foreground mt-2 text-xs">
+                    备注：{item.remark}
+                  </p>
                 ) : null}
                 {item.makeupId ? (
                   <div className="border-border/60 mt-3 space-y-1 border-t pt-3 text-xs">
@@ -313,7 +303,10 @@ export function CheckinRecordsDialog({
                     </p>
                     {item.makeupComment ? (
                       <p className="text-muted-foreground flex items-center gap-1.5">
-                        <ShieldCheck className="size-3.5 shrink-0" aria-hidden />
+                        <ShieldCheck
+                          className="size-3.5 shrink-0"
+                          aria-hidden
+                        />
                         <span>
                           审批意见：{item.makeupComment}
                           {item.makeupReviewedAt
@@ -331,7 +324,10 @@ export function CheckinRecordsDialog({
                 ) : null}
                 {item.makeupPhotoUrl ? (
                   <div className="mt-2">
-                    <ImageGallery value={item.makeupPhotoUrl} label="补卡凭证" />
+                    <ImageGallery
+                      value={item.makeupPhotoUrl}
+                      label="补卡凭证"
+                    />
                   </div>
                 ) : null}
               </div>

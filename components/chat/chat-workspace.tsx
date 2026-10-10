@@ -21,10 +21,11 @@ import {
 } from "lucide-react"
 import Image from "next/image"
 import { useEffect, useMemo, useRef, useState } from "react"
-import { io, type Socket } from "socket.io-client"
+import { io } from "socket.io-client"
 import { z } from "zod"
 
 import { formatDate, requestApi } from "@/components/shared/api-client"
+import { subscribeChatRealtimeSession } from "@/lib/chat-realtime-session"
 import { EmptyState } from "@/components/shared/empty-state"
 import { PageHeader } from "@/components/shared/page-header"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
@@ -132,7 +133,6 @@ function initials(name: string) {
 
 function useChatRealtime(selectedConversationId: string | null) {
   const client = useQueryClient()
-  const socketRef = useRef<Socket | null>(null)
   const token = useQuery({
     queryKey: ["chat-realtime-token", selectedConversationId],
     queryFn: () =>
@@ -147,7 +147,7 @@ function useChatRealtime(selectedConversationId: string | null) {
   })
 
   useEffect(() => {
-    if (!token.data?.token) return
+    if (!token.data?.token || !selectedConversationId) return
     const developmentUrl =
       process.env.NODE_ENV === "production"
         ? undefined
@@ -158,9 +158,34 @@ function useChatRealtime(selectedConversationId: string | null) {
         path: "/socket.io",
         auth: { token: token.data.token },
         transports: ["websocket", "polling"],
+        autoConnect: false,
+        reconnectionDelay: 1_000,
+        reconnectionDelayMax: 10_000,
+        randomizationFactor: 0.5,
       },
     )
-    socketRef.current = socket
+    const unsubscribe = subscribeChatRealtimeSession(
+      socket,
+      selectedConversationId,
+      {
+        onJoined: () => {
+          // Catch up on messages and recalls missed while the transport was offline.
+          client.invalidateQueries({ queryKey: ["chat-conversations"] })
+          client.invalidateQueries({
+            queryKey: ["chat-tail", selectedConversationId],
+          })
+          client.invalidateQueries({
+            queryKey: ["chat-messages", selectedConversationId],
+          })
+        },
+        onCredentialExpired: () => {
+          // A new token recreates the connection through this effect after normal HTTP auth.
+          client.invalidateQueries({
+            queryKey: ["chat-realtime-token", selectedConversationId],
+          })
+        },
+      },
+    )
     socket.on(
       "chat:event",
       (event: { conversationId?: string; type?: string }) => {
@@ -179,20 +204,12 @@ function useChatRealtime(selectedConversationId: string | null) {
           })
       },
     )
+    socket.connect()
     return () => {
+      unsubscribe()
       socket.disconnect()
-      socketRef.current = null
     }
-  }, [client, token.data?.token])
-
-  useEffect(() => {
-    const socket = socketRef.current
-    if (!socket || !selectedConversationId) return
-    socket.emit("conversation:join", selectedConversationId)
-    return () => {
-      socket.emit("conversation:leave", selectedConversationId)
-    }
-  }, [selectedConversationId, token.data?.token])
+  }, [client, selectedConversationId, token.data?.token])
 }
 
 function NewConversationDialog() {

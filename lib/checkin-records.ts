@@ -1,14 +1,12 @@
 import { and, desc, eq, gte, inArray, lt, or, sql } from "drizzle-orm"
 
 import { db } from "@/lib/db"
-import {
-  checkinMakeups,
-  checkinRecords,
-  checkinTasks,
-} from "@/lib/db/schema"
+import { checkinMakeups, checkinRecords, checkinTasks } from "@/lib/db/schema"
 import { getSessionUser } from "@/lib/session"
 import { parseIso } from "@/lib/shanghai-datetime"
 import { getSupervisedUserIdsForActor } from "@/lib/supervision-scope"
+import { getCheckinClientInfo } from "@/lib/checkin-client"
+import { getRecordIpLocation } from "@/lib/ip-location"
 
 type Actor = NonNullable<Awaited<ReturnType<typeof getSessionUser>>>
 
@@ -73,7 +71,9 @@ export async function getCheckinRecordDetail(
 
   const limit = Math.min(
     Math.max(
-      Number.isFinite(params.limit) ? Math.trunc(params.limit as number) : DEFAULT_RECORD_PAGE_SIZE,
+      Number.isFinite(params.limit)
+        ? Math.trunc(params.limit as number)
+        : DEFAULT_RECORD_PAGE_SIZE,
       1,
     ),
     MAX_RECORD_PAGE_SIZE,
@@ -136,7 +136,16 @@ export async function getCheckinRecordDetail(
     .limit(limit + 1)
 
   const hasMore = rows.length > limit
-  const items = hasMore ? rows.slice(0, limit) : rows
+  const items = (hasMore ? rows.slice(0, limit) : rows).map((row) => {
+    const client = getCheckinClientInfo(row)
+    return {
+      ...row,
+      clientType: client.clientType,
+      browserName: client.browserName,
+      userAgent: client.userAgent,
+      ipLocation: getRecordIpLocation(row),
+    }
+  })
   const last = items.at(-1)
 
   return {
@@ -195,7 +204,8 @@ export function parseCheckinRecordQuery(searchParams: URLSearchParams) {
   }
 
   const limitParam = searchParams.get("limit")
-  const rawLimit = limitParam === null ? DEFAULT_RECORD_PAGE_SIZE : Number(limitParam)
+  const rawLimit =
+    limitParam === null ? DEFAULT_RECORD_PAGE_SIZE : Number(limitParam)
   const [cursorTime, cursorId] = (searchParams.get("cursor") ?? "").split("|")
   const cursorDate = cursorTime ? new Date(cursorTime) : null
   const hasCursor =
@@ -211,6 +221,8 @@ export function parseCheckinRecordQuery(searchParams: URLSearchParams) {
     scheduleTo,
     statuses,
     limit: Number.isFinite(rawLimit) ? rawLimit : DEFAULT_RECORD_PAGE_SIZE,
-    cursor: hasCursor ? ({ at: cursorDate, id: cursorId } as CheckinRecordCursor) : null,
+    cursor: hasCursor
+      ? ({ at: cursorDate, id: cursorId } as CheckinRecordCursor)
+      : null,
   }
 }

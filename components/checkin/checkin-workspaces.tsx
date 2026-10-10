@@ -41,6 +41,8 @@ import {
 import { toast } from "@/components/ui/toast"
 import { PRISONER_CUSTODY_STATUS_LABELS } from "@/lib/constants"
 import { CustodyProfileSchema } from "@/lib/custody-profile-schema"
+import { MakeupReviewTraceSchema } from "@/lib/makeup-review-contract"
+import { MakeupReviewTrace } from "./makeup-review-trace"
 
 import {
   CheckinCard,
@@ -66,19 +68,22 @@ const CheckinRecordsDialog = dynamic(
   { loading: () => <span role="status">正在加载打卡明细…</span> },
 )
 
-const Makeup = z.object({
-  id: z.string(),
-  taskId: z.string(),
-  userId: z.string().optional(),
-  userName: z.string().optional(),
-  ruleName: z.string(),
-  reason: z.string(),
-  photoUrl: z.string().nullable().optional(),
-  status: z.string(),
-  reviewComment: z.string().nullable().optional(),
-  date: z.string().optional(),
-  createdAt: z.string(),
-})
+const Makeup = z
+  .object({
+    id: z.string(),
+    taskId: z.string(),
+    userId: z.string().optional(),
+    userName: z.string().optional(),
+    ruleName: z.string(),
+    reason: z.string(),
+    photoUrl: z.string().nullable().optional(),
+    status: z.string(),
+    reviewComment: z.string().nullable().optional(),
+    reviewedAt: z.string().nullable().optional(),
+    date: z.string().optional(),
+    createdAt: z.string(),
+  })
+  .extend(MakeupReviewTraceSchema.shape)
 const Makeups = z.array(Makeup)
 
 const SupervisionCheckinHistory = z.array(
@@ -281,7 +286,7 @@ function MakeupReviewCard({ makeup }: { makeup: z.infer<typeof Makeup> }) {
             </p>
           </div>
           <StatusPill tone={statusTone(makeup.status)}>
-            {statusText(makeup.status)}
+            {makeup.status === "PENDING" ? "待审核" : statusText(makeup.status)}
           </StatusPill>
         </div>
       </CardHeader>
@@ -297,11 +302,7 @@ function MakeupReviewCard({ makeup }: { makeup: z.infer<typeof Makeup> }) {
             <ImageGallery value={makeup.photoUrl} label="补卡凭证" />
           </div>
         ) : null}
-        {makeup.status !== "PENDING" && makeup.reviewComment ? (
-          <p className="text-muted-foreground text-sm">
-            审核意见：{makeup.reviewComment}
-          </p>
-        ) : null}
+        <MakeupReviewTrace makeup={makeup} />
         {makeup.status === "PENDING" && (
           <>
             <div className="space-y-2">
@@ -348,6 +349,7 @@ export function MakeupReview({
     queryKey: ["makeup-review", status],
     queryFn: () =>
       requestApi(`/api/makeups?status=${encodeURIComponent(status)}`, Makeups),
+    refetchInterval: status === "PENDING" || status === "ALL" ? 30_000 : false,
   })
   return (
     <div className="workspace-stack mx-auto max-w-5xl">

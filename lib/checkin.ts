@@ -49,6 +49,8 @@ import {
 } from "@/lib/shanghai-datetime"
 import type { SessionUser } from "@/lib/session"
 import { SYSTEM_AI_ACTOR } from "@/lib/system-identity"
+import { withMakeupReviewHistory } from "@/lib/makeup-review-history"
+import { getCheckinClientInfo } from "@/lib/checkin-client"
 import {
   getActiveIsolationOrder,
   runCheckinDailyScoreSweep,
@@ -646,6 +648,7 @@ export async function doCheckin({
   locationSource = "IP",
   ip,
   userAgent,
+  clientType = "WEB",
   now = new Date(),
 }: {
   user: SessionUser
@@ -657,6 +660,7 @@ export async function doCheckin({
   locationSource?: CheckinLocationSource
   ip?: string | null
   userAgent?: string | null
+  clientType?: "APP" | "WEB"
   now?: Date
 }) {
   if (user.role !== "SUPERVISED")
@@ -731,7 +735,7 @@ export async function doCheckin({
           locationSource === "GPS" ? (location?.lng?.toString() ?? null) : null,
         gpsExpiresAt: locationSource === "GPS" ? getGpsExpiry(now) : null,
         ip: ip ?? null,
-        clientType: "WEB",
+        clientType: getCheckinClientInfo({ clientType, userAgent }).clientType,
         browserType: userAgent?.slice(0, 100) ?? null,
         remark: remark?.trim() || null,
         photoUrl: photo?.trim() || null,
@@ -1011,7 +1015,7 @@ export async function getCheckinReviewQueue(
 ) {
   const ids = [...(await getSupervisedUserIdsForActor(actor))]
   if (!ids.length) return []
-  return db
+  const makeups = await db
     .select({
       id: checkinMakeups.id,
       taskId: checkinMakeups.taskId,
@@ -1037,4 +1041,5 @@ export async function getCheckinReviewQueue(
       ),
     )
     .orderBy(desc(checkinMakeups.createdAt))
+  return withMakeupReviewHistory(makeups)
 }

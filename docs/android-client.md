@@ -235,6 +235,8 @@ data:image/(jpeg|png|webp);base64,<...>
 
 当前 Android 实现为 `data/chat/ChatRealtimeClient.kt`，使用 OkHttp WebSocket 处理 Engine.IO / Socket.IO 帧，并非直接调用 Java Socket.IO 的 `IO.Options`。连接和加入会话失败会交由客户端重连及刷新逻辑处理。
 
+服务端握手声明 `pingInterval: 20000`、`pingTimeout: 10000`。服务端每 20 秒发送 Engine.IO 文本心跳 `2`，客户端回应 `3`，无需另外开启 OkHttp 控制帧 ping；没有业务消息也保持 CDN 链路活跃。此参数与已发布 App 的协议兼容。实时凭证仍 300 秒到期，App 提前 60 秒换新重连，心跳不延长凭证有效期。
+
 3. 服务端会校验 `purpose`、`tokenVersion` 与账号状态；**令牌到期会被强制断开**（不是刷新，是断连）→ 到期前重新取令牌并重连。
 4. 事件：`conversation:join`（携带 ack 回调，返回 `{ ok: true|false }`）。其余事件（消息、已读、撤回等）以 `realtime-server.mjs` 为准。
 5. 原生客户端不发 `Origin`，**不受 CORS 限制**（服务端的来源白名单只约束浏览器）。

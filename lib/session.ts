@@ -26,10 +26,8 @@ export type SessionUser = {
 async function readSessionToken() {
   const headerStore = await headers()
   const authorization = headerStore.get("authorization")
-  if (authorization?.startsWith("Bearer ")) {
-    const value = authorization.slice("Bearer ".length).trim()
-    if (value) return value
-  }
+  if (authorization !== null)
+    return /^Bearer\s+([^\s]+)$/i.exec(authorization.trim())?.[1] ?? null
   const cookieStore = await cookies()
   return cookieStore.get(AUTH_COOKIE_NAME)?.value ?? null
 }

@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm"
+import { eq, sql } from "drizzle-orm"
 import { NextRequest } from "next/server"
 import { z } from "zod"
 
@@ -23,25 +23,25 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
   const temporaryPassword = `Tmp-${crypto.randomUUID().replaceAll("-", "").slice(0, 16)}9`
   try {
     const [existing] = await db
-      .select({ tokenVersion: users.tokenVersion, username: users.username })
+      .select({ username: users.username })
       .from(users)
       .where(eq(users.id, id))
       .limit(1)
     if (!existing) return failure("NOT_FOUND", "用户不存在", 404)
     const passwordHash = await hashPassword(temporaryPassword)
-    await db.transaction(async (tx) => {
-      await tx
+    const updated = await db.transaction(async (tx) => {
+      const [changed] = await tx
         .update(users)
         .set({
           passwordHash,
-          passwordMeta: JSON.stringify(
-            computePasswordMeta(temporaryPassword),
-          ),
+          passwordMeta: JSON.stringify(computePasswordMeta(temporaryPassword)),
           mustChangePassword: true,
-          tokenVersion: existing.tokenVersion + 1,
+          tokenVersion: sql`${users.tokenVersion} + 1`,
           updatedAt: new Date(),
         })
         .where(eq(users.id, id))
+        .returning({ username: users.username })
+      if (!changed) return false
       await revokeTrustedDevicesInTransaction(tx, id)
       await writeAuditLog(
         {
@@ -50,11 +50,13 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
           actionLabel: "重置用户密码",
           entityType: "user",
           entityId: id,
-          detail: { username: existing.username },
+          detail: { username: changed.username },
         },
         tx,
       )
+      return true
     })
+    if (!updated) return failure("NOT_FOUND", "用户不存在", 404)
     return success({ id, temporaryPassword })
   } catch (error) {
     console.error("[API admin/users reset-password POST]", error)

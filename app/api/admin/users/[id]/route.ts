@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm"
+import { eq, sql } from "drizzle-orm"
 import { NextRequest } from "next/server"
 import { z } from "zod"
 
@@ -11,6 +11,7 @@ import { users } from "@/lib/db/schema"
 import { organizations } from "@/lib/db/schema"
 import { validateUserOrganizationAssignment } from "@/lib/organization-assignment"
 import type { OrganizationCategory } from "@/lib/constants"
+import { revokeTrustedDevicesInTransaction } from "@/lib/mfa-server"
 
 type RouteContext = { params: Promise<{ id: string }> }
 
@@ -65,6 +66,10 @@ export async function PATCH(request: NextRequest, { params }: RouteContext) {
           ...parsed.data,
           organizationId: parsed.data.organizationId ?? null,
           phone: parsed.data.phone ?? null,
+          // 停用必须永久撤销既有会话，避免重新启用账号后旧令牌复活。
+          ...(parsed.data.status === "disabled"
+            ? { tokenVersion: sql`${users.tokenVersion} + 1` }
+            : {}),
           updatedAt: new Date(),
         })
         .where(eq(users.id, id))
@@ -80,6 +85,8 @@ export async function PATCH(request: NextRequest, { params }: RouteContext) {
           createdAt: users.createdAt,
         })
       if (!row) return null
+      if (parsed.data.status === "disabled")
+        await revokeTrustedDevicesInTransaction(tx, id)
       await writeAuditLog(
         {
           actor,
@@ -115,15 +122,12 @@ export async function DELETE(_request: NextRequest, { params }: RouteContext) {
   try {
     const deleted = await db.transaction(async (tx) => {
       // persons.user_id 为级联删除，删号会一并移除其在押人员档案及其附属记录。
-      const [row] = await tx
-        .delete(users)
-        .where(eq(users.id, id))
-        .returning({
-          id: users.id,
-          username: users.username,
-          name: users.name,
-          role: users.role,
-        })
+      const [row] = await tx.delete(users).where(eq(users.id, id)).returning({
+        id: users.id,
+        username: users.username,
+        name: users.name,
+        role: users.role,
+      })
       if (!row) return null
       await writeAuditLog(
         {

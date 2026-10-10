@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto"
 
 import { expect, request, test, type APIRequestContext } from "@playwright/test"
 import { io, type Socket } from "socket.io-client"
+import { subscribeChatRealtimeSession } from "../lib/chat-realtime-session"
 
 type ApiPayload<T> =
   | { success: true; data: T }
@@ -44,6 +45,7 @@ test("聊天完整链路：同监室、撤回、跨监室审批", async ({}, tes
     loginApi("rank_admin"),
   ])
   let realtimeSocket: Socket | null = null
+  let cleanupRealtime: (() => void) | undefined
   try {
     const candidates = await call<
       Array<{ id: string; name: string; sameRoom: boolean }>
@@ -95,6 +97,22 @@ test("聊天完整链路：同监室、撤回、跨监室审批", async ({}, tes
       .timeout(5_000)
       .emitWithAck("conversation:join", direct.data.id)) as { ok: boolean }
     expect(joinResult.ok).toBe(true)
+
+    let joinedCount = 0
+    cleanupRealtime = subscribeChatRealtimeSession(
+      realtimeSocket,
+      direct.data.id,
+      {
+        onJoined: () => {
+          joinedCount += 1
+        },
+        onCredentialExpired: () => {},
+      },
+    )
+    await expect.poll(() => joinedCount).toBe(1)
+    // A fresh Engine.IO transport has no rooms: exercise the same recovery used by Web.
+    realtimeSocket.io.engine.close()
+    await expect.poll(() => joinedCount, { timeout: 10_000 }).toBe(2)
 
     const messageText = `同监室链路验证 ${Date.now()}`
     const realtimeEvent = new Promise<{ type: string; conversationId: string }>(
@@ -210,6 +228,7 @@ test("聊天完整链路：同监室、撤回、跨监室审批", async ({}, tes
       ),
     ).toBe(true)
   } finally {
+    cleanupRealtime?.()
     realtimeSocket?.disconnect()
     await Promise.all([liu.dispose(), zhou.dispose(), admin.dispose()])
   }

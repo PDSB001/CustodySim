@@ -45,6 +45,31 @@ it("明确的现场核验和签字要求在调用模型前交人工", () => {
     ).input,
   ).toBeDefined()
 })
+it.each(["不核实线下事实真伪", "不核验现场事实", "无需核实线下事实"])(
+  "文字审核中的否定要求不会误触发转人工：%s",
+  (requirement) => {
+    expect(
+      prepareAutoReview(
+        {
+          ...template,
+          content: `仅审核文字，${requirement}，不要求额外证据。`,
+        },
+        data,
+        false,
+      ).input,
+    ).toBeDefined()
+    expect(
+      prepareAutoReview(
+        {
+          ...template,
+          content: `理由无需核实线下事实，但必须核验现场设备状况。`,
+        },
+        data,
+        false,
+      ).decision?.result,
+    ).toBe("MANUAL")
+  },
+)
 it("必填空白不能自动通过", () => {
   expect(
     prepareAutoReview(template, { 说明: "  " }, false).decision?.result,

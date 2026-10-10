@@ -6,6 +6,7 @@ import { getRequestIp } from "@/lib/admin-api"
 import { CheckinError, doCheckin, getTodayCheckinRecords } from "@/lib/checkin"
 import { getSessionUser } from "@/lib/session"
 import { validateTaskImageDataUrl } from "@/lib/task-image"
+import { isNativeClient } from "@/lib/native-client"
 
 const CheckinSchema = z.object({
   taskId: z.string().uuid(),
@@ -66,6 +67,7 @@ export async function POST(request: NextRequest) {
       ...parsed.data,
       ip: getRequestIp(request.headers),
       userAgent: request.headers.get("user-agent"),
+      clientType: isNativeClient(request.headers) ? "APP" : "WEB",
     })
     return success(record, { status: 201 })
   } catch (error) {
