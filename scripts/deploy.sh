@@ -86,6 +86,9 @@ echo "==> 2/7 安装依赖"
 pnpm install --frozen-lockfile
 check_env
 
+# Validate optional image-cache secrets before building or restarting. Prints no secret values.
+node --import tsx --env-file=.env.local scripts/check-edgeone-media-config.ts
+
 echo "==> 3/7 构建"
 pnpm build
 
