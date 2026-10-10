@@ -1,5 +1,5 @@
 // Deploy as an EdgeOne Edge Function (not EdgeOne Pages middleware).
-// Trigger the image paths AND the reserved internal-key prefix documented in docs/edgeone-media-cache.md.
+// Trigger only the three image paths documented in docs/edgeone-media-cache.md.
 // No secret belongs in this file. Signed origin permits are obtained after live authorization.
 const CACHE_TTL_SECONDS = 86400
 const UUID = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
@@ -88,11 +88,11 @@ async function handleMediaRequest(event) {
 
     // A separate, never externally served key. User headers/URL signatures do not split the bytes.
     // The authoritative cover revision comes from the database, not the caller's ?v= parameter.
-    const key = new Request(
-      `${url.origin}/__custodysim_media_cache/v1/${grant.kind}/${grant.id}/${grant.revision}`,
-    )
-    // A named namespace is isolated from normal/default URL caching. The reserved URL prefix
-    // must also trigger this function: direct requests to it fail the image allowlist above.
+    // Cache API keys are identifiers, not fetches. Use a neutral URL because EdgeOne rejects
+    // Cache API operations under its reserved /__custodysim_media_cache/ path.
+    const key = `${url.origin}/__custodysim_cache_probe_data/v1/${grant.kind}/${grant.id}/${grant.revision}`
+    // A named namespace is isolated from normal/default URL caching. Only this function ever
+    // reads or writes the key; clients cannot retrieve it by requesting the URL directly.
     const cache = await caches.open("custodysim-private-media-v1")
     let cached
     let readState = grant.cacheable ? "MISS" : "SKIPPED"

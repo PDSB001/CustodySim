@@ -54,17 +54,18 @@ function runtime() {
     throw new Error("Unexpected fetch target")
   })
   const cache = {
-    match: vi.fn(async (key: Request) => entries.get(key.url)?.clone()),
-    put: vi.fn(async (key: Request, response: Response) => {
+    match: vi.fn(async (key: Request | string) =>
+      entries.get(typeof key === "string" ? key : key.url)?.clone(),
+    ),
+    put: vi.fn(async (key: Request | string, response: Response) => {
+      expect(typeof key).toBe("string")
       expect(response.headers.get("Cache-Control")).toBe(
         "public, max-age=86400",
       )
       expect(response.headers.has("set-cookie")).toBe(false)
       expect(response.headers.has("vary")).toBe(false)
-      expect(key.headers.has("cache-control")).toBe(false)
-      expect(key.headers.has("pragma")).toBe(false)
-      cachedKeys.push(key.url)
-      entries.set(key.url, response.clone())
+      cachedKeys.push(key as string)
+      entries.set(key as string, response.clone())
     }),
   }
   let listener: (event: unknown) => void = () => {
@@ -154,6 +155,8 @@ test("second image request checks live authorization but does not fetch picture 
       .length,
   ).toBe(1)
   expect(app.cachedKeys[0]).not.toMatch(/user-token|permit|authorization/)
+  expect(app.cachedKeys[0]).toContain("/__custodysim_cache_probe_data/v1/chat/")
+  expect(app.cachedKeys[0]).not.toContain("/__custodysim_media_cache/")
   expect(
     (await app.request("GET", new URL(app.cachedKeys[0]).pathname)).status,
   ).toBe(404)

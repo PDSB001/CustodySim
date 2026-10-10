@@ -21,18 +21,16 @@
 
    - `/api/media/authorize`、`/api/media/content`：节点与浏览器均不缓存，错误响应不缓存。
    - 下述三类原始图片路径：普通节点缓存不缓存；字节缓存由函数的 Cache API 独立管理。
-   - `/__custodysim_media_cache/*`：普通节点缓存不缓存，保留为内部 Cache API 键，源站不提供这一 URL。
 
-4. 进入 **边缘函数**（不是 EdgeOne Pages），创建函数，粘贴 `deploy/edgeone/media-cache.js` 全部内容。函数无密钥或私有域名，使用当前请求的同域源站。绑定业务域名，触发以下三类图片路径和一类内部键保护路径；可用规则支持的通配表达式匹配，代码还会严格校验 UUID 和完整路径：
+4. 进入 **边缘函数**（不是 EdgeOne Pages），创建函数，粘贴 `deploy/edgeone/media-cache.js` 全部内容。函数无密钥或私有域名，使用当前请求的同域源站。绑定业务域名，只为以下三类图片路径创建触发规则；可用规则支持的通配表达式匹配，代码还会严格校验 UUID 和完整路径：
 
    ```text
    /api/chat/messages/*/image
    /api/library/*/cover
    /api/community/images/*
-   /__custodysim_media_cache/*
    ```
 
-   最后一条必须绑定：直接访问内部键路径时函数返回 404，不进行缓存读取。字节同时存放在独立命名空间 `custodysim-private-media-v1`，不用默认 URL 缓存。不要绑定 `/api/*` 或 `/api/media/*`，避免子请求触发函数回环。回源必须保留 Cookie、Authorization 和 `x-custodysim-client`；代理不能增加或替换用户身份。不要对本方案图片路径额外开启内置 Token 鉴权、忽略 Cookie 后强制缓存或缓存鉴权成功结果。
+   字节存放在独立命名空间 `custodysim-private-media-v1`，缓存键是 Cache API 内部标识，不会被 Fetch 或直接 URL 请求。不要再绑定旧路径 `/__custodysim_media_cache/*`，EdgeOne 会拒绝该路径上的 Cache API 操作。不要绑定 `/api/*` 或 `/api/media/*`，避免子请求触发函数回环。回源必须保留 Cookie、Authorization 和 `x-custodysim-client`；代理不能增加或替换用户身份。不要对本方案图片路径额外开启内置 Token 鉴权、忽略 Cookie 后强制缓存或缓存鉴权成功结果。
 
 5. 发布函数后，按下面的验收检查确认缓存与权限同时生效。实际套餐需支持边缘函数和 Cache API；没有这项能力时保持关闭，不能用“强制缓存”替代。
 
@@ -78,15 +76,13 @@ unset ACCESS_TOKEN
 
 浏览器验收先取消开发者工具的 Disable cache，避免请求携带 `Cache-Control: no-cache`/`Pragma: no-cache` 干扰对照；正常重新打开聊天页面，不使用强制刷新。函数返回 no-store，正常加载仍会发起请求。若需复现调试模式，再单独对比请求。不要为了排障把原始图片、鉴权接口或内部键改成普通强制缓存，也不要改用默认缓存命名空间。
 
-已命中的聊天图片还需测试其内部键：`/__custodysim_media_cache/v1/chat/<消息UUID>/0`。无论带不带登录凭据，都必须 404。这一步用于确认内部键保护触发规则没有漏配。
-
 本地回归包含签名过期/篡改、跨用户取字节、真实数据库撤回/成员移除/留存期、账号令牌撤销、封面变更/下架、社区删除，以及执行实际函数源码的缓存命中后拒绝、HEAD、缓存过期和关闭回退测试。本地测试不替代 EdgeOne 真实节点验收。
 
 ## Cache API 独立探针
 
 如果读取、写入诊断都为 ERROR/UNKNOWN，不能直接认定为套餐限制或普通缓存规则冲突；写入 ERROR 也可能来自写入后的回读。创建临时独立边缘函数 `custodysim-cache-probe`，粘贴 `deploy/edgeone/cache-probe.js`，仅为业务 HOST 和精确路径 `/__custodysim_cache_probe` 设置 AND 触发条件。正常访问该业务路径（不要访问函数默认预览域名），把 JSON 结果用于定位，不需要登录凭据。
 
-探针不查询源站、不访问实际业务图片，也不把 Cookie/Authorization 传给任何缓存操作；每个缓存副本只有固定公开测试文字，TTL 为 60 秒。异常文字来自这些独立操作，结果可以分享。它分别测试 Request 对象/字符串键、内部键保护路径/中性测试路径、独立命名空间/默认命名空间，并标明异常发生在 open、put 还是 match。只有默认命名空间的中性测试键会进入默认缓存，内容始终为公开测试文字；业务图片仍只使用独立命名空间。
+探针不查询源站、不访问实际业务图片，也不把 Cookie/Authorization 传给任何缓存操作；每个缓存副本只有固定公开测试文字，TTL 为 60 秒。异常文字来自这些独立操作，结果可以分享。它分别测试 Request 对象/字符串键、曾被保护的路径/中性测试路径、独立命名空间/默认命名空间，并标明异常发生在 open、put 还是 match。只有默认命名空间的中性测试键会进入默认缓存，内容始终为公开测试文字；业务图片仍只使用独立命名空间。
 
 完成排查后删除探针的触发规则及临时函数。不要把现有图片函数替换为探针，也不要用探针默认缓存的结果直接改动业务图片鉴权。
 
