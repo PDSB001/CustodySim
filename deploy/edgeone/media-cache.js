@@ -16,10 +16,10 @@ const MEDIA_PATHS = [
 // Keep this in sync with lib/reader-identity.ts. Bump when the shared render contract changes.
 const READER_CACHE_SCHEMA = "reader-schema-3-v2"
 // Keep old entries (including compressed/framed variants) out of the new delivery path.
-const READER_DELIVERY_KEY = "identity-pipe-v1"
+const READER_DELIVERY_KEY = "opaque-v1"
 
-async function readerResponse(source, grant, method, event) {
-  // The origin allowlists shared fields and attests this exact JSON envelope. Never
+function readerResponse(source, grant, method) {
+  // The origin allowlists shared fields and attests the shared JSON contract. Never
   // call json/text/arrayBuffer here: EdgeOne limits those body reads to 1 MB.
   if (
     source.headers.get("X-CustodySim-Reader-Cache-Schema") !==
@@ -30,94 +30,17 @@ async function readerResponse(source, grant, method, event) {
     !source.body
   )
     throw new Error("Invalid shared reader snapshot")
-  // This is a new representation, not a cached HTTP response. Do not copy its
-  // compression, framing, validators, range support or Age into the rewritten JSON.
-  const headers = new Headers({
-    "Content-Type": "application/json; charset=utf-8",
-    "X-CustodySim-Reader-Cache-Schema": READER_CACHE_SCHEMA,
-    "X-CustodySim-Media-Revision": grant.revision,
-    "X-CustodySim-Book-Revision": grant.revision,
-    "X-Frame-Options": "DENY",
-  })
-  headers.set("X-CustodySim-Reader-Delivery", "pipe-v1")
-  if (method === "HEAD") {
-    void source.body.cancel().catch(() => {})
-    return privateResponse(null, 200, headers)
-  }
-  const encoder = new TextEncoder()
-  const prefix = encoder.encode('{"success":true,"data":{')
-  const reader = source.body.getReader()
-  const bytes = (value) =>
-    typeof value === "string"
-      ? encoder.encode(value)
-      : ArrayBuffer.isView(value)
-        ? new Uint8Array(value.buffer, value.byteOffset, value.byteLength)
-        : new Uint8Array(value)
-  let offset = 0
-  let remainder
-  try {
-    while (offset < prefix.length) {
-      const chunk = await reader.read()
-      if (chunk.done) throw new Error("Truncated reader envelope")
-      const part = bytes(chunk.value)
-      const count = Math.min(part.length, prefix.length - offset)
-      for (let i = 0; i < count; i++) {
-        if (part[i] !== prefix[offset + i])
-          throw new Error("Invalid reader envelope")
-      }
-      offset += count
-      remainder = part.subarray(count)
-    }
-  } catch (error) {
-    void reader.cancel().catch(() => {})
-    throw error
-  }
-  // Only the fixed envelope was consumed. Hand the rest to the native pipeline
-  // rather than manually reading/writing every cached body chunk in JavaScript.
-  reader.releaseLock()
-  // EdgeOne ignores TransformStream transformer callbacks and does not support
-  // constructing ReadableStream. Pump through its supported default stream.
-  const { readable, writable } = new TransformStream()
-  const pump = (async () => {
-    let writer = writable.getWriter()
-    let stage = "prefix"
-    try {
-      await writer.write(
-        encoder.encode(
-          `{"success":true,"data":{"readerKey":"${grant.readerKey}",`,
-        ),
-      )
-      stage = "remainder"
-      // Exact-sized buffers avoid carrying the original chunk's offset/backing
-      // buffer into the runtime writer; writes stay below its 32 KB buffer size.
-      for (let start = 0; start < remainder.length; start += 16384) {
-        await writer.write(remainder.slice(start, start + 16384))
-      }
-      writer.releaseLock()
-      writer = null
-      stage = "pipe"
-      await source.body.pipeTo(writable)
-    } catch (error) {
-      const name = ["Error", "TypeError", "RangeError", "AbortError"].includes(
-        error?.name,
-      )
-        ? error.name
-        : "UNKNOWN"
-      console.warn(
-        "[edgeone-media] reader stream failed",
-        stage,
-        name,
-        cacheErrorStatus(error),
-      )
-      void source.body.cancel().catch(() => {})
-      if (writer) await writer.abort().catch(() => {})
-      else await writable.abort().catch(() => {})
-    } finally {
-      writer?.releaseLock()
-    }
-  })()
-  if (typeof event.waitUntil === "function") event.waitUntil(pump)
-  return privateResponse(readable, 200, headers)
+  // Forward opaque bytes exactly as stored, including their matching encoding.
+  // Identity is attached only after live authorization; it is never cached.
+  const result = privateResponse(
+    method === "HEAD" ? null : source.body,
+    200,
+    source.headers,
+  )
+  result.headers.set("X-CustodySim-Reader-Delivery", "shared-v1")
+  result.headers.set("X-CustodySim-Reader-Key", grant.readerKey)
+  result.headers.set("X-CustodySim-Book-Revision", grant.revision)
+  return result
 }
 
 function privateResponse(body, status, headers) {
@@ -171,9 +94,10 @@ async function handleMediaRequest(event) {
     // handler. Recovery never reads a cached permit or a shared response.
     if (
       documentMedia &&
-      (url.searchParams.get("metadata") === "1" ||
-        url.searchParams.get("delivery") === "origin") &&
-      [...url.searchParams].length === 1
+      (([...url.searchParams].length === 1 &&
+        (url.searchParams.get("metadata") === "1" ||
+          url.searchParams.get("delivery") === "origin")) ||
+        request.headers.get("X-CustodySim-Reader-Delivery") !== "shared-v1")
     ) {
       const source = await fetch(request, { redirect: "manual" })
       return privateResponse(
@@ -247,12 +171,14 @@ async function handleMediaRequest(event) {
     }
     if (cached) {
       const result = documentMedia
-        ? await readerResponse(cached, grant, request.method, event)
+        ? readerResponse(cached, grant, request.method)
         : privateResponse(
             request.method === "HEAD" ? null : cached.body,
             200,
             cached.headers,
           )
+      if (documentMedia && request.method === "HEAD")
+        void cached.body.cancel().catch(() => {})
       result.headers.set("X-CustodySim-Media-Cache", "HIT")
       result.headers.set("X-CustodySim-Media-Cache-Read", "HIT")
       result.headers.set("X-CustodySim-Media-Cache-Write", "NOT-NEEDED")
@@ -296,9 +222,13 @@ async function handleMediaRequest(event) {
         : match[0] === "resource"
           ? /^image\/(png|jpeg|gif|webp|svg\+xml)$/.test(contentType)
           : /^image\/(png|jpeg|webp)$/.test(contentType)
-    // Verify the origin's shared envelope without buffering the document.
-    const personalized = documentMedia
-      ? await readerResponse(source.clone(), grant, request.method, event)
+    // Clone before exposing the original stream in a response: clone() tees and
+    // replaces source.body, so cloning afterwards would lock the exposed stream.
+    const storageBody =
+      grant.cacheable && allowedType ? source.clone().body : null
+    // Verify the origin's shared contract without reading or rewriting body bytes.
+    const documentResult = documentMedia
+      ? readerResponse(source, grant, request.method)
       : null
     if (grant.cacheable && allowedType) {
       const storageHeaders = new Headers({
@@ -320,13 +250,12 @@ async function handleMediaRequest(event) {
       const length = source.headers.get("Content-Length")
       if (!documentMedia && length && /^\d+$/.test(length))
         storageHeaders.set("Content-Length", length)
+      const encoding = source.headers.get("Content-Encoding")
+      if (encoding) storageHeaders.set("Content-Encoding", encoding)
       // Only this internal copy is cacheable. No Cookie, CSP nonce, credential or permit is stored.
-      const storage = new Response(
-        documentMedia ? source.body : source.clone().body,
-        {
-          headers: storageHeaders,
-        },
-      )
+      const storage = new Response(storageBody, {
+        headers: storageHeaders,
+      })
       // put() can resolve even when nothing was stored. Confirm the entry instead of
       // silently discarding write failures. This adds work only on cache misses.
       const store = async () => {
@@ -360,11 +289,11 @@ async function handleMediaRequest(event) {
         writeState = stored.state
         writeError = stored.error
       }
-    } else if (documentMedia) {
-      void source.body.cancel().catch(() => {})
     }
+    if (documentMedia && request.method === "HEAD")
+      void source.body.cancel().catch(() => {})
     const result =
-      personalized ||
+      documentResult ||
       privateResponse(
         request.method === "HEAD" ? null : source.body,
         200,

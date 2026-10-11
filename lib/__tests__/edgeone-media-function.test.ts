@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs"
 import { createHash, randomUUID } from "node:crypto"
+import { gzipSync } from "node:zlib"
 import { runInNewContext } from "node:vm"
 import { expect, test, vi } from "vitest"
 
@@ -33,7 +34,8 @@ function runtime(kind: "chat" | "book" | "resource" | "document" = "chat") {
   let personalSource = false
   let documentHtml = "<p>共享正文</p>"
   let splitDocument = false
-  let invalidEnvelope = false
+  let chunkSize = 65537
+  let legacyClient = false
   const fetch = vi.fn(async (input: Request | string, init?: RequestInit) => {
     const url = new URL(typeof input === "string" ? input : input.url)
     if (url.pathname === "/api/media/authorize") {
@@ -74,9 +76,8 @@ function runtime(kind: "chat" | "book" | "resource" | "document" = "chat") {
       expect(new Headers(init?.headers).get("x-custodysim-media-permit")).toBe(
         "signed-origin-permit",
       )
-      const body = invalidEnvelope
-        ? '{"success":false}'
-        : kind === "document"
+      const body =
+        kind === "document"
           ? JSON.stringify({
               success: true,
               data: {
@@ -98,7 +99,7 @@ function runtime(kind: "chat" | "book" | "resource" | "document" = "chat") {
                 // Split the envelope and UTF-8 characters across chunks.
                 const end = Math.min(
                   encoded.length,
-                  position + (position < 30 ? 1 : 65537),
+                  position + (position < 30 ? 1 : chunkSize),
                 )
                 controller.enqueue(encoded.subarray(position, end))
                 position = end
@@ -211,12 +212,13 @@ function runtime(kind: "chat" | "book" | "resource" | "document" = "chat") {
     personalSource: () => {
       personalSource = true
     },
-    largeDocument: (html: string) => {
+    largeDocument: (html: string, size = 65537) => {
       documentHtml = html
       splitDocument = true
+      chunkSize = size
     },
-    invalidEnvelope: () => {
-      invalidEnvelope = true
+    legacyClient: () => {
+      legacyClient = true
     },
     async request(method = "GET", target = path, waitForCache = true) {
       const pending: Promise<unknown>[] = []
@@ -229,6 +231,11 @@ function runtime(kind: "chat" | "book" | "resource" | "document" = "chat") {
             "cache-control": "no-cache",
             pragma: "no-cache",
             "x-custodysim-media-permit": "attacker-value",
+            ...(kind === "document" && !legacyClient
+              ? {
+                  "X-CustodySim-Reader-Delivery": "shared-v1",
+                }
+              : {}),
           },
         }),
         waitUntil: (job: Promise<unknown>) => {
@@ -247,11 +254,14 @@ function runtime(kind: "chat" | "book" | "resource" | "document" = "chat") {
   }
 }
 
-test("document hits reuse only shared content and reconstruct each user's identity", async () => {
+test("document hits reuse untouched shared content and send current identity only in headers", async () => {
   const app = runtime("document")
   const first = await app.request()
   expect(first.headers.get("X-CustodySim-Media-Cache")).toBe("MISS")
-  expect((await first.json()).data.readerKey).toBe("111111111111111111111111")
+  expect((await first.json()).data.readerKey).toBeUndefined()
+  expect(first.headers.get("X-CustodySim-Reader-Key")).toBe(
+    "111111111111111111111111",
+  )
   await app.settle()
   const stored = await app.cache.match(app.cachedKeys[0])
   expect(JSON.stringify(await stored!.json())).not.toContain("readerKey")
@@ -259,14 +269,18 @@ test("document hits reuse only shared content and reconstruct each user's identi
   const hit = await app.request()
   expect(hit.headers.get("X-CustodySim-Media-Cache")).toBe("HIT")
   const payload = await hit.json()
-  expect(payload.data.readerKey).toBe("222222222222222222222222")
+  expect(payload.data.readerKey).toBeUndefined()
+  expect(hit.headers.get("X-CustodySim-Reader-Key")).toBe(
+    "222222222222222222222222",
+  )
   expect(payload.data.chapters[0].html).toBe("<p>共享正文</p>")
   expect(app.cache.put).toHaveBeenCalledTimes(1)
   expect(
     app.fetch.mock.calls.filter(([url]) => String(url).includes("/content")),
   ).toHaveLength(1)
   expect(app.cachedKeys[0]).not.toContain("111111")
-  expect(app.cachedKeys[0]).toContain("/reader-schema-3-v2/identity-pipe-v1")
+  expect(app.cachedKeys[0]).toContain("/reader-schema-3-v2/opaque-v1")
+  expect(stored!.headers.has("X-CustodySim-Reader-Key")).toBe(false)
   expect(await (await app.request("HEAD")).text()).toBe("")
   app.revise("abcdef0123456789abcdef01")
   const revised = await app.request()
@@ -293,11 +307,39 @@ test("EPUB JSON larger than 1 MB streams with intact UTF-8 and isolated identiti
   expect(hit.headers.get("X-CustodySim-Media-Cache")).toBe("HIT")
   const payload = await hit.json()
   expect(payload.data.chapters[0].html).toBe(html)
-  expect(payload.data.readerKey).toBe("222222222222222222222222")
+  expect(payload.data.readerKey).toBeUndefined()
+  expect(hit.headers.get("X-CustodySim-Reader-Key")).toBe(
+    "222222222222222222222222",
+  )
   await app.settle()
   app.authorize(403)
   expect((await app.request()).status).toBe(403)
 })
+
+test.each([7, 23, 2887, 16384, 65537])(
+  "JSON bytes remain identical across miss, stored copy and hit with %i-byte chunks",
+  async (size) => {
+    const app = runtime("document")
+    app.largeDocument(
+      '<p>中文📚 "引号", \\反斜杠 &amp; 换行\n</p>'.repeat(400),
+      size,
+    )
+    const first = await app.request()
+    const bytes = Buffer.from(await first.arrayBuffer())
+    expect(JSON.parse(bytes.toString()).data.readerKey).toBeUndefined()
+    await app.settle()
+    const stored = await app.cache.match(app.cachedKeys[0])
+    expect(Buffer.from(await stored!.arrayBuffer())).toEqual(bytes)
+    app.readerKey("222222222222222222222222")
+    const hit = await app.request()
+    expect(hit.headers.get("X-CustodySim-Media-Cache")).toBe("HIT")
+    expect(Buffer.from(await hit.arrayBuffer())).toEqual(bytes)
+    expect(hit.headers.get("X-CustodySim-Reader-Key")).toBe(
+      "222222222222222222222222",
+    )
+    await app.settle()
+  },
+)
 
 test("metadata bypasses document caching and personalized origin bodies are rejected", async () => {
   const app = runtime("document")
@@ -311,10 +353,13 @@ test("metadata bypasses document caching and personalized origin bodies are reje
   expect(app.cache.put).not.toHaveBeenCalled()
 })
 
-test("invalid shared envelopes fail closed before cache writes", async () => {
+test("legacy clients keep the personalized origin protocol with live access checks", async () => {
   const app = runtime("document")
-  app.invalidEnvelope()
-  expect((await app.request()).status).toBe(503)
+  app.legacyClient()
+  expect(await (await app.request()).text()).toBe("original")
+  app.original(403)
+  expect((await app.request()).status).toBe(403)
+  expect(app.cache.match).not.toHaveBeenCalled()
   expect(app.cache.put).not.toHaveBeenCalled()
 })
 
@@ -329,58 +374,33 @@ test("recovery bypasses shared storage and preserves original access denial", as
   expect(app.cache.put).not.toHaveBeenCalled()
 })
 
-test("cached body failure rejects delivery and emits only safe pipeline diagnostics", async () => {
+test("cached encoded bytes and their encoding are forwarded without rewriting", async () => {
   const app = runtime("document")
   await (await app.request()).json()
   await app.settle()
-  let fail!: () => void
-  const gate = new Promise<void>((resolve) => {
-    fail = resolve
-  })
+  const encoded = gzipSync(
+    '{"success":true,"data":{"revision":"0123456789abcdef01234567","text":"中文📚"}}',
+  )
   app.cache.match.mockResolvedValueOnce(
-    new Response(
-      new ReadableStream({
-        start(controller) {
-          controller.enqueue(
-            new TextEncoder().encode('{"success":true,"data":{'),
-          )
-        },
-        async pull(controller) {
-          await gate
-          controller.error(new TypeError("private user-token"))
-        },
-      }),
-      {
-        headers: {
-          "Content-Type": "application/json",
-          "X-CustodySim-Media-Revision": "0123456789abcdef01234567",
-          "X-CustodySim-Reader-Cache-Schema": "reader-schema-3-v2",
-          "Content-Length": "999",
-          "Transfer-Encoding": "chunked",
-          "Content-Encoding": "br",
-          Age: "818",
-          "Accept-Ranges": "bytes",
-        },
+    new Response(encoded, {
+      headers: {
+        "Content-Type": "application/json",
+        "X-CustodySim-Media-Revision": "0123456789abcdef01234567",
+        "X-CustodySim-Reader-Cache-Schema": "reader-schema-3-v2",
+        "Content-Length": String(encoded.length),
+        "Content-Encoding": "gzip",
+        Age: "818",
+        "Accept-Ranges": "bytes",
       },
-    ),
+    }),
   )
   const hit = await app.request()
-  expect(hit.headers.get("X-CustodySim-Reader-Delivery")).toBe("pipe-v1")
-  expect(hit.headers.has("Content-Length")).toBe(false)
-  expect(hit.headers.has("Transfer-Encoding")).toBe(false)
-  expect(hit.headers.has("Content-Encoding")).toBe(false)
-  expect(hit.headers.has("Age")).toBe(false)
-  expect(hit.headers.has("Accept-Ranges")).toBe(false)
-  fail()
-  await expect(hit.json()).rejects.toBeDefined()
+  expect(hit.headers.get("X-CustodySim-Reader-Delivery")).toBe("shared-v1")
+  expect(hit.headers.get("Content-Length")).toBe(String(encoded.length))
+  expect(hit.headers.get("Content-Encoding")).toBe("gzip")
+  expect(Buffer.from(await hit.arrayBuffer())).toEqual(encoded)
   await app.settle()
-  expect(app.warn).toHaveBeenCalledWith(
-    "[edgeone-media] reader stream failed",
-    "pipe",
-    "TypeError",
-    "UNKNOWN",
-  )
-  expect(JSON.stringify(app.warn.mock.calls)).not.toMatch(/private|user-token/)
+  expect(app.warn).not.toHaveBeenCalled()
 })
 
 test("document HEAD misses retain only the shared copy and return no body", async () => {
@@ -393,7 +413,10 @@ test("document HEAD misses retain only the shared copy and return no body", asyn
   expect((await stored!.json()).data.readerKey).toBeUndefined()
   const hit = await app.request()
   expect(hit.headers.get("X-CustodySim-Media-Cache")).toBe("HIT")
-  expect((await hit.json()).data.readerKey).toBe("111111111111111111111111")
+  expect((await hit.json()).data.readerKey).toBeUndefined()
+  expect(hit.headers.get("X-CustodySim-Reader-Key")).toBe(
+    "111111111111111111111111",
+  )
   await app.settle()
 })
 

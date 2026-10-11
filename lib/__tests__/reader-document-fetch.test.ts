@@ -3,6 +3,67 @@ import { fetchReaderDocument } from "@/lib/reader-document-fetch"
 
 afterEach(() => vi.unstubAllGlobals())
 
+test("shared body identity comes from the current authorized response headers", async () => {
+  const body = {
+    success: true,
+    data: { revision: "0123456789abcdef01234567", text: "中文📚正文" },
+  }
+  const fetch = vi.fn().mockImplementation(async () =>
+    Response.json(body, {
+      headers: {
+        "X-CustodySim-Reader-Delivery": "shared-v1",
+        "X-CustodySim-Reader-Key": "111111111111111111111111",
+        "X-CustodySim-Media-Revision": body.data.revision,
+      },
+    }),
+  )
+  vi.stubGlobal("fetch", fetch)
+  expect(
+    await fetchReaderDocument("book", new AbortController().signal),
+  ).toEqual({
+    ...body,
+    data: { ...body.data, readerKey: "111111111111111111111111" },
+  })
+  expect(body.data).not.toHaveProperty("readerKey")
+  expect(fetch).toHaveBeenCalledTimes(1)
+})
+
+test.each(["missing", "mismatched", "personal"])(
+  "invalid %s shared identity recovers only through the authenticated origin",
+  async (mode) => {
+    const response = Response.json(
+      {
+        success: true,
+        data: {
+          revision: "0123456789abcdef01234567",
+          ...(mode === "personal" ? { readerKey: "wrong-user" } : {}),
+        },
+      },
+      {
+        headers: {
+          "X-CustodySim-Reader-Delivery": "shared-v1",
+          ...(mode === "missing"
+            ? {}
+            : { "X-CustodySim-Reader-Key": "111111111111111111111111" }),
+          "X-CustodySim-Media-Revision":
+            mode === "mismatched"
+              ? "abcdef0123456789abcdef01"
+              : "0123456789abcdef01234567",
+        },
+      },
+    )
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(response)
+      .mockResolvedValueOnce(new Response(null, { status: 403 }))
+    vi.stubGlobal("fetch", fetch)
+    await expect(
+      fetchReaderDocument("book", new AbortController().signal),
+    ).rejects.toThrow("已下架")
+    expect(fetch).toHaveBeenCalledTimes(2)
+  },
+)
+
 test("a HIT with a broken body retries once with the same abort signal", async () => {
   const broken = new Response(null, {
     headers: { "X-CustodySim-Media-Cache": "HIT" },
@@ -19,7 +80,10 @@ test("a HIT with a broken body retries once with the same abort signal", async (
   const { signal } = new AbortController()
   expect(await fetchReaderDocument("book", signal)).toEqual(payload)
   expect(fetch.mock.calls).toEqual([
-    ["/api/library/book/document", { signal }],
+    [
+      "/api/library/book/document",
+      { signal, headers: { "X-CustodySim-Reader-Delivery": "shared-v1" } },
+    ],
     ["/api/library/book/document?delivery=origin", { signal }],
   ])
 })

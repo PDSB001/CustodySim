@@ -9,9 +9,30 @@ export async function fetchReaderDocument(bookId: string, signal: AbortSignal) {
   const path = `/api/library/${bookId}/document`
   let response: Response | undefined
   try {
-    response = await fetch(path, { signal })
+    response = await fetch(path, {
+      signal,
+      headers: { "X-CustodySim-Reader-Delivery": "shared-v1" },
+    })
     if (!response.ok) throw new Error("书籍加载失败或已下架")
-    return (await response.json()) as ReaderEnvelope
+    const payload = (await response.json()) as ReaderEnvelope
+    if (response.headers.get("X-CustodySim-Reader-Delivery") !== "shared-v1")
+      return payload // Compatible with the original origin and older edge functions.
+    const readerKey = response.headers.get("X-CustodySim-Reader-Key") ?? ""
+    const revision = response.headers.get("X-CustodySim-Media-Revision")
+    const data = payload.data
+    if (
+      !payload.success ||
+      !data ||
+      typeof data !== "object" ||
+      Array.isArray(data) ||
+      !/^[0-9a-f]{24}$/.test(readerKey) ||
+      !revision ||
+      !("revision" in data) ||
+      data.revision !== revision ||
+      Object.hasOwn(data, "readerKey")
+    )
+      throw new TypeError("Invalid shared reader identity")
+    return { ...payload, data: { ...data, readerKey } }
   } catch (failure) {
     if (signal.aborted) throw failure
     const transportFailure = failure instanceof TypeError
