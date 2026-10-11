@@ -39,10 +39,14 @@ export async function fetchReaderDocument(bookId: string, signal: AbortSignal) {
     const brokenCachedJson =
       failure instanceof SyntaxError &&
       response?.headers.has("X-CustodySim-Media-Cache")
-    if (!transportFailure && !brokenCachedJson) throw failure
+    const serverFailure =
+      response && response.status >= 500 && response.status <= 599
+    if (!transportFailure && !brokenCachedJson && !serverFailure) throw failure
     // No stored authorization or bytes are used for recovery. The same session is
     // checked again, so revocation during the failed transfer is still enforced.
-    const origin = await fetch(`${path}?delivery=origin`, { signal })
+    const origin = await fetch(`/api/library/${bookId}/document-origin`, {
+      signal,
+    })
     if (!origin.ok) throw new Error("书籍加载失败或已下架")
     return (await origin.json()) as ReaderEnvelope
   }

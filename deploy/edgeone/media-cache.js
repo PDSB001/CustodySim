@@ -16,7 +16,8 @@ const MEDIA_PATHS = [
 // Keep this in sync with lib/reader-identity.ts. Bump when the shared render contract changes.
 const READER_CACHE_SCHEMA = "reader-schema-3-v2"
 // Keep old entries (including compressed/framed variants) out of the new delivery path.
-const READER_DELIVERY_KEY = "opaque-v1"
+const READER_DELIVERY_KEY = "native-v1"
+const FUNCTION_VERSION = "native-response-v1"
 
 function readerResponse(source, grant, method) {
   // The origin allowlists shared fields and attests the shared JSON contract. Never
@@ -32,11 +33,7 @@ function readerResponse(source, grant, method) {
     throw new Error("Invalid shared reader snapshot")
   // Forward opaque bytes exactly as stored, including their matching encoding.
   // Identity is attached only after live authorization; it is never cached.
-  const result = privateResponse(
-    method === "HEAD" ? null : source.body,
-    200,
-    source.headers,
-  )
+  const result = privateSourceResponse(source, method)
   result.headers.set("X-CustodySim-Reader-Delivery", "shared-v1")
   result.headers.set("X-CustodySim-Reader-Key", grant.readerKey)
   result.headers.set("X-CustodySim-Book-Revision", grant.revision)
@@ -49,8 +46,27 @@ function privateResponse(body, status, headers) {
   result.set("Cache-Control", "private, no-store")
   result.set("Vary", "Cookie, Authorization")
   result.set("X-Content-Type-Options", "nosniff")
+  result.set("X-CustodySim-Media-Function-Version", FUNCTION_VERSION)
   result.delete("Set-Cookie")
   return new Response(body, { status, headers: result })
+}
+
+function privateSourceResponse(source, method) {
+  // Preserve the runtime-owned response and stream. EdgeOne's documented
+  // response-header example edits the fetch response directly.
+  const result =
+    method === "HEAD"
+      ? new Response(null, {
+          status: source.status,
+          headers: new Headers(source.headers),
+        })
+      : source
+  result.headers.set("Cache-Control", "private, no-store")
+  result.headers.set("Vary", "Cookie, Authorization")
+  result.headers.set("X-Content-Type-Options", "nosniff")
+  result.headers.set("X-CustodySim-Media-Function-Version", FUNCTION_VERSION)
+  result.headers.delete("Set-Cookie")
+  return result
 }
 
 function credentials(request) {
@@ -73,39 +89,37 @@ function cacheErrorStatus(error) {
 }
 
 async function handleMediaRequest(event) {
-  const request = event.request
-  const url = new URL(request.url)
-  const match = MEDIA_PATHS.map(([kind, pattern]) => [
-    kind,
-    pattern.exec(url.pathname),
-  ]).find(([, result]) => result)
-  if (!match) return privateResponse(null, 404)
-  if (!["GET", "HEAD"].includes(request.method))
-    return privateResponse(null, 405)
-  const documentMedia = match[0] === "document"
-  const bookMedia =
-    match[0] === "book" || match[0] === "resource" || documentMedia
-  const resourceTarget =
-    match[0] === "resource"
-      ? `${url.pathname}?path=${encodeURIComponent(url.searchParams.get("path") || "")}`
-      : url.pathname
+  let stage = "request"
   try {
+    const request = event.request
+    const url = new URL(request.url)
+    const match = MEDIA_PATHS.map(([kind, pattern]) => [
+      kind,
+      pattern.exec(url.pathname),
+    ]).find(([, result]) => result)
+    if (!match) return privateResponse(null, 404)
+    if (!["GET", "HEAD"].includes(request.method))
+      return privateResponse(null, 405)
+    const documentMedia = match[0] === "document"
+    const bookMedia =
+      match[0] === "book" || match[0] === "resource" || documentMedia
+    const resourceTarget =
+      match[0] === "resource"
+        ? `${url.pathname}?path=${encodeURIComponent(url.searchParams.get("path") || "")}`
+        : url.pathname
     // Metadata and a one-shot recovery request use the original authenticated
     // handler. Recovery never reads a cached permit or a shared response.
     if (
       documentMedia &&
-      (([...url.searchParams].length === 1 &&
-        (url.searchParams.get("metadata") === "1" ||
-          url.searchParams.get("delivery") === "origin")) ||
+      (url.search === "?metadata=1" ||
+        url.search === "?delivery=origin" ||
         request.headers.get("X-CustodySim-Reader-Delivery") !== "shared-v1")
     ) {
+      stage = "origin"
       const source = await fetch(request, { redirect: "manual" })
-      return privateResponse(
-        request.method === "HEAD" ? null : source.body,
-        source.status,
-        source.headers,
-      )
+      return privateSourceResponse(source, request.method)
     }
+    stage = "authorize"
     const headers = credentials(request)
     const authorizeUrl = new URL("/api/media/authorize", url.origin)
     authorizeUrl.searchParams.set("target", url.pathname + url.search)
@@ -116,12 +130,9 @@ async function handleMediaRequest(event) {
     if (authorization.status === 204) {
       // Same-host fetch follows EdgeOne's origin/cache pipeline without executing this function again.
       // The unchanged original handler performs normal login and resource authorization.
+      stage = "origin"
       const source = await fetch(request, { redirect: "manual" })
-      return privateResponse(
-        request.method === "HEAD" ? null : source.body,
-        source.status,
-        source.headers,
-      )
+      return privateSourceResponse(source, request.method)
     }
     if (authorization.status !== 200) {
       return privateResponse(
@@ -131,6 +142,7 @@ async function handleMediaRequest(event) {
           : 503,
       )
     }
+    stage = "grant"
     const grant = await authorization.json()
     if (
       grant.kind !== match[0] ||
@@ -158,6 +170,7 @@ async function handleMediaRequest(event) {
     const key = `${url.origin}/__custodysim_cache_probe_data/v1/${grant.kind}/${grant.id}/${grant.revision}${match[0] === "resource" ? `/${grant.resourceKey}` : documentMedia ? `/${READER_CACHE_SCHEMA}/${READER_DELIVERY_KEY}` : ""}`
     // A named namespace is isolated from normal/default URL caching. Only this function ever
     // reads or writes the key; clients cannot retrieve it by requesting the URL directly.
+    stage = "cache-open"
     const cache = await caches.open("custodysim-private-media-v1")
     let cached
     let readState = grant.cacheable ? "MISS" : "SKIPPED"
@@ -170,6 +183,7 @@ async function handleMediaRequest(event) {
       }
     }
     if (cached) {
+      stage = "cache-response"
       const result = documentMedia
         ? readerResponse(cached, grant, request.method)
         : privateResponse(
@@ -189,6 +203,7 @@ async function handleMediaRequest(event) {
     // Public document snapshots are stored as canonical JSON bytes. Compression
     // for the final client response remains the CDN's responsibility.
     if (documentMedia) headers.set("Accept-Encoding", "identity")
+    stage = "content"
     const source = await fetch(
       new URL("/api/media/content", url.origin).toString(),
       {
@@ -224,8 +239,9 @@ async function handleMediaRequest(event) {
           : /^image\/(png|jpeg|webp)$/.test(contentType)
     // Clone before exposing the original stream in a response: clone() tees and
     // replaces source.body, so cloning afterwards would lock the exposed stream.
+    stage = "content-response"
     const storageBody =
-      grant.cacheable && allowedType ? source.clone().body : null
+      grant.cacheable && allowedType ? source.clone(true).body : null
     // Verify the origin's shared contract without reading or rewriting body bytes.
     const documentResult = documentMedia
       ? readerResponse(source, grant, request.method)
@@ -310,9 +326,14 @@ async function handleMediaRequest(event) {
     if (writeError)
       result.headers.set("X-CustodySim-Media-Cache-Error", writeError)
     return result
-  } catch {
+  } catch (error) {
     // Auth/server/network failures must never fall back to a previously authorized image.
-    return privateResponse(null, 503)
+    const status = cacheErrorStatus(error)
+    console.warn("[edgeone-media] request failed", stage, status)
+    const result = privateResponse(null, 503)
+    result.headers.set("X-CustodySim-Media-Failure-Stage", stage)
+    result.headers.set("X-CustodySim-Media-Cache-Error", status)
+    return result
   }
 }
 

@@ -3,6 +3,39 @@ import { fetchReaderDocument } from "@/lib/reader-document-fetch"
 
 afterEach(() => vi.unstubAllGlobals())
 
+test.each([500, 502, 503, 504, 545])(
+  "HTTP %s retries the authenticated origin once",
+  async (status) => {
+    const payload = { success: true, data: { readerKey: "current-user" } }
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response("Error return from script", { status }),
+      )
+      .mockResolvedValueOnce(Response.json(payload))
+    vi.stubGlobal("fetch", fetch)
+    expect(
+      await fetchReaderDocument("book", new AbortController().signal),
+    ).toEqual(payload)
+    expect(fetch).toHaveBeenCalledTimes(2)
+    expect(fetch.mock.calls[1][0]).toBe("/api/library/book/document-origin")
+  },
+)
+
+test("HTTP 545 recovery respects revocation and does not retry a failed origin", async () => {
+  for (const status of [403, 545]) {
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(null, { status: 545 }))
+      .mockResolvedValueOnce(new Response(null, { status }))
+    vi.stubGlobal("fetch", fetch)
+    await expect(
+      fetchReaderDocument("book", new AbortController().signal),
+    ).rejects.toThrow("已下架")
+    expect(fetch).toHaveBeenCalledTimes(2)
+  }
+})
+
 test("shared body identity comes from the current authorized response headers", async () => {
   const body = {
     success: true,
@@ -84,7 +117,7 @@ test("a HIT with a broken body retries once with the same abort signal", async (
       "/api/library/book/document",
       { signal, headers: { "X-CustodySim-Reader-Delivery": "shared-v1" } },
     ],
-    ["/api/library/book/document?delivery=origin", { signal }],
+    ["/api/library/book/document-origin", { signal }],
   ])
 })
 

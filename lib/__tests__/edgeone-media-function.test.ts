@@ -36,6 +36,27 @@ function runtime(kind: "chat" | "book" | "resource" | "document" = "chat") {
   let splitDocument = false
   let chunkSize = 65537
   let legacyClient = false
+  const runtimeBodies = new WeakSet<ReadableStream>()
+  // Model a runtime that permits editing native responses but rejects wrapping
+  // their owned body in another response. Cache-storage clones remain separate.
+  const EdgeResponse = new Proxy(Response, {
+    construct(target, args) {
+      if (args[0] && runtimeBodies.has(args[0]))
+        throw new Error("Native response body must be forwarded directly")
+      return Reflect.construct(target, args)
+    },
+  })
+  class EdgeURL extends URL {
+    get searchParams() {
+      return new Proxy(super.searchParams, {
+        get(target, key) {
+          if (key === Symbol.iterator) return undefined
+          const value = Reflect.get(target, key, target)
+          return typeof value === "function" ? value.bind(target) : value
+        },
+      })
+    }
+  }
   const fetch = vi.fn(async (input: Request | string, init?: RequestInit) => {
     const url = new URL(typeof input === "string" ? input : input.url)
     if (url.pathname === "/api/media/authorize") {
@@ -123,7 +144,11 @@ function runtime(kind: "chat" | "book" | "resource" | "document" = "chat") {
       // Model EdgeOne's unsupported oversized body read, including cloned responses.
       const guard = (value: Response): Response => {
         const clone = value.clone.bind(value)
-        value.clone = () => guard(clone())
+        value.clone = () => {
+          const copy = guard(clone())
+          if (kind === "document" && value.body) runtimeBodies.add(value.body)
+          return copy
+        }
         if (encoded.length > 1024 * 1024) {
           value.json = async () => {
             throw new Error("OverSize")
@@ -137,16 +162,22 @@ function runtime(kind: "chat" | "book" | "resource" | "document" = "chat") {
         }
         return value
       }
-      return guard(response)
+      const guarded = guard(response)
+      if (kind === "document" && guarded.body) runtimeBodies.add(guarded.body)
+      return guarded
     }
     if (url.pathname === pathname)
       return new Response("original", { status: originalStatus })
     throw new Error("Unexpected fetch target")
   })
   const cache = {
-    match: vi.fn(async (key: Request | string) =>
-      entries.get(typeof key === "string" ? key : key.url)?.clone(),
-    ),
+    match: vi.fn(async (key: Request | string) => {
+      const value = entries
+        .get(typeof key === "string" ? key : key.url)
+        ?.clone()
+      if (kind === "document" && value?.body) runtimeBodies.add(value.body)
+      return value
+    }),
     put: vi.fn(async (key: Request | string, response: Response) => {
       expect(typeof key).toBe("string")
       expect(response.headers.get("Cache-Control")).toBe(
@@ -164,9 +195,9 @@ function runtime(kind: "chat" | "book" | "resource" | "document" = "chat") {
   const warn = vi.fn()
   runInNewContext(source, {
     Request,
-    Response,
+    Response: EdgeResponse,
     Headers,
-    URL,
+    URL: EdgeURL,
     TransformStream,
     TextEncoder,
     fetch,
@@ -249,10 +280,38 @@ function runtime(kind: "chat" | "book" | "resource" | "document" = "chat") {
       const result = await response!
       // Stream pumps require the caller to consume the response first.
       if (waitForCache && kind !== "document") await Promise.all(pending)
-      return result
+      // The browser receives a separate response over HTTP; edge body-read
+      // limits and runtime-specific methods do not apply on that side.
+      return new Response(result.body, {
+        status: result.status,
+        headers: result.headers,
+      })
     },
   }
 }
+
+test("edge failures expose only the processing stage and sanitized status", async () => {
+  const app = runtime("document")
+  app.fetch.mockRejectedValueOnce(
+    new Error("private Cookie and signed permit details"),
+  )
+  const response = await app.request()
+  expect(response.status).toBe(503)
+  expect(response.headers.get("X-CustodySim-Media-Failure-Stage")).toBe(
+    "authorize",
+  )
+  expect(response.headers.get("X-CustodySim-Media-Cache-Error")).toBe("UNKNOWN")
+  expect(response.headers.get("X-CustodySim-Media-Function-Version")).toBe(
+    "native-response-v1",
+  )
+  expect(app.warn).toHaveBeenCalledWith(
+    "[edgeone-media] request failed",
+    "authorize",
+    "UNKNOWN",
+  )
+  expect(await response.text()).toBe("")
+  expect(app.cache.put).not.toHaveBeenCalled()
+})
 
 test("document hits reuse untouched shared content and send current identity only in headers", async () => {
   const app = runtime("document")
@@ -279,7 +338,7 @@ test("document hits reuse untouched shared content and send current identity onl
     app.fetch.mock.calls.filter(([url]) => String(url).includes("/content")),
   ).toHaveLength(1)
   expect(app.cachedKeys[0]).not.toContain("111111")
-  expect(app.cachedKeys[0]).toContain("/reader-schema-3-v2/opaque-v1")
+  expect(app.cachedKeys[0]).toContain("/reader-schema-3-v2/native-v1")
   expect(stored!.headers.has("X-CustodySim-Reader-Key")).toBe(false)
   expect(await (await app.request("HEAD")).text()).toBe("")
   app.revise("abcdef0123456789abcdef01")
