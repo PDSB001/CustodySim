@@ -192,6 +192,7 @@ export function ReaderTools({
       {panel === "search" && (
         <>
           <Input
+            name="reader-search"
             autoFocus
             aria-label="搜索本书"
             placeholder="输入关键词，搜索全部章节"

@@ -201,6 +201,7 @@ export function LibraryWorkspace({ admin = false }: { admin?: boolean }) {
           <div className={styles.search}>
             <Search className="size-4" />
             <Input
+              name="library-search"
               aria-label="搜索书名或作者"
               placeholder="搜索书名、作者"
               value={search}

@@ -620,6 +620,7 @@ export function BookReader({
                   <span className="tabular-nums">{preferences.fontSize}</span>
                 </span>
                 <input
+                  name="reader-font-size"
                   aria-label="正文字号"
                   className="accent-primary block w-full"
                   type="range"
@@ -643,6 +644,7 @@ export function BookReader({
                   </span>
                 </span>
                 <input
+                  name="reader-line-height"
                   aria-label="正文行距"
                   className="accent-primary block w-full"
                   type="range"
@@ -830,6 +832,7 @@ export function BookReader({
         )}
         {structured && sections[safePage - 1] && (
           <select
+            name="reader-chapter"
             aria-label="章节目录"
             className="max-w-48 truncate rounded-md border bg-transparent px-2 py-1 text-xs"
             value={sections[safePage - 1].index}
