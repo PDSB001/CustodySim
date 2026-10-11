@@ -25,6 +25,7 @@ import { requestApi } from "@/components/shared/api-client"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { HEARTBEAT_SECONDS } from "@/lib/library"
+import { fetchReaderDocument } from "@/lib/reader-document-fetch"
 import type { BookInfo } from "./library-types"
 import styles from "./library.module.css"
 import { ReaderTools, type ReaderPanel } from "./reader-tools"
@@ -287,13 +288,8 @@ export function BookReader({
     let disposed = false
     async function load() {
       try {
-        const response = await fetch(
-          `/api/library/${book.id}/${book.format === "PDF" ? "file" : "document"}`,
-          { signal: abort.signal },
-        )
-        if (!response.ok) throw new Error("书籍加载失败或已下架")
         if (book.format !== "PDF") {
-          const payload = await response.json()
+          const payload = await fetchReaderDocument(book.id, abort.signal)
           if (!payload.success)
             throw new Error(payload.error?.message || "无法打开阅读文档")
           const value = ReadingDocumentSchema.parse(payload.data)
@@ -326,6 +322,10 @@ export function BookReader({
             setReady(true)
           }
         } else {
+          const response = await fetch(`/api/library/${book.id}/file`, {
+            signal: abort.signal,
+          })
+          if (!response.ok) throw new Error("书籍加载失败或已下架")
           const metadata = await fetch(
             `/api/library/${book.id}/document?metadata=1`,
             { signal: abort.signal },

@@ -15,6 +15,8 @@ const MEDIA_PATHS = [
 
 // Keep this in sync with lib/reader-identity.ts. Bump when the shared render contract changes.
 const READER_CACHE_SCHEMA = "reader-schema-3-v2"
+// Keep old entries (including compressed/framed variants) out of the new delivery path.
+const READER_DELIVERY_KEY = "identity-pipe-v1"
 
 async function readerResponse(source, grant, method, event) {
   // The origin allowlists shared fields and attests this exact JSON envelope. Never
@@ -28,12 +30,16 @@ async function readerResponse(source, grant, method, event) {
     !source.body
   )
     throw new Error("Invalid shared reader snapshot")
-  const headers = new Headers(source.headers)
-  // The personalized JSON has a different length/encoding from the shared stored copy.
-  headers.delete("Content-Length")
-  headers.delete("Content-Encoding")
-  headers.delete("ETag")
-  headers.set("Content-Type", "application/json; charset=utf-8")
+  // This is a new representation, not a cached HTTP response. Do not copy its
+  // compression, framing, validators, range support or Age into the rewritten JSON.
+  const headers = new Headers({
+    "Content-Type": "application/json; charset=utf-8",
+    "X-CustodySim-Reader-Cache-Schema": READER_CACHE_SCHEMA,
+    "X-CustodySim-Media-Revision": grant.revision,
+    "X-CustodySim-Book-Revision": grant.revision,
+    "X-Frame-Options": "DENY",
+  })
+  headers.set("X-CustodySim-Reader-Delivery", "pipe-v1")
   if (method === "HEAD") {
     void source.body.cancel().catch(() => {})
     return privateResponse(null, 200, headers)
@@ -66,31 +72,48 @@ async function readerResponse(source, grant, method, event) {
     void reader.cancel().catch(() => {})
     throw error
   }
+  // Only the fixed envelope was consumed. Hand the rest to the native pipeline
+  // rather than manually reading/writing every cached body chunk in JavaScript.
+  reader.releaseLock()
   // EdgeOne ignores TransformStream transformer callbacks and does not support
   // constructing ReadableStream. Pump through its supported default stream.
   const { readable, writable } = new TransformStream()
-  const writer = writable.getWriter()
   const pump = (async () => {
+    let writer = writable.getWriter()
+    let stage = "prefix"
     try {
       await writer.write(
         encoder.encode(
           `{"success":true,"data":{"readerKey":"${grant.readerKey}",`,
         ),
       )
-      if (remainder.length) await writer.write(remainder)
-      while (true) {
-        const chunk = await reader.read()
-        if (chunk.done) break
-        await writer.write(bytes(chunk.value))
+      stage = "remainder"
+      // Exact-sized buffers avoid carrying the original chunk's offset/backing
+      // buffer into the runtime writer; writes stay below its 32 KB buffer size.
+      for (let start = 0; start < remainder.length; start += 16384) {
+        await writer.write(remainder.slice(start, start + 16384))
       }
-      await writer.close()
-    } catch {
-      console.warn("[edgeone-media] reader stream failed")
-      void reader.cancel().catch(() => {})
-      await writer.abort().catch(() => {})
-    } finally {
-      reader.releaseLock()
       writer.releaseLock()
+      writer = null
+      stage = "pipe"
+      await source.body.pipeTo(writable)
+    } catch (error) {
+      const name = ["Error", "TypeError", "RangeError", "AbortError"].includes(
+        error?.name,
+      )
+        ? error.name
+        : "UNKNOWN"
+      console.warn(
+        "[edgeone-media] reader stream failed",
+        stage,
+        name,
+        cacheErrorStatus(error),
+      )
+      void source.body.cancel().catch(() => {})
+      if (writer) await writer.abort().catch(() => {})
+      else await writable.abort().catch(() => {})
+    } finally {
+      writer?.releaseLock()
     }
   })()
   if (typeof event.waitUntil === "function") event.waitUntil(pump)
@@ -144,10 +167,12 @@ async function handleMediaRequest(event) {
       ? `${url.pathname}?path=${encodeURIComponent(url.searchParams.get("path") || "")}`
       : url.pathname
   try {
-    // Metadata remains small, private and live; old App disk-cache checks must not enter shared storage.
+    // Metadata and a one-shot recovery request use the original authenticated
+    // handler. Recovery never reads a cached permit or a shared response.
     if (
       documentMedia &&
-      url.searchParams.get("metadata") === "1" &&
+      (url.searchParams.get("metadata") === "1" ||
+        url.searchParams.get("delivery") === "origin") &&
       [...url.searchParams].length === 1
     ) {
       const source = await fetch(request, { redirect: "manual" })
@@ -206,7 +231,7 @@ async function handleMediaRequest(event) {
     // The authoritative cover revision comes from the database, not the caller's ?v= parameter.
     // Cache API keys are identifiers, not fetches. Use a neutral URL because EdgeOne rejects
     // Cache API operations under its reserved /__custodysim_media_cache/ path.
-    const key = `${url.origin}/__custodysim_cache_probe_data/v1/${grant.kind}/${grant.id}/${grant.revision}${match[0] === "resource" ? `/${grant.resourceKey}` : documentMedia ? `/${READER_CACHE_SCHEMA}` : ""}`
+    const key = `${url.origin}/__custodysim_cache_probe_data/v1/${grant.kind}/${grant.id}/${grant.revision}${match[0] === "resource" ? `/${grant.resourceKey}` : documentMedia ? `/${READER_CACHE_SCHEMA}/${READER_DELIVERY_KEY}` : ""}`
     // A named namespace is isolated from normal/default URL caching. Only this function ever
     // reads or writes the key; clients cannot retrieve it by requesting the URL directly.
     const cache = await caches.open("custodysim-private-media-v1")
@@ -235,6 +260,9 @@ async function handleMediaRequest(event) {
     }
 
     headers.set("x-custodysim-media-permit", grant.permit)
+    // Public document snapshots are stored as canonical JSON bytes. Compression
+    // for the final client response remains the CDN's responsibility.
+    if (documentMedia) headers.set("Accept-Encoding", "identity")
     const source = await fetch(
       new URL("/api/media/content", url.origin).toString(),
       {
@@ -275,7 +303,7 @@ async function handleMediaRequest(event) {
     if (grant.cacheable && allowedType) {
       const storageHeaders = new Headers({
         "Content-Type": source.headers.get("Content-Type"),
-        "Cache-Control": `public, max-age=${bookMedia ? BOOK_CACHE_TTL_SECONDS : CACHE_TTL_SECONDS}`,
+        "Cache-Control": `public, max-age=${bookMedia ? BOOK_CACHE_TTL_SECONDS : CACHE_TTL_SECONDS}${documentMedia ? ", no-transform" : ""}`,
         "X-Content-Type-Options": "nosniff",
         "X-CustodySim-Media-Revision": grant.revision,
       })
@@ -290,7 +318,7 @@ async function handleMediaRequest(event) {
           READER_CACHE_SCHEMA,
         )
       const length = source.headers.get("Content-Length")
-      if (length && /^\d+$/.test(length))
+      if (!documentMedia && length && /^\d+$/.test(length))
         storageHeaders.set("Content-Length", length)
       // Only this internal copy is cacheable. No Cookie, CSP nonce, credential or permit is stored.
       const storage = new Response(

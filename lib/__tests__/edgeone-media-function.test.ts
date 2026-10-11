@@ -67,6 +67,10 @@ function runtime(kind: "chat" | "book" | "resource" | "document" = "chat") {
         : new Response(null, { status: authStatus })
     }
     if (url.pathname === "/api/media/content") {
+      if (kind === "document")
+        expect(new Headers(init?.headers).get("Accept-Encoding")).toBe(
+          "identity",
+        )
       expect(new Headers(init?.headers).get("x-custodysim-media-permit")).toBe(
         "signed-origin-permit",
       )
@@ -145,7 +149,7 @@ function runtime(kind: "chat" | "book" | "resource" | "document" = "chat") {
     put: vi.fn(async (key: Request | string, response: Response) => {
       expect(typeof key).toBe("string")
       expect(response.headers.get("Cache-Control")).toBe(
-        `public, max-age=${kind === "chat" ? 86400 : 604800}`,
+        `public, max-age=${kind === "chat" ? 86400 : 604800}${kind === "document" ? ", no-transform" : ""}`,
       )
       expect(response.headers.has("set-cookie")).toBe(false)
       expect(response.headers.has("vary")).toBe(false)
@@ -262,6 +266,7 @@ test("document hits reuse only shared content and reconstruct each user's identi
     app.fetch.mock.calls.filter(([url]) => String(url).includes("/content")),
   ).toHaveLength(1)
   expect(app.cachedKeys[0]).not.toContain("111111")
+  expect(app.cachedKeys[0]).toContain("/reader-schema-3-v2/identity-pipe-v1")
   expect(await (await app.request("HEAD")).text()).toBe("")
   app.revise("abcdef0123456789abcdef01")
   const revised = await app.request()
@@ -311,6 +316,71 @@ test("invalid shared envelopes fail closed before cache writes", async () => {
   app.invalidEnvelope()
   expect((await app.request()).status).toBe(503)
   expect(app.cache.put).not.toHaveBeenCalled()
+})
+
+test("recovery bypasses shared storage and preserves original access denial", async () => {
+  const app = runtime("document")
+  app.original(403)
+  const result = await app.request("GET", `${app.path}?delivery=origin`)
+  expect(result.status).toBe(403)
+  expect(result.headers.get("Cache-Control")).toBe("private, no-store")
+  expect(app.fetch).toHaveBeenCalledTimes(1)
+  expect(app.cache.match).not.toHaveBeenCalled()
+  expect(app.cache.put).not.toHaveBeenCalled()
+})
+
+test("cached body failure rejects delivery and emits only safe pipeline diagnostics", async () => {
+  const app = runtime("document")
+  await (await app.request()).json()
+  await app.settle()
+  let fail!: () => void
+  const gate = new Promise<void>((resolve) => {
+    fail = resolve
+  })
+  app.cache.match.mockResolvedValueOnce(
+    new Response(
+      new ReadableStream({
+        start(controller) {
+          controller.enqueue(
+            new TextEncoder().encode('{"success":true,"data":{'),
+          )
+        },
+        async pull(controller) {
+          await gate
+          controller.error(new TypeError("private user-token"))
+        },
+      }),
+      {
+        headers: {
+          "Content-Type": "application/json",
+          "X-CustodySim-Media-Revision": "0123456789abcdef01234567",
+          "X-CustodySim-Reader-Cache-Schema": "reader-schema-3-v2",
+          "Content-Length": "999",
+          "Transfer-Encoding": "chunked",
+          "Content-Encoding": "br",
+          Age: "818",
+          "Accept-Ranges": "bytes",
+        },
+      },
+    ),
+  )
+  const hit = await app.request()
+  expect(hit.headers.get("X-CustodySim-Reader-Delivery")).toBe("pipe-v1")
+  expect(hit.headers.has("Content-Length")).toBe(false)
+  expect(hit.headers.has("Transfer-Encoding")).toBe(false)
+  expect(hit.headers.has("Content-Encoding")).toBe(false)
+  expect(hit.headers.has("Age")).toBe(false)
+  expect(hit.headers.has("Accept-Ranges")).toBe(false)
+  fail()
+  await expect(hit.json()).rejects.toBeDefined()
+  await app.settle()
+  expect(app.warn).toHaveBeenCalledWith(
+    "[edgeone-media] reader stream failed",
+    "pipe",
+    "TypeError",
+    "UNKNOWN",
+  )
+  expect(JSON.stringify(app.warn.mock.calls)).not.toMatch(/private|user-token/)
 })
 
 test("document HEAD misses retain only the shared copy and return no body", async () => {
