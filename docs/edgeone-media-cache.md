@@ -16,6 +16,23 @@ Web 阅读器打开 PDF 请求完整 `/api/library/{id}/file`，其他格式请�
 
 `library_books.content_revision` 是存储生成列，插入或替换书籍字节时由 PostgreSQL 自动计算；原有书籍由增量升级自动补齐。不依赖客户端版本参数，metadata 与边缘鉴权只查询小型字段。算法保持现有 `reader-schema-3:` SHA-256 截取 24 位的约定，旧 App 缓存与阅读位置仍可识别。部署脚本已通过 `upgrade-library.mjs` 接入升级，无新环境变量；首次升级需要计算现有书籍版本，保留原文件数据。此字段由数据库维护，上传/替换和其他写入路径均不能漏更新。
 
+## 已启用正文缓存时修复 EPUB 545
+
+EdgeOne 的 `Response.json()`、`text()` 和 `arrayBuffer()` 最多读取 1 MB；EPUB 解压后的正文 JSON 即使原文件较小也可能超过限制。新函数只校验源站的共享契约头和固定 JSON 开头，通过默认 `TransformStream` 流式添加本次用户的阅读标识，不读取或重新序列化整本正文。源站先按白名单去除个人字段，再添加 `X-CustodySim-Reader-Cache-Schema: reader-schema-3-v2`。新正文缓存键含 v2，自动隔离旧副本；原文件版本、阅读位置及 App 磁盘缓存格式不变。
+
+1. 在现有边缘函数的触发规则中，暂时移除 `/api/library/*/document`，保留图片、封面、原文件和插图规则。等待规则生效后确认原接口可以阅读。普通节点缓存仍保持不缓存正文。
+2. 服务器执行下面的 Bash，更新源站。无需改变原有环境变量、密钥或 Android APK，也没有新增数据库迁移：
+
+   ```bash
+   cd ~/CustodySim
+   git pull --ff-only
+   bash scripts/deploy.sh
+   ```
+
+3. 源站部署成功后，在现有边缘函数代码编辑器中，用仓库 `deploy/edgeone/media-cache.js` 的完整最新内容替换旧代码，保存并发布。确认代码中的 `READER_CACHE_SCHEMA` 是 `reader-schema-3-v2`。只部署源站或只更新函数都会导致正文契约不匹配。
+4. 重新加入 `/api/library/*/document` 触发规则并发布，等待配置下发。同一本 EPUB 完整打开两次，正文请求应为 200，响应头有 `X-CustodySim-Reader-Cache-Schema: reader-schema-3-v2`；首次 `MISS/PENDING`，后台写入完成后第二次可 `HIT`。同时确认章节、中文、插图和阅读位置正常。
+5. 若仍为 545，先再次撤掉正文触发规则恢复阅读，再获取该请求对应的边缘函数异常日志。`Error return from script` 是通用失败提示，不能单独证明异常原因。流式修复已在本地对超过 1 MB、跨块 UTF-8 正文及不同用户命中做回归，真实节点仍需按上述步骤验收。
+
 ## 启用顺序
 
 1. 在生产 `.env.local` 增加下述配置；独立密钥仅保存在源站，不填到前端、App、边缘函数代码或 Git：
@@ -53,7 +70,7 @@ Web 阅读器打开 PDF 请求完整 `/api/library/{id}/file`，其他格式请�
 
    字节存放在独立命名空间 `custodysim-private-media-v1`，缓存键是 Cache API 内部标识，不会被 Fetch 或直接 URL 请求。不要再绑定旧路径 `/__custodysim_media_cache/*`，EdgeOne 会拒绝该路径上的 Cache API 操作。不要绑定 `/api/*` 或 `/api/media/*`，避免子请求触发函数回环。回源必须保留 Cookie、Authorization、`x-custodysim-client` 和完整查询参数；代理不能增加或替换用户身份。不要对本方案路径额外开启内置 Token 鉴权、忽略 Cookie 后强制缓存或缓存鉴权成功结果。
 
-   升级时先部署源站与数据库，再发布新函数并增加所缺的书籍触发路径。此前已启用文件和插图缓存时，本次仅新增 `/api/library/*/document` 触发路径及对应普通缓存旁路规则。源站已更新而函数未更新时，原有缓存仍可工作，正文保持原接口；不需要更新 Android APK。不能先给旧源站绑定新正文函数，旧版没有公共正文回源契约，会返回 503。
+   升级时先部署源站与数据库，再发布新函数并增加所缺的书籍触发路径。已有正文触发规则时，先按上面的 545 修复顺序暂时移除该规则。源站已更新而正文函数未更新时，共享契约不匹配会返回 503；撤掉正文触发规则后原接口保持可用。不需要更新 Android APK。
 
 5. 发布函数后，按下面的验收检查确认缓存与权限同时生效。实际套餐需支持边缘函数和 Cache API；没有这项能力时保持关闭，不能用“强制缓存”替代。
 
@@ -61,7 +78,7 @@ Web 阅读器打开 PDF 请求完整 `/api/library/{id}/file`，其他格式请�
 
 - 函数先获取授权，再 `cache.match`。同一图片的不同用户共享字节，用户的 Cookie/JWT/签名不进入缓存内容或缓存键。
 - 书籍键使用数据库内容版本；替换文件自动换键，旧凭据不能取到新版本字节。EPUB 插图额外按规范化的完整 `path` 参数计算键，不能把同一本书的不同插图混为同一缓存。SVG 插图的缓存副本保留固定 sandbox CSP。
-- 正文缓存键额外包含 `reader-schema-3-v1` 渲染契约版本；变更渲染格式时须同步更新 `lib/reader-identity.ts` 与函数常量。命中后用户阅读标识由本次授权重建，原始个性化 JSON 不存入缓存。
+- 正文缓存键额外包含 `reader-schema-3-v2` 共享契约版本；变更格式时须同步更新 `lib/reader-identity.ts` 与函数常量。命中后用户阅读标识由本次授权重建，原始个性化 JSON 不存入缓存。
 - 封面版本取自数据库 `cover_updated_at`，不信任请求中的 `v`。更新封面自动换键；第一次给旧 EPUB/DOCX 补提封面不缓存，后续使用实际版本。图片内容在回源过程中变更时，不写入旧版本缓存。
 - 客户端响应仍为 `private, no-store`；只有 Cache API 的内部副本设为可缓存。响应标记 `X-CustodySim-Media-Cache: MISS` 或 `HIT`，不含凭据。
 - 已撤回/删除/下架内容即使节点还留有字节，也会因实时鉴权失败而不再向新的请求提供。已下载到设备上的内容无法被远程收回；已有 App 内存缓存和旧浏览器缓存不受此功能追溯清除。
@@ -121,4 +138,4 @@ unset ACCESS_TOKEN
 
 将 `EDGEONE_MEDIA_CACHE_ENABLED=false` 并重新运行部署脚本。鉴权端点返回 204，已发布函数改走原接口的正常鉴权，不读取 Cache API。也可撤掉触发规则回到旧链路。若回滚到不支持书籍缓存的源站版本，先撤掉书籍触发规则或关闭该功能。新增生成列可保留，不改变旧文件内容。节点内部图片字节随 1 天、书籍/插图随 7 天 TTL 淘汰。如有数据清理要求，按 EdgeOne Cache API/节点管理能力清理，不能把普通 URL 清除成功当成内部自定义缓存键已全部清除。
 
-参考：[EdgeOne 远程鉴权](https://cloud.tencent.com/document/product/1552/100946)、[Cache API](https://intl.cloud.tencent.com/zh/document/product/1145/52684)、[同域 Fetch 行为](https://cloud.tencent.cn/document/product/1552/81897)。
+参考：[EdgeOne 远程鉴权](https://cloud.tencent.com/document/product/1552/100946)、[Cache API](https://intl.cloud.tencent.com/zh/document/product/1145/52684)、[同域 Fetch 行为](https://cloud.tencent.cn/document/product/1552/81897)、[Response 读取限制](https://cloud.tencent.com/document/product/1552/81917)、[TransformStream 运行时限制](https://cloud.tencent.com/document/product/1552/81923)。

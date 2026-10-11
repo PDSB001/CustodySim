@@ -31,6 +31,9 @@ function runtime(kind: "chat" | "book" | "resource" | "document" = "chat") {
         : "image/png"
   let currentReaderKey = "111111111111111111111111"
   let personalSource = false
+  let documentHtml = "<p>共享正文</p>"
+  let splitDocument = false
+  let invalidEnvelope = false
   const fetch = vi.fn(async (input: Request | string, init?: RequestInit) => {
     const url = new URL(typeof input === "string" ? input : input.url)
     if (url.pathname === "/api/media/authorize") {
@@ -50,7 +53,7 @@ function runtime(kind: "chat" | "book" | "resource" | "document" = "chat") {
             ...(kind === "document"
               ? {
                   readerKey: currentReaderKey,
-                  readerSchema: "reader-schema-3-v1",
+                  readerSchema: "reader-schema-3-v2",
                 }
               : {}),
             ...(kind === "resource"
@@ -67,28 +70,69 @@ function runtime(kind: "chat" | "book" | "resource" | "document" = "chat") {
       expect(new Headers(init?.headers).get("x-custodysim-media-permit")).toBe(
         "signed-origin-permit",
       )
-      return new Response(
-        kind === "document"
+      const body = invalidEnvelope
+        ? '{"success":false}'
+        : kind === "document"
           ? JSON.stringify({
               success: true,
               data: {
                 version: 1,
                 revision: version,
                 pages: 1,
-                chapters: [{ html: "<p>共享正文</p>" }],
+                chapters: [{ html: documentHtml }],
                 ...(personalSource ? { readerKey: currentReaderKey } : {}),
               },
             })
-          : "picture-bytes",
+          : "picture-bytes"
+      const encoded = new TextEncoder().encode(body)
+      let position = 0
+      const response = new Response(
+        splitDocument
+          ? new ReadableStream({
+              pull(controller) {
+                if (position === encoded.length) return controller.close()
+                // Split the envelope and UTF-8 characters across chunks.
+                const end = Math.min(
+                  encoded.length,
+                  position + (position < 30 ? 1 : 65537),
+                )
+                controller.enqueue(encoded.subarray(position, end))
+                position = end
+              },
+            })
+          : body,
         {
           headers: {
             "Content-Type": contentType,
             "Cache-Control": "private, no-store",
             "Set-Cookie": "must-not-be-stored",
             "X-CustodySim-Media-Revision": contentRevision ?? version,
+            ...(kind === "document" && !personalSource
+              ? {
+                  "X-CustodySim-Reader-Cache-Schema": "reader-schema-3-v2",
+                }
+              : {}),
           },
         },
       )
+      // Model EdgeOne's unsupported oversized body read, including cloned responses.
+      const guard = (value: Response): Response => {
+        const clone = value.clone.bind(value)
+        value.clone = () => guard(clone())
+        if (encoded.length > 1024 * 1024) {
+          value.json = async () => {
+            throw new Error("OverSize")
+          }
+          value.text = async () => {
+            throw new Error("OverSize")
+          }
+          value.arrayBuffer = async () => {
+            throw new Error("OverSize")
+          }
+        }
+        return value
+      }
+      return guard(response)
     }
     if (url.pathname === pathname)
       return new Response("original", { status: originalStatus })
@@ -118,6 +162,8 @@ function runtime(kind: "chat" | "book" | "resource" | "document" = "chat") {
     Response,
     Headers,
     URL,
+    TransformStream,
+    TextEncoder,
     fetch,
     console: { warn },
     caches: {
@@ -161,6 +207,13 @@ function runtime(kind: "chat" | "book" | "resource" | "document" = "chat") {
     personalSource: () => {
       personalSource = true
     },
+    largeDocument: (html: string) => {
+      documentHtml = html
+      splitDocument = true
+    },
+    invalidEnvelope: () => {
+      invalidEnvelope = true
+    },
     async request(method = "GET", target = path, waitForCache = true) {
       const pending: Promise<unknown>[] = []
       let response: Promise<Response> | undefined
@@ -183,7 +236,8 @@ function runtime(kind: "chat" | "book" | "resource" | "document" = "chat") {
         },
       })
       const result = await response!
-      if (waitForCache) await Promise.all(pending)
+      // Stream pumps require the caller to consume the response first.
+      if (waitForCache && kind !== "document") await Promise.all(pending)
       return result
     },
   }
@@ -194,6 +248,7 @@ test("document hits reuse only shared content and reconstruct each user's identi
   const first = await app.request()
   expect(first.headers.get("X-CustodySim-Media-Cache")).toBe("MISS")
   expect((await first.json()).data.readerKey).toBe("111111111111111111111111")
+  await app.settle()
   const stored = await app.cache.match(app.cachedKeys[0])
   expect(JSON.stringify(await stored!.json())).not.toContain("readerKey")
   app.readerKey("222222222222222222222222")
@@ -209,11 +264,34 @@ test("document hits reuse only shared content and reconstruct each user's identi
   expect(app.cachedKeys[0]).not.toContain("111111")
   expect(await (await app.request("HEAD")).text()).toBe("")
   app.revise("abcdef0123456789abcdef01")
-  expect((await app.request()).headers.get("X-CustodySim-Media-Cache")).toBe(
-    "MISS",
-  )
+  const revised = await app.request()
+  expect(revised.headers.get("X-CustodySim-Media-Cache")).toBe("MISS")
+  await revised.json()
+  await app.settle()
   app.authorize(404)
   expect((await app.request()).status).toBe(404)
+})
+
+test("EPUB JSON larger than 1 MB streams with intact UTF-8 and isolated identities on misses and hits", async () => {
+  const app = runtime("document")
+  const html = "<p>中文📚内容</p>".repeat(60000)
+  expect(new TextEncoder().encode(html).length).toBeGreaterThan(1024 * 1024)
+  app.largeDocument(html)
+  const miss = await app.request()
+  expect(miss.status).toBe(200)
+  expect((await miss.json()).data.chapters[0].html).toBe(html)
+  await app.settle()
+  const stored = await app.cache.match(app.cachedKeys[0])
+  expect((await stored!.json()).data.readerKey).toBeUndefined()
+  app.readerKey("222222222222222222222222")
+  const hit = await app.request()
+  expect(hit.headers.get("X-CustodySim-Media-Cache")).toBe("HIT")
+  const payload = await hit.json()
+  expect(payload.data.chapters[0].html).toBe(html)
+  expect(payload.data.readerKey).toBe("222222222222222222222222")
+  await app.settle()
+  app.authorize(403)
+  expect((await app.request()).status).toBe(403)
 })
 
 test("metadata bypasses document caching and personalized origin bodies are rejected", async () => {
@@ -226,6 +304,27 @@ test("metadata bypasses document caching and personalized origin bodies are reje
   app.personalSource()
   expect((await app.request()).status).toBe(503)
   expect(app.cache.put).not.toHaveBeenCalled()
+})
+
+test("invalid shared envelopes fail closed before cache writes", async () => {
+  const app = runtime("document")
+  app.invalidEnvelope()
+  expect((await app.request()).status).toBe(503)
+  expect(app.cache.put).not.toHaveBeenCalled()
+})
+
+test("document HEAD misses retain only the shared copy and return no body", async () => {
+  const app = runtime("document")
+  const response = await app.request("HEAD")
+  expect(response.status).toBe(200)
+  expect(await response.text()).toBe("")
+  await app.settle()
+  const stored = await app.cache.match(app.cachedKeys[0])
+  expect((await stored!.json()).data.readerKey).toBeUndefined()
+  const hit = await app.request()
+  expect(hit.headers.get("X-CustodySim-Media-Cache")).toBe("HIT")
+  expect((await hit.json()).data.readerKey).toBe("111111111111111111111111")
+  await app.settle()
 })
 
 test("second image request checks live authorization but does not fetch picture bytes again", async () => {

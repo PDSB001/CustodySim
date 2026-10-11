@@ -14,16 +14,18 @@ const MEDIA_PATHS = [
 ]
 
 // Keep this in sync with lib/reader-identity.ts. Bump when the shared render contract changes.
-const READER_CACHE_SCHEMA = "reader-schema-3-v1"
+const READER_CACHE_SCHEMA = "reader-schema-3-v2"
 
-async function readerResponse(source, grant, method) {
-  const payload = await source.json()
+async function readerResponse(source, grant, method, event) {
+  // The origin allowlists shared fields and attests this exact JSON envelope. Never
+  // call json/text/arrayBuffer here: EdgeOne limits those body reads to 1 MB.
   if (
-    payload.success !== true ||
-    !payload.data ||
-    payload.data.revision !== grant.revision ||
-    payload.data.version !== 1 ||
-    Object.hasOwn(payload.data, "readerKey")
+    source.headers.get("X-CustodySim-Reader-Cache-Schema") !==
+      READER_CACHE_SCHEMA ||
+    source.headers.get("X-CustodySim-Media-Revision") !== grant.revision ||
+    (source.headers.get("Content-Type") || "").split(";", 1)[0].trim() !==
+      "application/json" ||
+    !source.body
   )
     throw new Error("Invalid shared reader snapshot")
   const headers = new Headers(source.headers)
@@ -32,16 +34,67 @@ async function readerResponse(source, grant, method) {
   headers.delete("Content-Encoding")
   headers.delete("ETag")
   headers.set("Content-Type", "application/json; charset=utf-8")
-  return privateResponse(
-    method === "HEAD"
-      ? null
-      : JSON.stringify({
-          success: true,
-          data: { ...payload.data, readerKey: grant.readerKey },
-        }),
-    200,
-    headers,
-  )
+  if (method === "HEAD") {
+    void source.body.cancel().catch(() => {})
+    return privateResponse(null, 200, headers)
+  }
+  const encoder = new TextEncoder()
+  const prefix = encoder.encode('{"success":true,"data":{')
+  const reader = source.body.getReader()
+  const bytes = (value) =>
+    typeof value === "string"
+      ? encoder.encode(value)
+      : ArrayBuffer.isView(value)
+        ? new Uint8Array(value.buffer, value.byteOffset, value.byteLength)
+        : new Uint8Array(value)
+  let offset = 0
+  let remainder
+  try {
+    while (offset < prefix.length) {
+      const chunk = await reader.read()
+      if (chunk.done) throw new Error("Truncated reader envelope")
+      const part = bytes(chunk.value)
+      const count = Math.min(part.length, prefix.length - offset)
+      for (let i = 0; i < count; i++) {
+        if (part[i] !== prefix[offset + i])
+          throw new Error("Invalid reader envelope")
+      }
+      offset += count
+      remainder = part.subarray(count)
+    }
+  } catch (error) {
+    void reader.cancel().catch(() => {})
+    throw error
+  }
+  // EdgeOne ignores TransformStream transformer callbacks and does not support
+  // constructing ReadableStream. Pump through its supported default stream.
+  const { readable, writable } = new TransformStream()
+  const writer = writable.getWriter()
+  const pump = (async () => {
+    try {
+      await writer.write(
+        encoder.encode(
+          `{"success":true,"data":{"readerKey":"${grant.readerKey}",`,
+        ),
+      )
+      if (remainder.length) await writer.write(remainder)
+      while (true) {
+        const chunk = await reader.read()
+        if (chunk.done) break
+        await writer.write(bytes(chunk.value))
+      }
+      await writer.close()
+    } catch {
+      console.warn("[edgeone-media] reader stream failed")
+      void reader.cancel().catch(() => {})
+      await writer.abort().catch(() => {})
+    } finally {
+      reader.releaseLock()
+      writer.releaseLock()
+    }
+  })()
+  if (typeof event.waitUntil === "function") event.waitUntil(pump)
+  return privateResponse(readable, 200, headers)
 }
 
 function privateResponse(body, status, headers) {
@@ -169,7 +222,7 @@ async function handleMediaRequest(event) {
     }
     if (cached) {
       const result = documentMedia
-        ? await readerResponse(cached, grant, request.method)
+        ? await readerResponse(cached, grant, request.method, event)
         : privateResponse(
             request.method === "HEAD" ? null : cached.body,
             200,
@@ -215,9 +268,9 @@ async function handleMediaRequest(event) {
         : match[0] === "resource"
           ? /^image\/(png|jpeg|gif|webp|svg\+xml)$/.test(contentType)
           : /^image\/(png|jpeg|webp)$/.test(contentType)
-    // Validate common JSON before it enters the shared cache; return only the current user's identity.
+    // Verify the origin's shared envelope without buffering the document.
     const personalized = documentMedia
-      ? await readerResponse(source.clone(), grant, request.method)
+      ? await readerResponse(source.clone(), grant, request.method, event)
       : null
     if (grant.cacheable && allowedType) {
       const storageHeaders = new Headers({
@@ -231,13 +284,21 @@ async function handleMediaRequest(event) {
           "Content-Security-Policy",
           "default-src 'none'; sandbox",
         )
+      if (documentMedia)
+        storageHeaders.set(
+          "X-CustodySim-Reader-Cache-Schema",
+          READER_CACHE_SCHEMA,
+        )
       const length = source.headers.get("Content-Length")
       if (length && /^\d+$/.test(length))
         storageHeaders.set("Content-Length", length)
       // Only this internal copy is cacheable. No Cookie, CSP nonce, credential or permit is stored.
-      const storage = new Response(source.clone().body, {
-        headers: storageHeaders,
-      })
+      const storage = new Response(
+        documentMedia ? source.body : source.clone().body,
+        {
+          headers: storageHeaders,
+        },
+      )
       // put() can resolve even when nothing was stored. Confirm the entry instead of
       // silently discarding write failures. This adds work only on cache misses.
       const store = async () => {
@@ -271,6 +332,8 @@ async function handleMediaRequest(event) {
         writeState = stored.state
         writeError = stored.error
       }
+    } else if (documentMedia) {
+      void source.body.cancel().catch(() => {})
     }
     const result =
       personalized ||

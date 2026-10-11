@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto"
 
-export const READER_CACHE_SCHEMA = "reader-schema-3-v1"
+export const READER_CACHE_SCHEMA = "reader-schema-3-v2"
 
 export function readerKey(userId: string, bookId: string) {
   return createHash("sha256")

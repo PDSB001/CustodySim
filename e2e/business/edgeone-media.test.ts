@@ -213,8 +213,12 @@ test("document snapshots share content without identities; warm parsing reads no
   const context = { params: Promise.resolve({ id }) }
   await as(alice)
   const firstGrant = await (await authorize(request(target))).json()
-  expect(firstGrant.readerSchema).toBe("reader-schema-3-v1")
-  const firstCommon = await (await bytes(firstGrant.permit)).json()
+  expect(firstGrant.readerSchema).toBe("reader-schema-3-v2")
+  const sharedResponse = await bytes(firstGrant.permit)
+  expect(sharedResponse.headers.get("X-CustodySim-Reader-Cache-Schema")).toBe(
+    "reader-schema-3-v2",
+  )
+  const firstCommon = await sharedResponse.json()
   expect(firstCommon.data.readerKey).toBeUndefined()
   expect(firstCommon.data.text).toContain("共享正文测试")
   expect(

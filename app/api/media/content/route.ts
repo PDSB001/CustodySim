@@ -4,6 +4,7 @@ import { GET as bookFile } from "@/app/api/library/[id]/file/route"
 import { GET as bookResource } from "@/app/api/library/[id]/resource/route"
 import { GET as bookDocument } from "@/app/api/library/[id]/document/route"
 import { sharedReaderPayload } from "@/lib/reader-document-cache"
+import { READER_CACHE_SCHEMA } from "@/lib/reader-identity"
 import { communityImage } from "@/lib/community-server"
 import { MEDIA_PERMIT_HEADER, verifyMediaPermit } from "@/lib/edgeone-media"
 import { getMediaRevision } from "@/lib/edgeone-media-access"
@@ -64,6 +65,9 @@ export async function GET(request: Request) {
     if (media.kind === "document" && response.status === 200) {
       const payload = sharedReaderPayload(await response.json(), revision)
       headers.delete("Content-Length")
+      headers.delete("Content-Encoding")
+      headers.delete("ETag")
+      headers.set("X-CustodySim-Reader-Cache-Schema", READER_CACHE_SCHEMA)
       return Response.json(payload, { headers })
     }
     return new Response(response.body, { status: response.status, headers })
