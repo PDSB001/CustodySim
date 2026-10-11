@@ -16,9 +16,11 @@
 
 1. 源站先执行 `git pull --ff-only` 和 `bash scripts/deploy.sh`。无需改环境变量或数据库。旧函数仍请求普通 JSON，与新源站兼容。
 2. 用完整最新 `deploy/edgeone/media-cache.js` 替换并发布边缘函数。核对 FUNCTION_VERSION 为 `origin-gzip-v1`、READER_DELIVERY_KEY 为 `compressed-v1`。不要改当前不缓存/鉴权规则，不要把 document-origin 加入函数触发规则。
-3. 返回书架重新打开书籍两次。普通浏览器的正文响应应有 `Content-Encoding: gzip`、`X-CustodySim-Media-Function-Version: origin-gzip-v1`，先 MISS/PENDING 再 HIT；Content-Length 如存在应是压缩后的字节数。比较实际传输大小和下载耗时，完整确认章节、中文、插图、阅读位置和计时正常。DevTools 的解码后资源大小仍可能很大，实际传输大小才用于评价带宽收益。
+3. 返回书架重新打开书籍两次。正文响应应有 `X-CustodySim-Reader-Representation: gzip-v1`、`X-CustodySim-Media-Function-Version: origin-gzip-v1`，先 MISS/PENDING 再 HIT。函数会设置标准 `Content-Encoding: gzip`，但实际节点可能未保留它：新版 Web 会检查正文实际字节，gzip 文件头时用浏览器 DecompressionStream 解压；浏览器或中间层已经解码为 JSON 时直接解析，避免双重解压。Content-Length 如存在应是当前传输字节数。比较实际传输大小和下载耗时，完整确认章节、中文、插图、阅读位置和计时正常。DevTools 的解码后资源大小仍可能很大，实际传输大小才用于评价带宽收益。
 
 第一次 MISS 仍须解析并压缩整本书，后续 HIT 直接发送已压缩字节。压缩无法减少回源鉴权、客户端解析和排版时间，真实速度及压缩比以同一本书的节点验收为准。如果发生错误，Web 仍只重试一次独立的 document-origin 接口；可以撤掉 document 触发规则恢复原链路。
+
+若节点返回 200/HIT 和 gzip-v1，但没有标准 Content-Encoding，旧 Web 会把 gzip 字节误当 JSON，继而触发 document-origin。对此兼容修复只需更新源站/Web 并刷新页面，无需重新发布同一版函数或清缓存。解压缺失/损坏时仍会回源；恢复请求的 `X-CustodySim-Reader-Recovery-Reason` 只返回固定诊断分类：body-transfer、invalid-json、shared-identity、http-5xx，不含正文、用户信息或原始异常。通过 DevTools 的请求头即可判断为什么产生恢复请求。
 
 ## 其他静态资源
 
