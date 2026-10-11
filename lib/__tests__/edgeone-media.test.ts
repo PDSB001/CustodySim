@@ -60,7 +60,7 @@ test("30s permits bind the user, canonical image path and authoritative version"
   expect(verifyMediaPermit(permit, now)).toBeNull()
 })
 
-test("media allowlist excludes documents, proxy targets and ambiguous parameters", () => {
+test("media allowlist excludes personal metadata, proxy targets and ambiguous parameters", () => {
   expect(
     parseCachedMedia(`/api/library/${id}/cover?v=1800000000000`),
   ).toMatchObject({ kind: "cover", id })
@@ -72,7 +72,7 @@ test("media allowlist excludes documents, proxy targets and ambiguous parameters
     `https://other.test${path}`,
     `//other.test${path}`,
     `${path}?token=anything`,
-    `/api/library/${id}/document`,
+    `/api/library/${id}/document?metadata=1`,
     `/api/library/${id}/content`,
     `/api/library/${id}/file?v=1`,
     `/api/library/${id}/cover?v=1&v=2`,
@@ -87,6 +87,10 @@ test("book files and EPUB resource permits bind the complete canonical path", ()
   enable()
   const file = parseCachedMedia(`/api/library/${id}/file`)!
   expect(file.kind).toBe("book")
+  expect(parseCachedMedia(`/api/library/${id}/document`)).toMatchObject({
+    kind: "document",
+    id,
+  })
   const path = `/api/library/${id}/resource`
   const resource = parseCachedMedia(`${path}?path=OPS%2Fimages%2Fa%20b.png`)!
   expect(resource.kind).toBe("resource")

@@ -2,6 +2,8 @@ import { GET as chatImage } from "@/app/api/chat/messages/[id]/image/route"
 import { GET as bookCover } from "@/app/api/library/[id]/cover/route"
 import { GET as bookFile } from "@/app/api/library/[id]/file/route"
 import { GET as bookResource } from "@/app/api/library/[id]/resource/route"
+import { GET as bookDocument } from "@/app/api/library/[id]/document/route"
+import { sharedReaderPayload } from "@/lib/reader-document-cache"
 import { communityImage } from "@/lib/community-server"
 import { MEDIA_PERMIT_HEADER, verifyMediaPermit } from "@/lib/edgeone-media"
 import { getMediaRevision } from "@/lib/edgeone-media-access"
@@ -40,12 +42,16 @@ export async function GET(request: Request) {
             ? await bookFile(resourceRequest, context)
             : media.kind === "resource"
               ? await bookResource(resourceRequest, context)
-              : await communityImage(media.id)
+              : media.kind === "document"
+                ? await bookDocument(resourceRequest, context)
+                : await communityImage(media.id)
     if (
       response.status === 200 &&
       revision !== "legacy" &&
       ((await getMediaRevision(actor, media)) !== revision ||
-        ((media.kind === "book" || media.kind === "resource") &&
+        ((media.kind === "book" ||
+          media.kind === "resource" ||
+          media.kind === "document") &&
           response.headers.get("X-CustodySim-Book-Revision") !== revision))
     ) {
       await response.body?.cancel()
@@ -55,6 +61,11 @@ export async function GET(request: Request) {
     headers.set("Cache-Control", "private, no-store")
     headers.set("Vary", "Cookie, Authorization")
     headers.set("X-CustodySim-Media-Revision", revision)
+    if (media.kind === "document" && response.status === 200) {
+      const payload = sharedReaderPayload(await response.json(), revision)
+      headers.delete("Content-Length")
+      return Response.json(payload, { headers })
+    }
     return new Response(response.body, { status: response.status, headers })
   } catch {
     console.error("[edgeone-media] content unavailable")

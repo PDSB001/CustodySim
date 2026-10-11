@@ -164,7 +164,7 @@ test("stored book revisions preserve existing reader identities; metadata reads 
   expect((await authorize(request(path))).status).toBe(404)
 })
 
-test("EPUB image permits bind one archive resource, canonicalize queries and never expose documents", async () => {
+test("EPUB image permits bind one archive resource, canonicalize queries and exclude personal metadata", async () => {
   enable()
   await as(alice)
   const archive = Buffer.from(
@@ -193,7 +193,7 @@ test("EPUB image permits bind one archive resource, canonicalize queries and nev
     Buffer.concat([png, Buffer.from("b")]),
   )
   for (const target of [
-    `/api/library/${id}/document`,
+    `/api/library/${id}/document?metadata=1`,
     `${first}&path=OPS%2Fb.png`,
     `/api/library/${id}/resource?path=..%2Fa.png`,
   ])
@@ -204,6 +204,55 @@ test("EPUB image permits bind one archive resource, canonicalize queries and nev
     )
   ).json()
   expect((await bytes(missing.permit)).status).toBe(404)
+})
+
+test("document snapshots share content without identities; warm parsing reads no bytes and still enforces access", async () => {
+  enable()
+  const id = await book(Buffer.from("共享正文测试"))
+  const target = `/api/library/${id}/document`
+  const context = { params: Promise.resolve({ id }) }
+  await as(alice)
+  const firstGrant = await (await authorize(request(target))).json()
+  expect(firstGrant.readerSchema).toBe("reader-schema-3-v1")
+  const firstCommon = await (await bytes(firstGrant.permit)).json()
+  expect(firstCommon.data.readerKey).toBeUndefined()
+  expect(firstCommon.data.text).toContain("共享正文测试")
+  expect(
+    (await (await document(request(target), context)).json()).data.readerKey,
+  ).toBe(firstGrant.readerKey)
+  await as(outsider)
+  const select = vi.spyOn(db, "select")
+  try {
+    const secondGrant = await (await authorize(request(target))).json()
+    expect(secondGrant.readerKey).not.toBe(firstGrant.readerKey)
+    expect((await bytes(firstGrant.permit)).status).toBe(403)
+    expect(await (await bytes(secondGrant.permit)).json()).toEqual(firstCommon)
+    const direct = await (await document(request(target), context)).json()
+    expect(direct.data.readerKey).toBe(secondGrant.readerKey)
+    expect(
+      select.mock.calls.every(
+        ([fields]) =>
+          !fields || !Object.values(fields).includes(s.libraryBooks.bytes),
+      ),
+    ).toBe(true)
+    await db
+      .update(s.libraryBooks)
+      .set({ enabled: false })
+      .where(eq(s.libraryBooks.id, id))
+    expect((await document(request(target), context)).status).toBe(404)
+    expect((await bytes(secondGrant.permit)).status).toBe(404)
+  } finally {
+    select.mockRestore()
+  }
+  await as(admin, "ADMIN")
+  expect((await document(request(target), context)).status).toBe(200)
+  await db
+    .update(s.libraryBooks)
+    .set({ bytes: Buffer.from("更新后的正文") })
+    .where(eq(s.libraryBooks.id, id))
+  const replacement = await (await document(request(target), context)).json()
+  expect(replacement.data.text).toContain("更新后的正文")
+  expect(replacement.data.revision).not.toBe(firstGrant.revision)
 })
 afterEach(() => {
   vi.unstubAllEnvs()

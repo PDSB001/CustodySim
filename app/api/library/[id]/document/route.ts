@@ -1,11 +1,14 @@
-import { createHash } from "node:crypto"
 import { and, eq, isNull } from "drizzle-orm"
 import { z } from "zod"
 import { db } from "@/lib/db"
 import { libraryBooks } from "@/lib/db/schema"
 import { getSessionUser } from "@/lib/session"
 import { failure, success } from "@/lib/api-response"
-import { buildReaderDocument } from "@/lib/reader-document"
+import {
+  cachedReaderDocument,
+  ReaderSourceChangedError,
+} from "@/lib/reader-document-cache"
+import { readerKey } from "@/lib/reader-identity"
 
 export async function GET(
   request: Request,
@@ -32,36 +35,50 @@ export async function GET(
   const identity = {
     renderMetadataVersion: 1,
     revision: book.revision,
-    readerKey: createHash("sha256")
-      .update(`${actor.id}:${parsed.data}`)
-      .digest("hex")
-      .slice(0, 24),
+    readerKey: readerKey(actor.id, parsed.data),
+  }
+  const responseHeaders = {
+    "Cache-Control": "private, no-store",
+    "X-CustodySim-Book-Revision": book.revision,
   }
   if (new URL(request.url).searchParams.get("metadata") === "1")
-    return success({ format: book.format, readerSchema: 3, ...identity })
+    return success(
+      { format: book.format, readerSchema: 3, ...identity },
+      { headers: responseHeaders },
+    )
   if (book.format === "PDF")
-    return success({ version: 1, format: "PDF", ...identity })
-  const [source] = await db
-    .select({ bytes: libraryBooks.bytes })
-    .from(libraryBooks)
-    .where(
-      and(
-        eq(libraryBooks.id, parsed.data),
-        eq(libraryBooks.contentRevision, book.revision),
-        isNull(libraryBooks.deletedAt),
-        actor.role === "ADMIN" ? undefined : eq(libraryBooks.enabled, true),
-      ),
+    return success(
+      { version: 1, format: "PDF", ...identity },
+      { headers: responseHeaders },
     )
-    .limit(1)
-  if (!source) return failure("NOT_FOUND", "书籍已变更，请重新打开", 404)
   try {
-    const document = await buildReaderDocument(
-      source.bytes,
+    const document = await cachedReaderDocument(
+      parsed.data,
+      book.revision,
       book.format,
-      `/api/library/${parsed.data}/resource`,
+      async () => {
+        const [source] = await db
+          .select({ bytes: libraryBooks.bytes })
+          .from(libraryBooks)
+          .where(
+            and(
+              eq(libraryBooks.id, parsed.data),
+              eq(libraryBooks.contentRevision, book.revision),
+              isNull(libraryBooks.deletedAt),
+              actor.role === "ADMIN"
+                ? undefined
+                : eq(libraryBooks.enabled, true),
+            ),
+          )
+          .limit(1)
+        if (!source) throw new ReaderSourceChangedError()
+        return source.bytes
+      },
     )
-    return success({ ...document, ...identity })
+    return success({ ...document, ...identity }, { headers: responseHeaders })
   } catch (error) {
+    if (error instanceof ReaderSourceChangedError)
+      return failure("NOT_FOUND", "书籍已变更，请重新打开", 404)
     return failure(
       "VALIDATION_ERROR",
       error instanceof Error ? error.message : "无法解析阅读文档",

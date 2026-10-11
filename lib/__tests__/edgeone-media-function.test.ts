@@ -8,12 +8,12 @@ const source = readFileSync(
   "utf8",
 )
 
-function runtime(kind: "chat" | "book" | "resource" = "chat") {
+function runtime(kind: "chat" | "book" | "resource" | "document" = "chat") {
   const id = randomUUID()
   const pathname =
     kind === "chat"
       ? `/api/chat/messages/${id}/image`
-      : `/api/library/${id}/${kind === "book" ? "file" : "resource"}`
+      : `/api/library/${id}/${kind === "book" ? "file" : kind}`
   const path = pathname + (kind === "resource" ? "?path=OPS%2Fa.png" : "")
   const entries = new Map<string, Response>()
   const cachedKeys: string[] = []
@@ -23,7 +23,14 @@ function runtime(kind: "chat" | "book" | "resource" = "chat") {
   let cacheable = true
   let originalStatus = 200
   let contentRevision: string | null = null
-  let contentType = kind === "book" ? "application/pdf" : "image/png"
+  let contentType =
+    kind === "book"
+      ? "application/pdf"
+      : kind === "document"
+        ? "application/json"
+        : "image/png"
+  let currentReaderKey = "111111111111111111111111"
+  let personalSource = false
   const fetch = vi.fn(async (input: Request | string, init?: RequestInit) => {
     const url = new URL(typeof input === "string" ? input : input.url)
     if (url.pathname === "/api/media/authorize") {
@@ -40,6 +47,12 @@ function runtime(kind: "chat" | "book" | "resource" = "chat") {
             permit: "signed-origin-permit",
             cacheable,
             target,
+            ...(kind === "document"
+              ? {
+                  readerKey: currentReaderKey,
+                  readerSchema: "reader-schema-3-v1",
+                }
+              : {}),
             ...(kind === "resource"
               ? {
                   resourceKey: createHash("sha256")
@@ -54,14 +67,28 @@ function runtime(kind: "chat" | "book" | "resource" = "chat") {
       expect(new Headers(init?.headers).get("x-custodysim-media-permit")).toBe(
         "signed-origin-permit",
       )
-      return new Response("picture-bytes", {
-        headers: {
-          "Content-Type": contentType,
-          "Cache-Control": "private, no-store",
-          "Set-Cookie": "must-not-be-stored",
-          "X-CustodySim-Media-Revision": contentRevision ?? version,
+      return new Response(
+        kind === "document"
+          ? JSON.stringify({
+              success: true,
+              data: {
+                version: 1,
+                revision: version,
+                pages: 1,
+                chapters: [{ html: "<p>共享正文</p>" }],
+                ...(personalSource ? { readerKey: currentReaderKey } : {}),
+              },
+            })
+          : "picture-bytes",
+        {
+          headers: {
+            "Content-Type": contentType,
+            "Cache-Control": "private, no-store",
+            "Set-Cookie": "must-not-be-stored",
+            "X-CustodySim-Media-Revision": contentRevision ?? version,
+          },
         },
-      })
+      )
     }
     if (url.pathname === pathname)
       return new Response("original", { status: originalStatus })
@@ -128,6 +155,12 @@ function runtime(kind: "chat" | "book" | "resource" = "chat") {
     original: (status: number) => {
       originalStatus = status
     },
+    readerKey: (next: string) => {
+      currentReaderKey = next
+    },
+    personalSource: () => {
+      personalSource = true
+    },
     async request(method = "GET", target = path, waitForCache = true) {
       const pending: Promise<unknown>[] = []
       let response: Promise<Response> | undefined
@@ -155,6 +188,45 @@ function runtime(kind: "chat" | "book" | "resource" = "chat") {
     },
   }
 }
+
+test("document hits reuse only shared content and reconstruct each user's identity", async () => {
+  const app = runtime("document")
+  const first = await app.request()
+  expect(first.headers.get("X-CustodySim-Media-Cache")).toBe("MISS")
+  expect((await first.json()).data.readerKey).toBe("111111111111111111111111")
+  const stored = await app.cache.match(app.cachedKeys[0])
+  expect(JSON.stringify(await stored!.json())).not.toContain("readerKey")
+  app.readerKey("222222222222222222222222")
+  const hit = await app.request()
+  expect(hit.headers.get("X-CustodySim-Media-Cache")).toBe("HIT")
+  const payload = await hit.json()
+  expect(payload.data.readerKey).toBe("222222222222222222222222")
+  expect(payload.data.chapters[0].html).toBe("<p>共享正文</p>")
+  expect(app.cache.put).toHaveBeenCalledTimes(1)
+  expect(
+    app.fetch.mock.calls.filter(([url]) => String(url).includes("/content")),
+  ).toHaveLength(1)
+  expect(app.cachedKeys[0]).not.toContain("111111")
+  expect(await (await app.request("HEAD")).text()).toBe("")
+  app.revise("abcdef0123456789abcdef01")
+  expect((await app.request()).headers.get("X-CustodySim-Media-Cache")).toBe(
+    "MISS",
+  )
+  app.authorize(404)
+  expect((await app.request()).status).toBe(404)
+})
+
+test("metadata bypasses document caching and personalized origin bodies are rejected", async () => {
+  const app = runtime("document")
+  expect(
+    await (await app.request("GET", `${app.path}?metadata=1`)).text(),
+  ).toBe("original")
+  expect(app.fetch).toHaveBeenCalledTimes(1)
+  expect(app.cache.match).not.toHaveBeenCalled()
+  app.personalSource()
+  expect((await app.request()).status).toBe(503)
+  expect(app.cache.put).not.toHaveBeenCalled()
+})
 
 test("second image request checks live authorization but does not fetch picture bytes again", async () => {
   const app = runtime()

@@ -3,6 +3,7 @@ import { edgeMediaEnabled, signMediaPermit } from "@/lib/edgeone-media"
 import { getMediaRevision } from "@/lib/edgeone-media-access"
 import { parseCachedMedia } from "@/lib/media-cache-path"
 import { getSessionUser } from "@/lib/session"
+import { readerKey, READER_CACHE_SCHEMA } from "@/lib/reader-identity"
 
 const headers = {
   "Cache-Control": "private, no-store",
@@ -27,6 +28,12 @@ export async function GET(request: Request) {
         id: media.id,
         revision,
         target: media.target,
+        ...(media.kind === "document"
+          ? {
+              readerKey: readerKey(actor.id, media.id),
+              readerSchema: READER_CACHE_SCHEMA,
+            }
+          : {}),
         ...(media.kind === "resource"
           ? {
               resourceKey: createHash("sha256")

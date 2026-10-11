@@ -10,7 +10,39 @@ const MEDIA_PATHS = [
   ["community", new RegExp(`^/api/community/images/(${UUID})$`)],
   ["book", new RegExp(`^/api/library/(${UUID})/file$`)],
   ["resource", new RegExp(`^/api/library/(${UUID})/resource$`)],
+  ["document", new RegExp(`^/api/library/(${UUID})/document$`)],
 ]
+
+// Keep this in sync with lib/reader-identity.ts. Bump when the shared render contract changes.
+const READER_CACHE_SCHEMA = "reader-schema-3-v1"
+
+async function readerResponse(source, grant, method) {
+  const payload = await source.json()
+  if (
+    payload.success !== true ||
+    !payload.data ||
+    payload.data.revision !== grant.revision ||
+    payload.data.version !== 1 ||
+    Object.hasOwn(payload.data, "readerKey")
+  )
+    throw new Error("Invalid shared reader snapshot")
+  const headers = new Headers(source.headers)
+  // The personalized JSON has a different length/encoding from the shared stored copy.
+  headers.delete("Content-Length")
+  headers.delete("Content-Encoding")
+  headers.delete("ETag")
+  headers.set("Content-Type", "application/json; charset=utf-8")
+  return privateResponse(
+    method === "HEAD"
+      ? null
+      : JSON.stringify({
+          success: true,
+          data: { ...payload.data, readerKey: grant.readerKey },
+        }),
+    200,
+    headers,
+  )
+}
 
 function privateResponse(body, status, headers) {
   const result = new Headers(headers)
@@ -51,12 +83,27 @@ async function handleMediaRequest(event) {
   if (!match) return privateResponse(null, 404)
   if (!["GET", "HEAD"].includes(request.method))
     return privateResponse(null, 405)
-  const bookMedia = match[0] === "book" || match[0] === "resource"
+  const documentMedia = match[0] === "document"
+  const bookMedia =
+    match[0] === "book" || match[0] === "resource" || documentMedia
   const resourceTarget =
     match[0] === "resource"
       ? `${url.pathname}?path=${encodeURIComponent(url.searchParams.get("path") || "")}`
       : url.pathname
   try {
+    // Metadata remains small, private and live; old App disk-cache checks must not enter shared storage.
+    if (
+      documentMedia &&
+      url.searchParams.get("metadata") === "1" &&
+      [...url.searchParams].length === 1
+    ) {
+      const source = await fetch(request, { redirect: "manual" })
+      return privateResponse(
+        request.method === "HEAD" ? null : source.body,
+        source.status,
+        source.headers,
+      )
+    }
     const headers = credentials(request)
     const authorizeUrl = new URL("/api/media/authorize", url.origin)
     authorizeUrl.searchParams.set("target", url.pathname + url.search)
@@ -94,6 +141,9 @@ async function handleMediaRequest(event) {
       grant.permit.length > 8000 ||
       typeof grant.cacheable !== "boolean" ||
       (bookMedia && grant.target !== resourceTarget) ||
+      (documentMedia &&
+        (grant.readerSchema !== READER_CACHE_SCHEMA ||
+          !/^[0-9a-f]{24}$/.test(grant.readerKey || ""))) ||
       (match[0] === "resource" &&
         !/^[0-9a-f]{64}$/.test(grant.resourceKey || ""))
     )
@@ -103,7 +153,7 @@ async function handleMediaRequest(event) {
     // The authoritative cover revision comes from the database, not the caller's ?v= parameter.
     // Cache API keys are identifiers, not fetches. Use a neutral URL because EdgeOne rejects
     // Cache API operations under its reserved /__custodysim_media_cache/ path.
-    const key = `${url.origin}/__custodysim_cache_probe_data/v1/${grant.kind}/${grant.id}/${grant.revision}${match[0] === "resource" ? `/${grant.resourceKey}` : ""}`
+    const key = `${url.origin}/__custodysim_cache_probe_data/v1/${grant.kind}/${grant.id}/${grant.revision}${match[0] === "resource" ? `/${grant.resourceKey}` : documentMedia ? `/${READER_CACHE_SCHEMA}` : ""}`
     // A named namespace is isolated from normal/default URL caching. Only this function ever
     // reads or writes the key; clients cannot retrieve it by requesting the URL directly.
     const cache = await caches.open("custodysim-private-media-v1")
@@ -118,11 +168,13 @@ async function handleMediaRequest(event) {
       }
     }
     if (cached) {
-      const result = privateResponse(
-        request.method === "HEAD" ? null : cached.body,
-        200,
-        cached.headers,
-      )
+      const result = documentMedia
+        ? await readerResponse(cached, grant, request.method)
+        : privateResponse(
+            request.method === "HEAD" ? null : cached.body,
+            200,
+            cached.headers,
+          )
       result.headers.set("X-CustodySim-Media-Cache", "HIT")
       result.headers.set("X-CustodySim-Media-Cache-Read", "HIT")
       result.headers.set("X-CustodySim-Media-Cache-Write", "NOT-NEEDED")
@@ -151,8 +203,9 @@ async function handleMediaRequest(event) {
       .toLowerCase()
     let writeState = grant.cacheable ? "SKIP-TYPE" : "SKIP-LEGACY"
     let writeError
-    const allowedType =
-      match[0] === "book"
+    const allowedType = documentMedia
+      ? contentType === "application/json"
+      : match[0] === "book"
         ? [
             "application/pdf",
             "text/plain",
@@ -162,6 +215,10 @@ async function handleMediaRequest(event) {
         : match[0] === "resource"
           ? /^image\/(png|jpeg|gif|webp|svg\+xml)$/.test(contentType)
           : /^image\/(png|jpeg|webp)$/.test(contentType)
+    // Validate common JSON before it enters the shared cache; return only the current user's identity.
+    const personalized = documentMedia
+      ? await readerResponse(source.clone(), grant, request.method)
+      : null
     if (grant.cacheable && allowedType) {
       const storageHeaders = new Headers({
         "Content-Type": source.headers.get("Content-Type"),
@@ -202,7 +259,10 @@ async function handleMediaRequest(event) {
           return { state: "ERROR", error: status }
         }
       }
-      if (match[0] === "book" && typeof event.waitUntil === "function") {
+      if (
+        (match[0] === "book" || documentMedia) &&
+        typeof event.waitUntil === "function"
+      ) {
         // Stream large books immediately; waitUntil keeps the cache write alive after delivery.
         event.waitUntil(store())
         writeState = "PENDING"
@@ -212,11 +272,13 @@ async function handleMediaRequest(event) {
         writeError = stored.error
       }
     }
-    const result = privateResponse(
-      request.method === "HEAD" ? null : source.body,
-      200,
-      source.headers,
-    )
+    const result =
+      personalized ||
+      privateResponse(
+        request.method === "HEAD" ? null : source.body,
+        200,
+        source.headers,
+      )
     if (match[0] === "resource")
       result.headers.set(
         "Content-Security-Policy",

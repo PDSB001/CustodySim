@@ -5,10 +5,11 @@ const paths = [
   ["community", new RegExp(`^/api/community/images/(${uuid})$`)],
   ["book", new RegExp(`^/api/library/(${uuid})/file$`)],
   ["resource", new RegExp(`^/api/library/(${uuid})/resource$`)],
+  ["document", new RegExp(`^/api/library/(${uuid})/document$`)],
 ] as const
 
 export type CachedMedia = {
-  kind: "chat" | "cover" | "community" | "book" | "resource"
+  kind: "chat" | "cover" | "community" | "book" | "resource" | "document"
   id: string
   pathname: string
   target: string

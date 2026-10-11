@@ -33,7 +33,11 @@ export async function getMediaRevision(actor: SessionUser, media: CachedMedia) {
       .limit(1)
     return row ? "0" : null
   }
-  if (media.kind === "book" || media.kind === "resource") {
+  if (
+    media.kind === "book" ||
+    media.kind === "resource" ||
+    media.kind === "document"
+  ) {
     const [row] = await db
       .select({
         revision: libraryBooks.contentRevision,
