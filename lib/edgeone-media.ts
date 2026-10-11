@@ -8,8 +8,8 @@ const PERMIT_TTL_SECONDS = 30
 const PermitSchema = z.object({
   purpose: z.literal("edgeone-media-origin-v1"),
   userId: z.string().uuid(),
-  target: z.string().max(200),
-  revision: z.string().regex(/^(?:0|legacy|\d{13,16})$/),
+  target: z.string().max(4096),
+  revision: z.string().regex(/^(?:0|legacy|\d{13,16}|[0-9a-f]{24})$/),
   expiresAt: z.number().int(),
 })
 export type MediaPermit = z.infer<typeof PermitSchema>
@@ -44,7 +44,7 @@ export function signMediaPermit(
       PermitSchema.parse({
         purpose: "edgeone-media-origin-v1",
         userId,
-        target: media.pathname,
+        target: media.target,
         revision,
         expiresAt: Math.floor(now / 1000) + PERMIT_TTL_SECONDS,
       }),
@@ -57,7 +57,7 @@ export function verifyMediaPermit(
   token: string,
   now = Date.now(),
 ): MediaPermit | null {
-  if (!edgeMediaEnabled() || token.length > 1000) return null
+  if (!edgeMediaEnabled() || token.length > 8000) return null
   const parts = token.split(".")
   if (
     parts.length !== 2 ||
@@ -78,7 +78,7 @@ export function verifyMediaPermit(
       !result.success ||
       result.data.expiresAt <= seconds ||
       result.data.expiresAt > seconds + PERMIT_TTL_SECONDS ||
-      !parseCachedMedia(result.data.target)
+      parseCachedMedia(result.data.target)?.target !== result.data.target
     )
       return null
     return result.data

@@ -36,6 +36,7 @@ try {
     "20261004-library.up.sql",
     "20261004-library-reading.up.sql",
     "20261004-library-management.up.sql",
+    "20261011-library-cache.up.sql",
   ]
   for (const filename of migrationFiles) {
     const path = fileURLToPath(
@@ -74,6 +75,7 @@ try {
     ["library_books", "cover_mime"],
     ["library_books", "cover_updated_at"],
     ["library_books", "deleted_at"],
+    ["library_books", "content_revision"],
     ["rules", "reading_minutes"],
     ["report_templates", "reading_minutes"],
   ]
@@ -96,6 +98,13 @@ try {
         .map((row) => `${row.table_name}.${row.column_name}`)
         .join(", ")}`,
     )
+  const { rows: revisions } = await client.query(
+    `SELECT is_generated FROM information_schema.columns
+     WHERE table_schema = 'public' AND table_name = 'library_books'
+       AND column_name = 'content_revision'`,
+  )
+  if (revisions[0]?.is_generated !== "ALWAYS")
+    throw new Error("library_books.content_revision 必须是存储生成列")
   console.log("图书馆表结构校验通过")
 } finally {
   if (locked)

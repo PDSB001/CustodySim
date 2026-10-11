@@ -33,6 +33,24 @@ export async function getMediaRevision(actor: SessionUser, media: CachedMedia) {
       .limit(1)
     return row ? "0" : null
   }
+  if (media.kind === "book" || media.kind === "resource") {
+    const [row] = await db
+      .select({
+        revision: libraryBooks.contentRevision,
+        enabled: libraryBooks.enabled,
+        format: libraryBooks.format,
+      })
+      .from(libraryBooks)
+      .where(and(eq(libraryBooks.id, media.id), isNull(libraryBooks.deletedAt)))
+      .limit(1)
+    if (
+      !row ||
+      (!row.enabled && actor.role !== "ADMIN") ||
+      (media.kind === "resource" && row.format !== "EPUB")
+    )
+      return null
+    return row.revision
+  }
   const [row] = await db
     .select({
       enabled: libraryBooks.enabled,

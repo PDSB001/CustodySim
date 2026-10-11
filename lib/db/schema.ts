@@ -14,6 +14,7 @@ import {
   uuid,
   varchar,
 } from "drizzle-orm/pg-core"
+import { sql } from "drizzle-orm"
 
 const bookBytes = customType<{ data: Buffer; driverData: Buffer }>({
   dataType: () => "bytea",
@@ -27,6 +28,13 @@ export const libraryBooks = pgTable("library_books", {
   filename: text("filename").notNull(),
   readerText: text("reader_text"),
   bytes: bookBytes("bytes").notNull(),
+  // Preserve the reader-schema-3 wire revision. PostgreSQL recomputes only on writes,
+  // so metadata/cache-hit authorization never needs to select the book blob.
+  contentRevision: varchar("content_revision", { length: 24 })
+    .notNull()
+    .generatedAlwaysAs(
+      sql`substr(encode(sha256(decode('7265616465722d736368656d612d333a', 'hex') || bytes), 'hex'), 1, 24)`,
+    ),
   coverBytes: bookBytes("cover_bytes"),
   coverMime: varchar("cover_mime", { length: 40 }),
   coverUpdatedAt: timestamp("cover_updated_at", { withTimezone: true }),

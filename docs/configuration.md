@@ -34,7 +34,7 @@
 
 实时服务的 `/health` 在 PostgreSQL `LISTEN` 就绪时返回 `200` 和 `{"ok":true}`；连接未建立或断开时返回 `503` 和 `{"ok":false}`。断开后每 5 秒安排一次重连，失败事件不会创建重复监听。
 
-EdgeOne 图片共享缓存为可选功能，默认关闭。设置 `EDGEONE_MEDIA_CACHE_ENABLED=true` 并提供独立的 `EDGEONE_MEDIA_SIGNING_KEY`（至少 32 字符，不能复用 AUTH_SECRET）后，按[图片缓存部署说明](./edgeone-media-cache.md)配置边缘函数。每次图片请求先校验当前登录与资源权限，节点只缓存图片字节；保留旧图片 URL 与 App 兼容。仅设置环境变量不会自动在 EdgeOne 创建规则或函数。
+EdgeOne 图片与书籍共享缓存为可选功能，默认关闭。设置 `EDGEONE_MEDIA_CACHE_ENABLED=true` 并提供独立的 `EDGEONE_MEDIA_SIGNING_KEY`（至少 32 字符，不能复用 AUTH_SECRET）后，按[缓存部署说明](./edgeone-media-cache.md)配置边缘函数。每次请求先校验当前登录与资源权限，节点只缓存图片/书籍原文件/EPUB 插图字节；保留原 URL 与 App 兼容。书籍内容版本生成列由现有部署脚本增量升级，升级不改变阅读缓存版本算法。仅设置环境变量不会自动在 EdgeOne 创建规则或函数。
 
 实时通道使用 Engine.IO 心跳：服务端每 20 秒发送文本帧 `2`，Web 和现有 Android 客户端回应 `3`；10 秒没有回应则断开。心跳在没有聊天消息时也会收发，可避免 CDN 的 300 秒空闲超时。Nginx 的读写超时保留 120 秒，大于心跳周期与回应期限之和。CDN 需允许 WebSocket 升级，并让 `/socket.io/` 绕过缓存。
 

@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs"
-import { randomUUID } from "node:crypto"
+import { createHash, randomUUID } from "node:crypto"
 import { runInNewContext } from "node:vm"
 import { expect, test, vi } from "vitest"
 
@@ -8,31 +8,45 @@ const source = readFileSync(
   "utf8",
 )
 
-function runtime() {
+function runtime(kind: "chat" | "book" | "resource" = "chat") {
   const id = randomUUID()
-  const path = `/api/chat/messages/${id}/image`
+  const pathname =
+    kind === "chat"
+      ? `/api/chat/messages/${id}/image`
+      : `/api/library/${id}/${kind === "book" ? "file" : "resource"}`
+  const path = pathname + (kind === "resource" ? "?path=OPS%2Fa.png" : "")
   const entries = new Map<string, Response>()
   const cachedKeys: string[] = []
+  const background: Promise<unknown>[] = []
   let authStatus = 200
-  let version = "0"
+  let version = kind === "chat" ? "0" : "0123456789abcdef01234567"
   let cacheable = true
   let originalStatus = 200
   let contentRevision: string | null = null
-  let contentType = "image/png"
+  let contentType = kind === "book" ? "application/pdf" : "image/png"
   const fetch = vi.fn(async (input: Request | string, init?: RequestInit) => {
     const url = new URL(typeof input === "string" ? input : input.url)
     if (url.pathname === "/api/media/authorize") {
-      expect(url.searchParams.get("target")).toBe(path)
+      const target = url.searchParams.get("target")!
+      expect(new URL(target, "https://site.test").pathname).toBe(pathname)
       expect(new Headers(init?.headers).get("authorization")).toBe(
         "Bearer user-token",
       )
       return authStatus === 200
         ? Response.json({
-            kind: "chat",
+            kind,
             id,
             revision: version,
             permit: "signed-origin-permit",
             cacheable,
+            target,
+            ...(kind === "resource"
+              ? {
+                  resourceKey: createHash("sha256")
+                    .update(target)
+                    .digest("hex"),
+                }
+              : {}),
           })
         : new Response(null, { status: authStatus })
     }
@@ -49,7 +63,7 @@ function runtime() {
         },
       })
     }
-    if (url.pathname === path)
+    if (url.pathname === pathname)
       return new Response("original", { status: originalStatus })
     throw new Error("Unexpected fetch target")
   })
@@ -60,7 +74,7 @@ function runtime() {
     put: vi.fn(async (key: Request | string, response: Response) => {
       expect(typeof key).toBe("string")
       expect(response.headers.get("Cache-Control")).toBe(
-        "public, max-age=86400",
+        `public, max-age=${kind === "chat" ? 86400 : 604800}`,
       )
       expect(response.headers.has("set-cookie")).toBe(false)
       expect(response.headers.has("vary")).toBe(false)
@@ -94,6 +108,8 @@ function runtime() {
     cache,
     warn,
     cachedKeys,
+    path,
+    settle: () => Promise.all(background),
     authorize: (status: number) => {
       authStatus = status
     },
@@ -112,7 +128,7 @@ function runtime() {
     original: (status: number) => {
       originalStatus = status
     },
-    async request(method = "GET", target = path) {
+    async request(method = "GET", target = path, waitForCache = true) {
       const pending: Promise<unknown>[] = []
       let response: Promise<Response> | undefined
       listener({
@@ -127,13 +143,14 @@ function runtime() {
         }),
         waitUntil: (job: Promise<unknown>) => {
           pending.push(job)
+          background.push(job)
         },
         respondWith: (job: Promise<Response>) => {
           response = job
         },
       })
       const result = await response!
-      await Promise.all(pending)
+      if (waitForCache) await Promise.all(pending)
       return result
     },
   }
@@ -161,6 +178,63 @@ test("second image request checks live authorization but does not fetch picture 
     (await app.request("GET", new URL(app.cachedKeys[0]).pathname)).status,
   ).toBe(404)
   expect(app.cache.match).toHaveBeenCalledTimes(3)
+})
+
+test("book downloads stream before cache writes finish and check auth on every hit", async () => {
+  const app = runtime("book")
+  const put = app.cache.put.getMockImplementation()!
+  let release!: () => void
+  const gate = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  app.cache.put.mockImplementationOnce(async (key, response) => {
+    await gate
+    return put(key, response)
+  })
+  const miss = await app.request("GET", app.path, false)
+  expect(miss.headers.get("X-CustodySim-Media-Cache-Write")).toBe("PENDING")
+  expect(await miss.text()).toBe("picture-bytes")
+  release()
+  await app.settle()
+  const hit = await app.request()
+  expect(hit.headers.get("X-CustodySim-Media-Cache")).toBe("HIT")
+  expect(hit.headers.get("Cache-Control")).toBe("private, no-store")
+  app.authorize(404)
+  expect((await app.request()).status).toBe(404)
+  expect(app.cache.put).toHaveBeenCalledTimes(1)
+})
+
+test("EPUB resources use separate keys per archive path and keep SVG sandboxing on hits", async () => {
+  const app = runtime("resource")
+  app.contentType("image/svg+xml")
+  for (const target of [app.path, app.path.replace("a.png", "b.png")]) {
+    const miss = await app.request("GET", target)
+    expect(miss.headers.get("Content-Security-Policy")).toBe(
+      "default-src 'none'; sandbox",
+    )
+    const hit = await app.request("GET", target)
+    expect(hit.headers.get("X-CustodySim-Media-Cache")).toBe("HIT")
+    expect(hit.headers.get("Content-Security-Policy")).toBe(
+      "default-src 'none'; sandbox",
+    )
+  }
+  expect(new Set(app.cachedKeys).size).toBe(2)
+  app.revise("abcdef0123456789abcdef01")
+  expect((await app.request()).headers.get("X-CustodySim-Media-Cache")).toBe(
+    "MISS",
+  )
+  expect(new Set(app.cachedKeys).size).toBe(3)
+})
+
+test("book cache rejects unexpected MIME types and origin revision mismatches", async () => {
+  const app = runtime("book")
+  app.contentType("text/html")
+  expect(
+    (await app.request()).headers.get("X-CustodySim-Media-Cache-Write"),
+  ).toBe("SKIP-TYPE")
+  expect(app.cache.put).not.toHaveBeenCalled()
+  app.mismatch()
+  expect((await app.request()).status).toBe(503)
 })
 
 test("withdrawn, deleted, logged-out and failed auth requests never access a populated cache", async () => {

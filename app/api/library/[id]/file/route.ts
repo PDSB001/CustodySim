@@ -17,7 +17,13 @@ export async function GET(
     .safeParse((await context.params).id)
   if (!id.success) return failure("VALIDATION_ERROR", "参数不合法", 400)
   const [book] = await db
-    .select({ bytes: libraryBooks.bytes, format: libraryBooks.format, enabled: libraryBooks.enabled, deletedAt: libraryBooks.deletedAt })
+    .select({
+      bytes: libraryBooks.bytes,
+      revision: libraryBooks.contentRevision,
+      format: libraryBooks.format,
+      enabled: libraryBooks.enabled,
+      deletedAt: libraryBooks.deletedAt,
+    })
     .from(libraryBooks)
     .where(eq(libraryBooks.id, id.data))
     .limit(1)
@@ -36,6 +42,7 @@ export async function GET(
         )[book.format] ?? "application/octet-stream",
       "Content-Length": String(book.bytes.length),
       "Cache-Control": "private, no-store",
+      "X-CustodySim-Book-Revision": book.revision,
       "X-Content-Type-Options": "nosniff",
     },
   })

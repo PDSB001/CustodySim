@@ -1,5 +1,7 @@
 import { GET as chatImage } from "@/app/api/chat/messages/[id]/image/route"
 import { GET as bookCover } from "@/app/api/library/[id]/cover/route"
+import { GET as bookFile } from "@/app/api/library/[id]/file/route"
+import { GET as bookResource } from "@/app/api/library/[id]/resource/route"
 import { communityImage } from "@/lib/community-server"
 import { MEDIA_PERMIT_HEADER, verifyMediaPermit } from "@/lib/edgeone-media"
 import { getMediaRevision } from "@/lib/edgeone-media-access"
@@ -26,16 +28,25 @@ export async function GET(request: Request) {
     if (revision === null || revision !== permit.revision)
       return new Response(null, { status: 404, headers: noStore })
     const context = { params: Promise.resolve({ id: media.id }) }
+    const resourceRequest = new Request(new URL(media.target, request.url), {
+      headers: request.headers,
+    })
     const response =
       media.kind === "chat"
         ? await chatImage(request, context)
         : media.kind === "cover"
           ? await bookCover(request, context)
-          : await communityImage(media.id)
+          : media.kind === "book"
+            ? await bookFile(resourceRequest, context)
+            : media.kind === "resource"
+              ? await bookResource(resourceRequest, context)
+              : await communityImage(media.id)
     if (
       response.status === 200 &&
       revision !== "legacy" &&
-      (await getMediaRevision(actor, media)) !== revision
+      ((await getMediaRevision(actor, media)) !== revision ||
+        ((media.kind === "book" || media.kind === "resource") &&
+          response.headers.get("X-CustodySim-Book-Revision") !== revision))
     ) {
       await response.body?.cancel()
       return new Response(null, { status: 404, headers: noStore })

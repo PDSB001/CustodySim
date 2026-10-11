@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto"
-import { eq } from "drizzle-orm"
+import { and, eq, isNull } from "drizzle-orm"
 import { z } from "zod"
 import { db } from "@/lib/db"
 import { libraryBooks } from "@/lib/db/schema"
@@ -20,7 +20,7 @@ export async function GET(
   if (!parsed.success) return failure("VALIDATION_ERROR", "参数不合法", 400)
   const [book] = await db
     .select({
-      bytes: libraryBooks.bytes,
+      revision: libraryBooks.contentRevision,
       format: libraryBooks.format,
       enabled: libraryBooks.enabled,
       deletedAt: libraryBooks.deletedAt,
@@ -31,11 +31,7 @@ export async function GET(
     return failure("NOT_FOUND", "书籍不存在或已下架", 404)
   const identity = {
     renderMetadataVersion: 1,
-    revision: createHash("sha256")
-      .update("reader-schema-3:")
-      .update(book.bytes)
-      .digest("hex")
-      .slice(0, 24),
+    revision: book.revision,
     readerKey: createHash("sha256")
       .update(`${actor.id}:${parsed.data}`)
       .digest("hex")
@@ -45,9 +41,22 @@ export async function GET(
     return success({ format: book.format, readerSchema: 3, ...identity })
   if (book.format === "PDF")
     return success({ version: 1, format: "PDF", ...identity })
+  const [source] = await db
+    .select({ bytes: libraryBooks.bytes })
+    .from(libraryBooks)
+    .where(
+      and(
+        eq(libraryBooks.id, parsed.data),
+        eq(libraryBooks.contentRevision, book.revision),
+        isNull(libraryBooks.deletedAt),
+        actor.role === "ADMIN" ? undefined : eq(libraryBooks.enabled, true),
+      ),
+    )
+    .limit(1)
+  if (!source) return failure("NOT_FOUND", "书籍已变更，请重新打开", 404)
   try {
     const document = await buildReaderDocument(
-      book.bytes,
+      source.bytes,
       book.format,
       `/api/library/${parsed.data}/resource`,
     )

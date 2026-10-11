@@ -22,6 +22,7 @@ export async function GET(
   const [book] = await db
     .select({
       bytes: libraryBooks.bytes,
+      revision: libraryBooks.contentRevision,
       format: libraryBooks.format,
       enabled: libraryBooks.enabled,
       deletedAt: libraryBooks.deletedAt,
@@ -42,6 +43,7 @@ export async function GET(
       headers: {
         "Content-Type": resource.mime,
         "Cache-Control": "private, no-store",
+        "X-CustodySim-Book-Revision": book.revision,
         "X-Content-Type-Options": "nosniff",
         "Content-Security-Policy": "default-src 'none'; sandbox",
       },

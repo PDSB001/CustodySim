@@ -1,17 +1,20 @@
 // Deploy as an EdgeOne Edge Function (not EdgeOne Pages middleware).
-// Trigger only the three image paths documented in docs/edgeone-media-cache.md.
+// Trigger only the image/book/resource paths documented in docs/edgeone-media-cache.md.
 // No secret belongs in this file. Signed origin permits are obtained after live authorization.
 const CACHE_TTL_SECONDS = 86400
+const BOOK_CACHE_TTL_SECONDS = 604800
 const UUID = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
-const IMAGE_PATHS = [
+const MEDIA_PATHS = [
   ["chat", new RegExp(`^/api/chat/messages/(${UUID})/image$`)],
   ["cover", new RegExp(`^/api/library/(${UUID})/cover$`)],
   ["community", new RegExp(`^/api/community/images/(${UUID})$`)],
+  ["book", new RegExp(`^/api/library/(${UUID})/file$`)],
+  ["resource", new RegExp(`^/api/library/(${UUID})/resource$`)],
 ]
 
 function privateResponse(body, status, headers) {
   const result = new Headers(headers)
-  // Every client request must pass the function again, even if the picture bytes are cached.
+  // Every client request must pass the function again, even if the resource bytes are cached.
   result.set("Cache-Control", "private, no-store")
   result.set("Vary", "Cookie, Authorization")
   result.set("X-Content-Type-Options", "nosniff")
@@ -41,13 +44,18 @@ function cacheErrorStatus(error) {
 async function handleMediaRequest(event) {
   const request = event.request
   const url = new URL(request.url)
-  const match = IMAGE_PATHS.map(([kind, pattern]) => [
+  const match = MEDIA_PATHS.map(([kind, pattern]) => [
     kind,
     pattern.exec(url.pathname),
   ]).find(([, result]) => result)
   if (!match) return privateResponse(null, 404)
   if (!["GET", "HEAD"].includes(request.method))
     return privateResponse(null, 405)
+  const bookMedia = match[0] === "book" || match[0] === "resource"
+  const resourceTarget =
+    match[0] === "resource"
+      ? `${url.pathname}?path=${encodeURIComponent(url.searchParams.get("path") || "")}`
+      : url.pathname
   try {
     const headers = credentials(request)
     const authorizeUrl = new URL("/api/media/authorize", url.origin)
@@ -79,10 +87,15 @@ async function handleMediaRequest(event) {
       grant.kind !== match[0] ||
       grant.id !== match[1][1] ||
       typeof grant.revision !== "string" ||
-      !/^(?:0|legacy|\d{13,16})$/.test(grant.revision) ||
+      !(bookMedia ? /^[0-9a-f]{24}$/ : /^(?:0|legacy|\d{13,16})$/).test(
+        grant.revision,
+      ) ||
       typeof grant.permit !== "string" ||
-      grant.permit.length > 1000 ||
-      typeof grant.cacheable !== "boolean"
+      grant.permit.length > 8000 ||
+      typeof grant.cacheable !== "boolean" ||
+      (bookMedia && grant.target !== resourceTarget) ||
+      (match[0] === "resource" &&
+        !/^[0-9a-f]{64}$/.test(grant.resourceKey || ""))
     )
       return privateResponse(null, 503)
 
@@ -90,7 +103,7 @@ async function handleMediaRequest(event) {
     // The authoritative cover revision comes from the database, not the caller's ?v= parameter.
     // Cache API keys are identifiers, not fetches. Use a neutral URL because EdgeOne rejects
     // Cache API operations under its reserved /__custodysim_media_cache/ path.
-    const key = `${url.origin}/__custodysim_cache_probe_data/v1/${grant.kind}/${grant.id}/${grant.revision}`
+    const key = `${url.origin}/__custodysim_cache_probe_data/v1/${grant.kind}/${grant.id}/${grant.revision}${match[0] === "resource" ? `/${grant.resourceKey}` : ""}`
     // A named namespace is isolated from normal/default URL caching. Only this function ever
     // reads or writes the key; clients cannot retrieve it by requesting the URL directly.
     const cache = await caches.open("custodysim-private-media-v1")
@@ -138,33 +151,65 @@ async function handleMediaRequest(event) {
       .toLowerCase()
     let writeState = grant.cacheable ? "SKIP-TYPE" : "SKIP-LEGACY"
     let writeError
-    if (grant.cacheable && /^image\/(png|jpeg|webp)$/.test(contentType)) {
+    const allowedType =
+      match[0] === "book"
+        ? [
+            "application/pdf",
+            "text/plain",
+            "application/epub+zip",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+          ].includes(contentType)
+        : match[0] === "resource"
+          ? /^image\/(png|jpeg|gif|webp|svg\+xml)$/.test(contentType)
+          : /^image\/(png|jpeg|webp)$/.test(contentType)
+    if (grant.cacheable && allowedType) {
       const storageHeaders = new Headers({
         "Content-Type": source.headers.get("Content-Type"),
-        "Cache-Control": `public, max-age=${CACHE_TTL_SECONDS}`,
+        "Cache-Control": `public, max-age=${bookMedia ? BOOK_CACHE_TTL_SECONDS : CACHE_TTL_SECONDS}`,
         "X-Content-Type-Options": "nosniff",
+        "X-CustodySim-Media-Revision": grant.revision,
       })
+      if (match[0] === "resource")
+        storageHeaders.set(
+          "Content-Security-Policy",
+          "default-src 'none'; sandbox",
+        )
+      const length = source.headers.get("Content-Length")
+      if (length && /^\d+$/.test(length))
+        storageHeaders.set("Content-Length", length)
       // Only this internal copy is cacheable. No Cookie, CSP nonce, credential or permit is stored.
       const storage = new Response(source.clone().body, {
         headers: storageHeaders,
       })
       // put() can resolve even when nothing was stored. Confirm the entry instead of
       // silently discarding write failures. This adds work only on cache misses.
-      try {
-        await cache.put(key, storage)
-        const stored = await cache.match(key)
-        writeState = stored?.status === 200 ? "STORED" : "NOT-STORED"
-        // A cloned stream's cancellation may wait for another reader; never block delivery on it.
-        void stored?.body?.cancel().catch(() => {})
-        if (writeState !== "STORED")
-          console.warn("[edgeone-media] cache write not retained")
-      } catch (error) {
-        writeState = "ERROR"
-        writeError = cacheErrorStatus(error)
-        console.warn(
-          "[edgeone-media] cache write/verification failed",
-          writeError,
-        )
+      const store = async () => {
+        try {
+          await cache.put(key, storage)
+          const stored = await cache.match(key)
+          const state = stored?.status === 200 ? "STORED" : "NOT-STORED"
+          // A cloned stream's cancellation may wait for another reader; never block delivery.
+          void stored?.body?.cancel().catch(() => {})
+          if (state !== "STORED")
+            console.warn("[edgeone-media] cache write not retained")
+          return { state }
+        } catch (error) {
+          const status = cacheErrorStatus(error)
+          console.warn(
+            "[edgeone-media] cache write/verification failed",
+            status,
+          )
+          return { state: "ERROR", error: status }
+        }
+      }
+      if (match[0] === "book" && typeof event.waitUntil === "function") {
+        // Stream large books immediately; waitUntil keeps the cache write alive after delivery.
+        event.waitUntil(store())
+        writeState = "PENDING"
+      } else {
+        const stored = await store()
+        writeState = stored.state
+        writeError = stored.error
       }
     }
     const result = privateResponse(
@@ -172,6 +217,11 @@ async function handleMediaRequest(event) {
       200,
       source.headers,
     )
+    if (match[0] === "resource")
+      result.headers.set(
+        "Content-Security-Policy",
+        "default-src 'none'; sandbox",
+      )
     result.headers.set("X-CustodySim-Media-Cache", "MISS")
     result.headers.set("X-CustodySim-Media-Cache-Read", readState)
     result.headers.set("X-CustodySim-Media-Cache-Write", writeState)

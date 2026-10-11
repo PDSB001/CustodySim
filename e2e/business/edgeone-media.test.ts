@@ -1,4 +1,5 @@
-import { randomUUID } from "node:crypto"
+import { createHash, randomUUID } from "node:crypto"
+import { strToU8, zipSync } from "fflate"
 import { afterAll, afterEach, beforeAll, expect, test, vi } from "vitest"
 import { eq, inArray, sql } from "drizzle-orm"
 import { db } from "@/lib/db"
@@ -9,6 +10,7 @@ import { MEDIA_PERMIT_HEADER } from "@/lib/edgeone-media"
 import { GET as authorize } from "@/app/api/media/authorize/route"
 import { GET as content } from "@/app/api/media/content/route"
 import { GET as originalCover } from "@/app/api/library/[id]/cover/route"
+import { GET as document } from "@/app/api/library/[id]/document/route"
 
 const auth = vi.hoisted(() => ({ bearer: null as string | null, cookie: "" }))
 vi.mock("next/headers", () => ({
@@ -52,15 +54,15 @@ async function as(
   auth.bearer = cookie ? null : `Bearer ${token}`
   auth.cookie = cookie ? token : ""
 }
-async function book() {
+async function book(bytes = Buffer.from("text"), format = "TXT") {
   const id = randomUUID()
   books.push(id)
   await db.insert(s.libraryBooks).values({
     id,
     title: "media",
     filename: "media.txt",
-    format: "TXT",
-    bytes: Buffer.from("text"),
+    format,
+    bytes,
     coverBytes: png,
     coverMime: "image/png",
     coverUpdatedAt: new Date(1_800_000_000_000),
@@ -107,6 +109,101 @@ beforeAll(async () => {
   alice = await account("SUPERVISED")
   outsider = await account("SUPERVISED")
   admin = await account("ADMIN")
+})
+
+test("stored book revisions preserve existing reader identities; metadata reads no blobs and replacements revoke permits", async () => {
+  enable()
+  await as(alice)
+  const id = await book()
+  const path = `/api/library/${id}/file`
+  const revision = (value: string) =>
+    createHash("sha256")
+      .update("reader-schema-3:")
+      .update(value)
+      .digest("hex")
+      .slice(0, 24)
+  const grant = await (await authorize(request(path))).json()
+  expect(grant.revision).toBe(revision("text"))
+  expect(await (await bytes(grant.permit)).text()).toBe("text")
+  const select = vi.spyOn(db, "select")
+  try {
+    const metadata = await document(
+      new Request("http://localhost/document?metadata=1"),
+      { params: Promise.resolve({ id }) },
+    )
+    expect((await metadata.json()).data.revision).toBe(grant.revision)
+    expect(
+      select.mock.calls.every(
+        ([fields]) =>
+          !fields || !Object.values(fields).includes(s.libraryBooks.bytes),
+      ),
+    ).toBe(true)
+  } finally {
+    select.mockRestore()
+  }
+  await db
+    .update(s.libraryBooks)
+    .set({ bytes: Buffer.from("replacement") })
+    .where(eq(s.libraryBooks.id, id))
+  expect((await bytes(grant.permit)).status).toBe(404)
+  const replaced = await (await authorize(request(path))).json()
+  expect(replaced.revision).toBe(revision("replacement"))
+  expect(await (await bytes(replaced.permit)).text()).toBe("replacement")
+  await db
+    .update(s.libraryBooks)
+    .set({ enabled: false })
+    .where(eq(s.libraryBooks.id, id))
+  expect((await authorize(request(path))).status).toBe(404)
+  expect((await bytes(replaced.permit)).status).toBe(404)
+  await as(admin, "ADMIN")
+  expect((await authorize(request(path))).status).toBe(200)
+  await db
+    .update(s.libraryBooks)
+    .set({ deletedAt: new Date() })
+    .where(eq(s.libraryBooks.id, id))
+  expect((await authorize(request(path))).status).toBe(404)
+})
+
+test("EPUB image permits bind one archive resource, canonicalize queries and never expose documents", async () => {
+  enable()
+  await as(alice)
+  const archive = Buffer.from(
+    zipSync({
+      mimetype: strToU8("application/epub+zip"),
+      "META-INF/container.xml": strToU8(
+        '<container><rootfiles><rootfile full-path="OPS/book.opf"/></rootfiles></container>',
+      ),
+      "OPS/book.opf": strToU8(
+        '<package><manifest><item id="a" href="a.png" media-type="image/png"/><item id="b" href="b.png" media-type="image/png"/></manifest><spine/></package>',
+      ),
+      "OPS/a.png": png,
+      "OPS/b.png": Buffer.concat([png, Buffer.from("b")]),
+    }),
+  )
+  const id = await book(archive, "EPUB")
+  const first = `/api/library/${id}/resource?path=OPS%2Fa.png`
+  const second = `/api/library/${id}/resource?path=OPS%2Fb.png`
+  const a = await (await authorize(request(first))).json()
+  const b = await (await authorize(request(second))).json()
+  expect(a.resourceKey).not.toBe(b.resourceKey)
+  expect(a.revision).toBe(b.revision)
+  expect(a.target).toBe(first)
+  expect(Buffer.from(await (await bytes(a.permit)).arrayBuffer())).toEqual(png)
+  expect(Buffer.from(await (await bytes(b.permit)).arrayBuffer())).toEqual(
+    Buffer.concat([png, Buffer.from("b")]),
+  )
+  for (const target of [
+    `/api/library/${id}/document`,
+    `${first}&path=OPS%2Fb.png`,
+    `/api/library/${id}/resource?path=..%2Fa.png`,
+  ])
+    expect((await authorize(request(target))).status).toBe(404)
+  const missing = await (
+    await authorize(
+      request(`/api/library/${id}/resource?path=OPS%2Fmissing.png`),
+    )
+  ).json()
+  expect((await bytes(missing.permit)).status).toBe(404)
 })
 afterEach(() => {
   vi.unstubAllEnvs()

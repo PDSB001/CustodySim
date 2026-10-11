@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto"
 import { edgeMediaEnabled, signMediaPermit } from "@/lib/edgeone-media"
 import { getMediaRevision } from "@/lib/edgeone-media-access"
 import { parseCachedMedia } from "@/lib/media-cache-path"
@@ -25,6 +26,14 @@ export async function GET(request: Request) {
         kind: media.kind,
         id: media.id,
         revision,
+        target: media.target,
+        ...(media.kind === "resource"
+          ? {
+              resourceKey: createHash("sha256")
+                .update(media.target)
+                .digest("hex"),
+            }
+          : {}),
         permit: signMediaPermit(actor.id, media, revision),
         cacheable: revision !== "legacy",
       },
