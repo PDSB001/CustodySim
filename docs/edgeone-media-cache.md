@@ -4,6 +4,22 @@
 
 为了保留聊天撤回、成员移除、账号停用/退出、图书下架和社区删除的权限规则，本方案使用边缘函数远程鉴权，不只依赖有时效的 URL 防盗链。现有资源 URL 与旧 App 协议不变，没有客户端密钥。源站向函数签发 30 秒回源凭据，绑定用户、完整资源路径与内容版本；源站取字节时再次校验当前会话和资源权限。源站直接访问仍走原有鉴权，不开放匿名文件。
 
+## 正文 HIT 仍慢：源站 gzip
+
+如果正文为 HIT，但没有 `Content-Encoding`，几十 MB 的公共 JSON 仍会完整传到设备。腾讯云[智能压缩文档](https://cloud.tencent.com/document/product/1552/70748)明确限制大小为 256B～30MB，并对流式响应设置限制；[Response 文档](https://cloud.tencent.com/document/product/1552/81917)又限制 json/text/arrayBuffer 读取为 1MB。因此本版在 Node.js 源站异步生成 gzip，边缘函数不读取、不解析、不压缩正文。
+
+源站仅在 `/api/media/content` 完成签名、当前会话、权限和版本检查，并按共享字段白名单去除个人信息后，响应内部 `X-CustodySim-Reader-Representation: gzip-v1` 请求。内部文件为 `application/octet-stream`，不设置标准 Content-Encoding，HTTP 请求使用 `Accept-Encoding: identity`。该设计不依赖 Fetch/Cache API 是否自动解压 HTTP 编码。缓存副本同样存放不透明 gzip 文件；函数在完成当次实时鉴权后直接返回原字节，只对客户端设置 `Content-Type: application/json; charset=utf-8` 和 `Content-Encoding: gzip`。浏览器自动解码，阅读器的 JSON 合约不变。
+
+函数按客户端 Accept-Encoding 协商：支持 gzip 才发送 gzip，`gzip;q=0`、只接受 br 或未声明压缩时使用未压缩版本。两种缓存键分别含 `compressed-v1/gzip-v1`、`compressed-v1/identity-v1`，不会串用，也不会读取此前 native-v1 的大副本。客户端响应仍 private/no-store，Vary 包含 Cookie、Authorization、Accept-Encoding。旧 App 未发送共享请求头，保持原有正文接口及磁盘缓存，不需要升级 APK。
+
+已启用缓存的升级步骤：
+
+1. 源站先执行 `git pull --ff-only` 和 `bash scripts/deploy.sh`。无需改环境变量或数据库。旧函数仍请求普通 JSON，与新源站兼容。
+2. 用完整最新 `deploy/edgeone/media-cache.js` 替换并发布边缘函数。核对 FUNCTION_VERSION 为 `origin-gzip-v1`、READER_DELIVERY_KEY 为 `compressed-v1`。不要改当前不缓存/鉴权规则，不要把 document-origin 加入函数触发规则。
+3. 返回书架重新打开书籍两次。普通浏览器的正文响应应有 `Content-Encoding: gzip`、`X-CustodySim-Media-Function-Version: origin-gzip-v1`，先 MISS/PENDING 再 HIT；Content-Length 如存在应是压缩后的字节数。比较实际传输大小和下载耗时，完整确认章节、中文、插图、阅读位置和计时正常。DevTools 的解码后资源大小仍可能很大，实际传输大小才用于评价带宽收益。
+
+第一次 MISS 仍须解析并压缩整本书，后续 HIT 直接发送已压缩字节。压缩无法减少回源鉴权、客户端解析和排版时间，真实速度及压缩比以同一本书的节点验收为准。如果发生错误，Web 仍只重试一次独立的 document-origin 接口；可以撤掉 document 触发规则恢复原链路。
+
 ## 其他静态资源
 
 EdgeOne 站点规则保持“遵循源站缓存头”。Next.js 为带内容哈希的 `/_next/static/*` 构建资源（JS、CSS、字体等）返回 `public, max-age=31536000, immutable`，因此会按一年 TTL 缓存在 EdgeOne 节点和浏览器，无需再按 `.js`、`.css` 等扩展名强制缓存。部署产生新内容时文件名会变化，旧文件不会覆盖新版本。Next.js 的动态页面按用户请求动态生成，不应套用此规则。
@@ -22,7 +38,7 @@ Web 阅读器打开 PDF 请求完整 `/api/library/{id}/file`，其他格式请�
 
 545 是边缘函数执行失败，不能仅凭 24 字节的通用错误响应确定具体异常。本版按腾讯云“修改响应头”示例直接修改并返回运行时提供的正文响应，不再将正文流包装进另一个客户端 Response，也不依赖 URLSearchParams 的迭代器。内部缓存副本显式使用 `clone(true)` 复制响应头，避免个人响应头与缓存头互相污染。本地兼容性测试模拟了这两类运行时限制，但真实节点的具体原因仍需函数异常日志确认。
 
-EdgeOne 的 `Response.json()`、`text()` 和 `arrayBuffer()` 最多读取 1 MB；EPUB 解压后的正文 JSON 即使原文件较小也可能超过限制。新函数只校验源站共享契约头，原样传输响应体，完全不在边缘节点读写或拼接 JSON。源站先按白名单去除个人字段，再添加 `X-CustodySim-Reader-Cache-Schema: reader-schema-3-v2`。新正文缓存键含 `native-v1`，自动隔离旧副本；原文件版本、阅读位置及 App 磁盘缓存格式不变。
+EdgeOne 的 `Response.json()`、`text()` 和 `arrayBuffer()` 最多读取 1 MB；EPUB 解压后的正文 JSON 即使原文件较小也可能超过限制。新函数只校验源站共享契约头，原样传输响应体，完全不在边缘节点读写或拼接 JSON。源站先按白名单去除个人字段，再添加 `X-CustodySim-Reader-Cache-Schema: reader-schema-3-v2`。新正文缓存键含 `compressed-v1`，自动隔离旧副本；原文件版本、阅读位置及 App 磁盘缓存格式不变。
 
 1. 在现有边缘函数的触发规则中，暂时移除 `/api/library/*/document`，保留图片、封面、原文件和插图规则。等待规则生效后确认原接口可以阅读。普通节点缓存仍保持不缓存正文。
 2. 服务器执行下面的 Bash，更新源站。无需改变原有环境变量、密钥或 Android APK，也没有新增数据库迁移：
@@ -33,8 +49,8 @@ EdgeOne 的 `Response.json()`、`text()` 和 `arrayBuffer()` 最多读取 1 MB�
    bash scripts/deploy.sh
    ```
 
-3. 源站和 Web 部署成功后，在现有边缘函数代码编辑器中，用仓库 `deploy/edgeone/media-cache.js` 的完整最新内容替换旧代码，保存并发布。确认代码中的 `READER_CACHE_SCHEMA` 是 `reader-schema-3-v2`，`READER_DELIVERY_KEY` 是 `native-v1`。新函数与旧 Web / App 兼容，旧客户端保持正常鉴权回源；只更新函数而未更新 Web 时，旧 Web 无正文 HIT。
-4. 重新加入 `/api/library/*/document` 触发规则并发布，等待配置下发，刷新页面加载新 Web 阅读器。**不要把 `/api/library/*/document-origin` 加入函数触发规则，也不要用 `/api/library/*/document*` 这样的前缀规则**。恢复接口仍须遵循源站 `private, no-store`，不可普通强制缓存。同一本 EPUB 完整打开两次，正文请求应为 200，响应头有 `X-CustodySim-Reader-Delivery: shared-v1`、`X-CustodySim-Media-Function-Version: native-response-v1` 和 `X-CustodySim-Reader-Cache-Schema: reader-schema-3-v2`；首次 `MISS/PENDING`，后台写入完成后第二次可 `HIT`。同时确认章节、中文、插图和阅读位置正常。
+3. 源站和 Web 部署成功后，在现有边缘函数代码编辑器中，用仓库 `deploy/edgeone/media-cache.js` 的完整最新内容替换旧代码，保存并发布。确认代码中的 `READER_CACHE_SCHEMA` 是 `reader-schema-3-v2`，`READER_DELIVERY_KEY` 是 `compressed-v1`。新函数与旧 Web / App 兼容，旧客户端保持正常鉴权回源；只更新函数而未更新 Web 时，旧 Web 无正文 HIT。
+4. 重新加入 `/api/library/*/document` 触发规则并发布，等待配置下发，刷新页面加载新 Web 阅读器。**不要把 `/api/library/*/document-origin` 加入函数触发规则，也不要用 `/api/library/*/document*` 这样的前缀规则**。恢复接口仍须遵循源站 `private, no-store`，不可普通强制缓存。同一本 EPUB 完整打开两次，正文请求应为 200，响应头有 `X-CustodySim-Reader-Delivery: shared-v1`、`X-CustodySim-Media-Function-Version: origin-gzip-v1` 和 `X-CustodySim-Reader-Cache-Schema: reader-schema-3-v2`；首次 `MISS/PENDING`，后台写入完成后第二次可 `HIT`。同时确认章节、中文、插图和阅读位置正常。
 5. 若仍为 545，先再次撤掉正文触发规则恢复阅读，再获取该请求对应的边缘函数异常日志。`Error return from script` 是通用失败提示，不能单独证明异常原因。流式修复已在本地对超过 1 MB、跨块 UTF-8 正文及不同用户命中做回归，真实节点仍需按上述步骤验收。
 
 函数能捕获的异常返回 503，并附带 `X-CustodySim-Media-Failure-Stage`（request/origin/authorize/grant/cache-open/cache-response/content/content-response）和脱敏状态。日志使用 `[edgeone-media] request failed`，不记录 Cookie、凭据、正文或原始异常消息。若仍返回 545 且没有函数版本头，需查看平台运行时日志；该异常可能发生在脚本返回响应后，函数内的 catch 无法捕获。
@@ -47,7 +63,7 @@ EdgeOne 的 `Response.json()`、`text()` 和 `arrayBuffer()` 最多读取 1 MB�
 
 Web 阅读器遇到 5xx（包括 545）、网络传输失败、非法缓存 JSON 或共享身份/版本不匹配时，只重试一次 `/api/library/{id}/document-origin`，不带共享请求头。此路径不加入边缘函数触发规则，直接执行原始正文接口，重新校验当前会话和图书权限，不读共享缓存，也不保存鉴权结果。401/403/404 不触发重试，退出阅读器的取消操作不触发重试。源站不可用或重试也失败时，阅读器仍停止计时。旧 App 请求和阅读标识 JSON 保持兼容；此自动恢复仅在更新后的 Web 阅读器中启用。
 
-升级仍按上面的顺序：暂时撤掉正文触发规则 → 更新源站与 Web → 发布完整新函数 → 恢复正文触发规则。不需要改环境变量、数据库或手动清缓存；共享契约仍是 `reader-schema-3-v2`，正文缓存键额外增加 `native-v1`，自动隔离旧副本，因此更新后的第一次请求应 MISS。内部正文回源指定 `Accept-Encoding: identity`，内部缓存声明 `no-transform`。若回源或缓存系统仍返回编码后的完整字节，函数同时保留其 `Content-Encoding`，不将编码后的字节误标为未压缩 JSON。`Content-Encoding: br` 本身不是故障证据。
+升级仍按上面的顺序：暂时撤掉正文触发规则 → 更新源站与 Web → 发布完整新函数 → 恢复正文触发规则。不需要改环境变量、数据库或手动清缓存；共享契约仍是 `reader-schema-3-v2`，正文缓存键额外增加 `compressed-v1`，自动隔离旧副本，因此更新后的第一次请求应 MISS。内部正文回源指定 `Accept-Encoding: identity`，内部缓存声明 `no-transform`。gzip 请求在此 HTTP 通道内传送不带 Content-Encoding 的独立压缩文件；最终客户端响应才标记 gzip，避免 Fetch 或 Cache API 自动解码的差异。未压缩版本仍是 JSON。
 
 除了检查 200/HIT，还要检查正文请求完整结束，阅读器正常显示章节；单看响应头不能判定验收成功。若出现 `/document-origin` 请求，说明自动恢复被触发，应同时检查这条恢复请求的状态和响应。如果新版仍中断，收集浏览器控制台的具体错误（例如 `ERR_CONTENT_DECODING_FAILED` 或 JSON 错误位置）、正文及恢复请求的 HTTP 状态，再单独对正文路径做关闭压缩的对照；不要直接关闭全站压缩。
 
@@ -94,7 +110,7 @@ Web 阅读器遇到 5xx（包括 545）、网络传输失败、非法缓存 JSON
 
 - 函数先获取授权，再 `cache.match`。同一图片的不同用户共享字节，用户的 Cookie/JWT/签名不进入缓存内容或缓存键。
 - 书籍键使用数据库内容版本；替换文件自动换键，旧凭据不能取到新版本字节。EPUB 插图额外按规范化的完整 `path` 参数计算键，不能把同一本书的不同插图混为同一缓存。SVG 插图的缓存副本保留固定 sandbox CSP。
-- 正文缓存键额外包含 `reader-schema-3-v2` 共享契约版本和 `native-v1` 传输版本；变更格式时须同步更新对应常量。命中后用户阅读标识由本次授权生成响应头，原始个性化 JSON 不存入缓存。
+- 正文缓存键额外包含 `reader-schema-3-v2` 共享契约版本和 `compressed-v1` 传输版本；变更格式时须同步更新对应常量。命中后用户阅读标识由本次授权生成响应头，原始个性化 JSON 不存入缓存。
 - 封面版本取自数据库 `cover_updated_at`，不信任请求中的 `v`。更新封面自动换键；第一次给旧 EPUB/DOCX 补提封面不缓存，后续使用实际版本。图片内容在回源过程中变更时，不写入旧版本缓存。
 - 客户端响应仍为 `private, no-store`；只有 Cache API 的内部副本设为可缓存。响应标记 `X-CustodySim-Media-Cache: MISS` 或 `HIT`，不含凭据。
 - 已撤回/删除/下架内容即使节点还留有字节，也会因实时鉴权失败而不再向新的请求提供。已下载到设备上的内容无法被远程收回；已有 App 内存缓存和旧浏览器缓存不受此功能追溯清除。

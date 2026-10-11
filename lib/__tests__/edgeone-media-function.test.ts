@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs"
+import { createServer } from "node:http"
 import { createHash, randomUUID } from "node:crypto"
-import { gzipSync } from "node:zlib"
+import { gzipSync, gunzipSync } from "node:zlib"
 import { runInNewContext } from "node:vm"
 import { expect, test, vi } from "vitest"
 
@@ -36,6 +37,7 @@ function runtime(kind: "chat" | "book" | "resource" | "document" = "chat") {
   let splitDocument = false
   let chunkSize = 65537
   let legacyClient = false
+  let acceptEncoding = ""
   const runtimeBodies = new WeakSet<ReadableStream>()
   // Model a runtime that permits editing native responses but rejects wrapping
   // their owned body in another response. Cache-storage clones remain separate.
@@ -110,7 +112,13 @@ function runtime(kind: "chat" | "book" | "resource" | "document" = "chat") {
               },
             })
           : "picture-bytes"
-      const encoded = new TextEncoder().encode(body)
+      const compressed =
+        kind === "document" &&
+        new Headers(init?.headers).get("X-CustodySim-Reader-Representation") ===
+          "gzip-v1"
+      const encoded = compressed
+        ? gzipSync(body)
+        : new TextEncoder().encode(body)
       let position = 0
       const response = new Response(
         splitDocument
@@ -126,10 +134,21 @@ function runtime(kind: "chat" | "book" | "resource" | "document" = "chat") {
                 position = end
               },
             })
-          : body,
+          : compressed
+            ? encoded
+            : body,
         {
           headers: {
-            "Content-Type": contentType,
+            "Content-Type":
+              compressed && contentType === "application/json"
+                ? "application/octet-stream"
+                : contentType,
+            ...(compressed
+              ? {
+                  "Content-Length": String(encoded.length),
+                  "X-CustodySim-Reader-Representation": "gzip-v1",
+                }
+              : {}),
             "Cache-Control": "private, no-store",
             "Set-Cookie": "must-not-be-stored",
             "X-CustodySim-Media-Revision": contentRevision ?? version,
@@ -251,6 +270,9 @@ function runtime(kind: "chat" | "book" | "resource" | "document" = "chat") {
     legacyClient: () => {
       legacyClient = true
     },
+    encoding: (value: string) => {
+      acceptEncoding = value
+    },
     async request(method = "GET", target = path, waitForCache = true) {
       const pending: Promise<unknown>[] = []
       let response: Promise<Response> | undefined
@@ -259,6 +281,7 @@ function runtime(kind: "chat" | "book" | "resource" | "document" = "chat") {
           method,
           headers: {
             authorization: "Bearer user-token",
+            ...(acceptEncoding ? { "Accept-Encoding": acceptEncoding } : {}),
             "cache-control": "no-cache",
             pragma: "no-cache",
             "x-custodysim-media-permit": "attacker-value",
@@ -302,7 +325,7 @@ test("edge failures expose only the processing stage and sanitized status", asyn
   )
   expect(response.headers.get("X-CustodySim-Media-Cache-Error")).toBe("UNKNOWN")
   expect(response.headers.get("X-CustodySim-Media-Function-Version")).toBe(
-    "native-response-v1",
+    "origin-gzip-v1",
   )
   expect(app.warn).toHaveBeenCalledWith(
     "[edgeone-media] request failed",
@@ -338,7 +361,9 @@ test("document hits reuse untouched shared content and send current identity onl
     app.fetch.mock.calls.filter(([url]) => String(url).includes("/content")),
   ).toHaveLength(1)
   expect(app.cachedKeys[0]).not.toContain("111111")
-  expect(app.cachedKeys[0]).toContain("/reader-schema-3-v2/native-v1")
+  expect(app.cachedKeys[0]).toContain(
+    "/reader-schema-3-v2/compressed-v1/identity-v1",
+  )
   expect(stored!.headers.has("X-CustodySim-Reader-Key")).toBe(false)
   expect(await (await app.request("HEAD")).text()).toBe("")
   app.revise("abcdef0123456789abcdef01")
@@ -433,9 +458,10 @@ test("recovery bypasses shared storage and preserves original access denial", as
   expect(app.cache.put).not.toHaveBeenCalled()
 })
 
-test("cached encoded bytes and their encoding are forwarded without rewriting", async () => {
+test("cached opaque gzip bytes receive HTTP encoding only on client delivery", async () => {
   const app = runtime("document")
-  await (await app.request()).json()
+  app.encoding("gzip, br")
+  await (await app.request()).arrayBuffer()
   await app.settle()
   const encoded = gzipSync(
     '{"success":true,"data":{"revision":"0123456789abcdef01234567","text":"中文📚"}}',
@@ -443,11 +469,11 @@ test("cached encoded bytes and their encoding are forwarded without rewriting", 
   app.cache.match.mockResolvedValueOnce(
     new Response(encoded, {
       headers: {
-        "Content-Type": "application/json",
+        "Content-Type": "application/octet-stream",
+        "X-CustodySim-Reader-Representation": "gzip-v1",
         "X-CustodySim-Media-Revision": "0123456789abcdef01234567",
         "X-CustodySim-Reader-Cache-Schema": "reader-schema-3-v2",
         "Content-Length": String(encoded.length),
-        "Content-Encoding": "gzip",
         Age: "818",
         "Accept-Ranges": "bytes",
       },
@@ -460,6 +486,110 @@ test("cached encoded bytes and their encoding are forwarded without rewriting", 
   expect(Buffer.from(await hit.arrayBuffer())).toEqual(encoded)
   await app.settle()
   expect(app.warn).not.toHaveBeenCalled()
+})
+
+test.each([
+  ["gzip, br", true],
+  ["GZIP;q=0.5", true],
+  ["*;q=1", true],
+  ["gzip;q=0, *;q=1", false],
+  ["br", false],
+  ["gzip;q=broken", false],
+  ["gzip;q=1.5", false],
+  ["", false],
+])(
+  "client encoding %s chooses an isolated compatible cache representation",
+  async (encoding, compressed) => {
+    const app = runtime("document")
+    app.encoding(encoding)
+    const response = await app.request()
+    expect(response.headers.get("Content-Encoding")).toBe(
+      compressed ? "gzip" : null,
+    )
+    expect(response.headers.get("Vary")).toContain("Accept-Encoding")
+    const bytes = Buffer.from(await response.arrayBuffer())
+    const body = JSON.parse((compressed ? gunzipSync(bytes) : bytes).toString())
+    expect(body.data.chapters[0].html).toBe("<p>共享正文</p>")
+    await app.settle()
+    expect(app.cachedKeys[0]).toContain(
+      compressed ? "/gzip-v1" : "/identity-v1",
+    )
+  },
+)
+
+test("large gzip MISS and HIT preserve bytes, isolate identity and never pollute the plain cache", async () => {
+  const app = runtime("document")
+  const html = '<p>中文📚 "引号"\\路径</p>'.repeat(100000)
+  app.largeDocument(html, 23)
+  app.encoding("gzip, br")
+  const miss = await app.request()
+  const bytes = Buffer.from(await miss.arrayBuffer())
+  expect(Number(miss.headers.get("Content-Length"))).toBe(bytes.length)
+  expect(bytes.length).toBeLessThan(Buffer.byteLength(html) / 10)
+  expect(JSON.parse(gunzipSync(bytes).toString()).data.chapters[0].html).toBe(
+    html,
+  )
+  await app.settle()
+  const stored = await app.cache.match(app.cachedKeys[0])
+  expect(stored!.headers.get("Content-Type")).toBe("application/octet-stream")
+  expect(stored!.headers.has("Content-Encoding")).toBe(false)
+  expect(stored!.headers.has("X-CustodySim-Reader-Key")).toBe(false)
+  expect(Buffer.from(await stored!.arrayBuffer())).toEqual(bytes)
+  app.readerKey("222222222222222222222222")
+  const hit = await app.request()
+  expect(hit.headers.get("X-CustodySim-Media-Cache")).toBe("HIT")
+  expect(hit.headers.get("X-CustodySim-Reader-Key")).toBe(
+    "222222222222222222222222",
+  )
+  expect(Buffer.from(await hit.arrayBuffer())).toEqual(bytes)
+  app.encoding("gzip;q=0, br")
+  const plain = await app.request()
+  expect(plain.headers.get("X-CustodySim-Media-Cache")).toBe("MISS")
+  expect(plain.headers.has("Content-Encoding")).toBe(false)
+  expect((await plain.json()).data.chapters[0].html).toBe(html)
+  await app.settle()
+  expect(app.cachedKeys).toHaveLength(2)
+  app.authorize(403)
+  app.encoding("gzip")
+  expect((await app.request()).status).toBe(403)
+})
+
+test("an HTTP client decodes gzip MISS and HIT as JSON without changing the reader contract", async () => {
+  const app = runtime("document")
+  app.encoding("gzip, br")
+  const server = createServer(async (_request, result) => {
+    try {
+      const response = await app.request()
+      result.statusCode = response.status
+      response.headers.forEach((value, name) => result.setHeader(name, value))
+      const reader = response.body!.getReader()
+      while (true) {
+        const chunk = await reader.read()
+        if (chunk.done) break
+        result.write(chunk.value)
+      }
+      result.end()
+    } catch (error) {
+      result.destroy(error as Error)
+    }
+  })
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve))
+  try {
+    const address = server.address() as { port: number }
+    for (const state of ["MISS", "HIT"]) {
+      const response = await fetch(`http://127.0.0.1:${address.port}`)
+      expect(response.headers.get("Content-Encoding")).toBe("gzip")
+      expect(response.headers.get("X-CustodySim-Media-Cache")).toBe(state)
+      expect((await response.json()).data.chapters[0].html).toBe(
+        "<p>共享正文</p>",
+      )
+      await app.settle()
+    }
+  } finally {
+    await new Promise<void>((resolve, reject) =>
+      server.close((error) => (error ? reject(error) : resolve())),
+    )
+  }
 })
 
 test("document HEAD misses retain only the shared copy and return no body", async () => {

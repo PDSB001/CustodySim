@@ -16,24 +16,62 @@ const MEDIA_PATHS = [
 // Keep this in sync with lib/reader-identity.ts. Bump when the shared render contract changes.
 const READER_CACHE_SCHEMA = "reader-schema-3-v2"
 // Keep old entries (including compressed/framed variants) out of the new delivery path.
-const READER_DELIVERY_KEY = "native-v1"
-const FUNCTION_VERSION = "native-response-v1"
+const READER_DELIVERY_KEY = "compressed-v1"
+const FUNCTION_VERSION = "origin-gzip-v1"
+const READER_REPRESENTATION_HEADER = "X-CustodySim-Reader-Representation"
 
-function readerResponse(source, grant, method) {
+function acceptsGzip(value) {
+  let explicit
+  let wildcard = false
+  for (const item of (value || "").split(",")) {
+    const parts = item.trim().toLowerCase().split(";")
+    const coding = parts[0].trim()
+    if (coding !== "gzip" && coding !== "*") continue
+    let quality = 1
+    for (const parameter of parts.slice(1)) {
+      const option = parameter.trim().split("=")
+      if (option[0].trim() === "q") {
+        const text = (option[1] || "").trim()
+        quality = /^(?:0(?:\.\d{0,3})?|1(?:\.0{0,3})?)$/.test(text)
+          ? Number(text)
+          : 0
+      }
+    }
+    if (coding === "gzip") explicit = quality > 0
+    else wildcard = quality > 0
+  }
+  return explicit === undefined ? wildcard : explicit
+}
+
+function readerResponse(source, grant, method, representation) {
   // The origin allowlists shared fields and attests the shared JSON contract. Never
   // call json/text/arrayBuffer here: EdgeOne limits those body reads to 1 MB.
   if (
     source.headers.get("X-CustodySim-Reader-Cache-Schema") !==
       READER_CACHE_SCHEMA ||
     source.headers.get("X-CustodySim-Media-Revision") !== grant.revision ||
-    (source.headers.get("Content-Type") || "").split(";", 1)[0].trim() !==
-      "application/json" ||
+    (representation === "gzip-v1"
+      ? source.headers.get(READER_REPRESENTATION_HEADER) !== "gzip-v1" ||
+        (source.headers.get("Content-Type") || "").split(";", 1)[0].trim() !==
+          "application/octet-stream" ||
+        source.headers.has("Content-Encoding")
+      : (source.headers.get("Content-Type") || "").split(";", 1)[0].trim() !==
+          "application/json" ||
+        source.headers.has("Content-Encoding") ||
+        (source.headers.has(READER_REPRESENTATION_HEADER) &&
+          source.headers.get(READER_REPRESENTATION_HEADER) !==
+            "identity-v1")) ||
     !source.body
   )
     throw new Error("Invalid shared reader snapshot")
   // Forward opaque bytes exactly as stored, including their matching encoding.
   // Identity is attached only after live authorization; it is never cached.
   const result = privateSourceResponse(source, method)
+  if (representation === "gzip-v1") {
+    result.headers.set("Content-Type", "application/json; charset=utf-8")
+    result.headers.set("Content-Encoding", "gzip")
+  }
+  result.headers.set("Vary", "Cookie, Authorization, Accept-Encoding")
   result.headers.set("X-CustodySim-Reader-Delivery", "shared-v1")
   result.headers.set("X-CustodySim-Reader-Key", grant.readerKey)
   result.headers.set("X-CustodySim-Book-Revision", grant.revision)
@@ -101,6 +139,10 @@ async function handleMediaRequest(event) {
     if (!["GET", "HEAD"].includes(request.method))
       return privateResponse(null, 405)
     const documentMedia = match[0] === "document"
+    const representation =
+      documentMedia && acceptsGzip(request.headers.get("Accept-Encoding"))
+        ? "gzip-v1"
+        : "identity-v1"
     const bookMedia =
       match[0] === "book" || match[0] === "resource" || documentMedia
     const resourceTarget =
@@ -167,7 +209,7 @@ async function handleMediaRequest(event) {
     // The authoritative cover revision comes from the database, not the caller's ?v= parameter.
     // Cache API keys are identifiers, not fetches. Use a neutral URL because EdgeOne rejects
     // Cache API operations under its reserved /__custodysim_media_cache/ path.
-    const key = `${url.origin}/__custodysim_cache_probe_data/v1/${grant.kind}/${grant.id}/${grant.revision}${match[0] === "resource" ? `/${grant.resourceKey}` : documentMedia ? `/${READER_CACHE_SCHEMA}/${READER_DELIVERY_KEY}` : ""}`
+    const key = `${url.origin}/__custodysim_cache_probe_data/v1/${grant.kind}/${grant.id}/${grant.revision}${match[0] === "resource" ? `/${grant.resourceKey}` : documentMedia ? `/${READER_CACHE_SCHEMA}/${READER_DELIVERY_KEY}/${representation}` : ""}`
     // A named namespace is isolated from normal/default URL caching. Only this function ever
     // reads or writes the key; clients cannot retrieve it by requesting the URL directly.
     stage = "cache-open"
@@ -185,7 +227,7 @@ async function handleMediaRequest(event) {
     if (cached) {
       stage = "cache-response"
       const result = documentMedia
-        ? readerResponse(cached, grant, request.method)
+        ? readerResponse(cached, grant, request.method, representation)
         : privateResponse(
             request.method === "HEAD" ? null : cached.body,
             200,
@@ -200,9 +242,12 @@ async function handleMediaRequest(event) {
     }
 
     headers.set("x-custodysim-media-permit", grant.permit)
-    // Public document snapshots are stored as canonical JSON bytes. Compression
-    // for the final client response remains the CDN's responsibility.
-    if (documentMedia) headers.set("Accept-Encoding", "identity")
+    // Fetch opaque compressed files over identity HTTP to avoid automatic
+    // decoding. Only the final client response is labeled Content-Encoding gzip.
+    if (documentMedia) {
+      headers.set("Accept-Encoding", "identity")
+      headers.set(READER_REPRESENTATION_HEADER, representation)
+    }
     stage = "content"
     const source = await fetch(
       new URL("/api/media/content", url.origin).toString(),
@@ -226,7 +271,10 @@ async function handleMediaRequest(event) {
     let writeState = grant.cacheable ? "SKIP-TYPE" : "SKIP-LEGACY"
     let writeError
     const allowedType = documentMedia
-      ? contentType === "application/json"
+      ? contentType ===
+        (representation === "gzip-v1"
+          ? "application/octet-stream"
+          : "application/json")
       : match[0] === "book"
         ? [
             "application/pdf",
@@ -240,15 +288,16 @@ async function handleMediaRequest(event) {
     // Clone before exposing the original stream in a response: clone() tees and
     // replaces source.body, so cloning afterwards would lock the exposed stream.
     stage = "content-response"
+    const sourceHeaders = new Headers(source.headers)
     const storageBody =
       grant.cacheable && allowedType ? source.clone(true).body : null
     // Verify the origin's shared contract without reading or rewriting body bytes.
     const documentResult = documentMedia
-      ? readerResponse(source, grant, request.method)
+      ? readerResponse(source, grant, request.method, representation)
       : null
     if (grant.cacheable && allowedType) {
       const storageHeaders = new Headers({
-        "Content-Type": source.headers.get("Content-Type"),
+        "Content-Type": sourceHeaders.get("Content-Type"),
         "Cache-Control": `public, max-age=${bookMedia ? BOOK_CACHE_TTL_SECONDS : CACHE_TTL_SECONDS}${documentMedia ? ", no-transform" : ""}`,
         "X-Content-Type-Options": "nosniff",
         "X-CustodySim-Media-Revision": grant.revision,
@@ -263,10 +312,16 @@ async function handleMediaRequest(event) {
           "X-CustodySim-Reader-Cache-Schema",
           READER_CACHE_SCHEMA,
         )
-      const length = source.headers.get("Content-Length")
-      if (!documentMedia && length && /^\d+$/.test(length))
+      if (documentMedia)
+        storageHeaders.set(READER_REPRESENTATION_HEADER, representation)
+      const length = sourceHeaders.get("Content-Length")
+      if (
+        (!documentMedia || representation === "gzip-v1") &&
+        length &&
+        /^\d+$/.test(length)
+      )
         storageHeaders.set("Content-Length", length)
-      const encoding = source.headers.get("Content-Encoding")
+      const encoding = sourceHeaders.get("Content-Encoding")
       if (encoding) storageHeaders.set("Content-Encoding", encoding)
       // Only this internal copy is cacheable. No Cookie, CSP nonce, credential or permit is stored.
       const storage = new Response(storageBody, {
