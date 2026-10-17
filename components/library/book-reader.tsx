@@ -105,7 +105,6 @@ export function BookReader({
     const timer = window.setInterval(tick, 250)
     return () => {
       clearInterval(timer)
-      tick()
     }
   }, [running])
   const sections = useMemo(

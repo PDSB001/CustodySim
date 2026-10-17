@@ -90,7 +90,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   const actor = await getAdminUser()
   if (!actor) return failure("FORBIDDEN", "仅管理员可管理通知", 403)
-  const parsed = NoticeSchema.safeParse(await request.json())
+  const parsed = NoticeSchema.safeParse(await request.json().catch(() => null))
   if (!parsed.success) return failure("VALIDATION_ERROR", "通知参数不合法", 400)
   try {
     const [saved] = await db

@@ -31,6 +31,9 @@
 
 # local review artifacts
 /.audit/
+/artifacts/
+/.next-e2e/
+/.codex-vitest-tmp/
 /artifacts/episteme-upstream/
 
 # deployment backups

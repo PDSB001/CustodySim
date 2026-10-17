@@ -17,7 +17,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
   if (!actor) return failure("FORBIDDEN", "仅管理员可调整所在监室", 403)
   const [params, body] = await Promise.all([
     context.params.then((value) => ParamsSchema.safeParse(value)),
-    request.json().then((value: unknown) => RoomSchema.safeParse(value)),
+    request.json().catch(() => null).then((value: unknown) => RoomSchema.safeParse(value)),
   ])
   if (!params.success || !body.success)
     return failure("VALIDATION_ERROR", "监室参数不合法", 400)

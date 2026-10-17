@@ -38,7 +38,7 @@ export async function POST(request: NextRequest) {
   if (!actor) return failure("UNAUTHORIZED", "请先登录", 401)
   if (actor.role !== "SUPERVISED")
     return failure("FORBIDDEN", "仅被监管移动端可上报位置轨迹", 403)
-  const parsed = GeofenceBatchSchema.safeParse(await request.json())
+  const parsed = GeofenceBatchSchema.safeParse(await request.json().catch(() => null))
   if (!parsed.success)
     return failure("VALIDATION_ERROR", "轨迹数据不合法", 400)
 
@@ -90,7 +90,7 @@ export async function POST(request: NextRequest) {
       if ((counted?.used ?? 0) + incomingCount > LOCATION_MAX_POINTS_PER_DAY)
         return { ok: false as const }
 
-      const profile = await getCustodyProfileForUser(actor.id)
+      const profile = await getCustodyProfileForUser(actor.id, tx)
       const isInCustody = ["IN_CUSTODY", "ISOLATION"].includes(
         profile?.custodyStatus ?? "",
       )

@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+cd -- "$(dirname -- "${BASH_SOURCE[0]}")"
+
 pnpm install --frozen-lockfile
 
 # 读取 .env.local 中的键，不覆盖已存在的 shell 环境变量。

@@ -50,7 +50,7 @@ const approved = {
   reason: "内容具体，符合模板要求",
   issues: [],
 }
-const reply = (content = approved) =>
+const reply = (content: unknown = approved) =>
   Response.json({
     choices: [
       { finish_reason: "stop", message: { content: JSON.stringify(content) } },
@@ -216,6 +216,38 @@ afterAll(async () => {
   await db.$client.end()
 })
 
+test("连接预算不足时管理端说明暂停原因，待审任务不变且不调用模型", async () => {
+  const { task, submission } = await fixture()
+  vi.stubEnv("DATABASE_POOL_MAX", "3")
+  const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+  const fetcher = vi.fn()
+  vi.stubGlobal("fetch", fetcher)
+  try {
+    const response = await GET()
+    expect(response.status).toBe(200)
+    expect((await response.json()).data).toMatchObject({
+      concurrencyLimit: 0,
+      pauseReason: expect.stringContaining("保持待审"),
+    })
+    expect(await runAutoReviewSweep()).toBe(0)
+    expect(fetcher).not.toHaveBeenCalled()
+    const [row] = await db
+      .select()
+      .from(s.reportTasks)
+      .where(eq(s.reportTasks.id, task.id))
+    expect(row.status).toBe("SUBMITTED")
+    expect(
+      await db
+        .select()
+        .from(s.autoReviewRuns)
+        .where(eq(s.autoReviewRuns.submissionId, submission.id)),
+    ).toHaveLength(0)
+    expect(warn).toHaveBeenCalled()
+  } finally {
+    warn.mockRestore()
+  }
+})
+
 test("纯文字补卡调用模型后自动通过，审核轨迹区分 AI 身份", async () => {
   const makeup = await makeupFixture()
   const fetcher = vi.fn().mockResolvedValue(reply())
@@ -253,6 +285,78 @@ test("纯文字补卡调用模型后自动通过，审核轨迹区分 AI 身份"
     ],
   })
 })
+
+test("简短补卡理由在适度置信度下通过并保留审核原因", async () => {
+  const makeup = await makeupFixture()
+  await db
+    .update(s.checkinMakeups)
+    .set({ reason: "忙忘了打卡，申请补卡。" })
+    .where(eq(s.checkinMakeups.id, makeup.id))
+  const fetcher = vi.fn().mockResolvedValue(
+    reply({
+      ...approved,
+      confidence: 0.85,
+      reason: "已说明漏打卡原因，基本符合要求",
+    }),
+  )
+  vi.stubGlobal("fetch", fetcher)
+  await runAutoReviewSweep()
+  const [row] = await db
+    .select()
+    .from(s.checkinMakeups)
+    .where(eq(s.checkinMakeups.id, makeup.id))
+  expect(row.status).toBe("APPROVED")
+  const input = JSON.parse(
+    JSON.parse(fetcher.mock.calls[0][1].body).messages[1].content,
+  )
+  expect(input.answers).toEqual({ 补卡原因: "忙忘了打卡，申请补卡。" })
+  const [run] = await db
+    .select()
+    .from(s.autoReviewMakeupRuns)
+    .where(eq(s.autoReviewMakeupRuns.makeupId, makeup.id))
+  expect(run).toMatchObject({
+    status: "APPLIED",
+    result: "APPROVED",
+    reason: "已说明漏打卡原因，基本符合要求",
+  })
+})
+
+test.each(["APPROVED", "RETURNED"])(
+  "0.85 置信度仅放宽通过，不放宽退回：%s",
+  async (result) => {
+    const { task, submission } = await fixture()
+    const answer = "整理了书架，已经放整齐了。"
+    await db
+      .update(s.reportSubmissions)
+      .set({ data: { 说明: answer } })
+      .where(eq(s.reportSubmissions.id, submission.id))
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        reply({
+          ...approved,
+          result,
+          confidence: 0.85,
+          issues:
+            result === "RETURNED"
+              ? [{ field: "说明", quote: answer, problem: "缺少详细步骤" }]
+              : [],
+        }),
+      ),
+    )
+    await runAutoReviewSweep()
+    const [row] = await db
+      .select()
+      .from(s.reportTasks)
+      .where(eq(s.reportTasks.id, task.id))
+    expect(row.status).toBe(result === "APPROVED" ? "APPROVED" : "SUBMITTED")
+    const [run] = await db
+      .select()
+      .from(s.autoReviewRuns)
+      .where(eq(s.autoReviewRuns.submissionId, submission.id))
+    expect(run.result).toBe(result === "APPROVED" ? "APPROVED" : "MANUAL")
+  },
+)
 
 test("补卡限流降级原因可见，人工通过后仍保留自动审核和人工轨迹", async () => {
   const makeup = await makeupFixture()

@@ -1,7 +1,3 @@
-import { defineConfig } from "vitest/config"
-import base from "./vitest.scoring-e2e.config.mjs"
+import { databaseE2eConfig } from "./vitest.e2e-base.mjs"
 
-export default defineConfig({
-  ...base,
-  test: { ...base.test, include: ["e2e/business/**/*.test.ts"] },
-})
+export default databaseE2eConfig(["e2e/business/**/*.test.ts"])

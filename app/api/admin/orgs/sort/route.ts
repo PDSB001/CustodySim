@@ -11,13 +11,17 @@ import { organizations } from "@/lib/db/schema"
 const SortSchema = z.object({
   items: z
     .array(z.object({ id: z.string().uuid(), sort: z.number().int().min(0) }))
-    .min(1),
+    .min(1)
+    .max(1000)
+    .refine(
+      (items) => new Set(items.map((item) => item.id)).size === items.length,
+    ),
 })
 
 export async function POST(request: NextRequest) {
   const actor = await getAdminUser()
   if (!actor) return failure("FORBIDDEN", "仅管理员可排序组织", 403)
-  const parsed = SortSchema.safeParse(await request.json())
+  const parsed = SortSchema.safeParse(await request.json().catch(() => null))
   if (!parsed.success) return failure("VALIDATION_ERROR", "排序参数无效", 400)
   try {
     await db.transaction(async (tx) => {

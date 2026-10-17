@@ -1,8 +1,15 @@
 #!/usr/bin/env node
-import { existsSync, readdirSync, rmSync, statSync } from "node:fs"
+import {
+  existsSync,
+  readdirSync,
+  realpathSync,
+  rmSync,
+  statSync,
+} from "node:fs"
 import { createConnection } from "node:net"
 import { homedir } from "node:os"
-import { join, resolve } from "node:path"
+import { isAbsolute, join, relative, resolve, sep } from "node:path"
+import { fileURLToPath } from "node:url"
 
 /**
  * 抑制开发期磁盘膨胀：只针对"删掉只损失时间、不丢数据"的目录。
@@ -35,16 +42,30 @@ const SCOPES = {
   // （尤其 Playwright 会自己拉一个）会持续累积，实测见过 9G+。
   next: {
     thresholdMb: 800,
-    ports: [3000, 3100],
-    targets: [{ path: join(repoRoot, ".next"), label: ".next（含 dev 与 cache）" }],
+    ports: [3000, 3100, 3102, ...configuredPorts()],
+    targets: [
+      { path: join(repoRoot, ".next"), label: ".next（含 dev 与 cache）" },
+    ],
   },
   android: {
     thresholdMb: 1500,
     targets: [
-      { path: join(repoRoot, ".app-workspace", ".gradle"), label: ".app-workspace/.gradle" },
-      { path: join(repoRoot, ".app-workspace", "app", "build"), label: ".app-workspace/app/build" },
-      { path: join(repoRoot, ".app-workspace", "build"), label: ".app-workspace/build" },
-      { path: join(repoRoot, ".app-workspace", ".kotlin"), label: ".app-workspace/.kotlin" },
+      {
+        path: join(repoRoot, ".app-workspace", ".gradle"),
+        label: ".app-workspace/.gradle",
+      },
+      {
+        path: join(repoRoot, ".app-workspace", "app", "build"),
+        label: ".app-workspace/app/build",
+      },
+      {
+        path: join(repoRoot, ".app-workspace", "build"),
+        label: ".app-workspace/build",
+      },
+      {
+        path: join(repoRoot, ".app-workspace", ".kotlin"),
+        label: ".app-workspace/.kotlin",
+      },
     ],
   },
   test: {
@@ -59,9 +80,18 @@ const SCOPES = {
   gradle: {
     thresholdMb: 2000,
     targets: [
-      { path: join(home, ".gradle", "daemon"), label: "~/.gradle/daemon（日志）" },
-      { path: join(home, ".gradle", "caches", "jars-9"), label: "~/.gradle/caches/jars-9" },
-      ...gradleTransformDirs().map((path) => ({ path, label: path.replace(home, "~") })),
+      {
+        path: join(home, ".gradle", "daemon"),
+        label: "~/.gradle/daemon（日志）",
+      },
+      {
+        path: join(home, ".gradle", "caches", "jars-9"),
+        label: "~/.gradle/caches/jars-9",
+      },
+      ...gradleTransformDirs().map((path) => ({
+        path,
+        label: path.replace(home, "~"),
+      })),
     ],
   },
 }
@@ -109,11 +139,33 @@ function portInUse(port) {
   })
 }
 
-function withinAllowed(path) {
-  const insideRepo = !resolve(path).startsWith("..") && resolve(path).startsWith(repoRoot)
-  const insideGradleHome =
-    resolve(path).startsWith(join(home, ".gradle")) && resolve(path) !== home
-  return insideRepo || insideGradleHome
+function configuredPorts() {
+  const ports = [Number(process.env.PORT)]
+  if (process.env.E2E_BASE_URL) {
+    try {
+      ports.push(Number(new URL(process.env.E2E_BASE_URL).port))
+    } catch {
+      /* ignore invalid URL */
+    }
+  }
+  return ports.filter(
+    (port) => Number.isInteger(port) && port > 0 && port <= 65535,
+  )
+}
+
+export function withinAllowed(path, roots = [repoRoot, join(home, ".gradle")]) {
+  // Resolve existing symlinks/junctions before checking path boundaries.
+  const target = existsSync(path) ? realpathSync(path) : resolve(path)
+  return roots.some((root) => {
+    const base = existsSync(root) ? realpathSync(root) : resolve(root)
+    const child = relative(base, target)
+    return (
+      child !== "" &&
+      child !== ".." &&
+      !child.startsWith(`..${sep}`) &&
+      !isAbsolute(child)
+    )
+  })
 }
 
 function parseArgs(argv) {
@@ -128,7 +180,9 @@ function parseArgs(argv) {
     check: argv.includes("--check"),
     help: argv.includes("--help"),
     scopes: scopes.length ? scopes : ALL_SCOPES,
-    thresholdMb: threshold ? Number(threshold.slice("--threshold=".length)) : null,
+    thresholdMb: threshold
+      ? Number(threshold.slice("--threshold=".length))
+      : null,
   }
 }
 
@@ -136,7 +190,8 @@ async function collect(scopeNames) {
   const report = []
   for (const name of scopeNames) {
     const scope = SCOPES[name]
-    if (!scope) throw new Error(`未知 scope：${name}（可选：${ALL_SCOPES.join(", ")}）`)
+    if (!scope)
+      throw new Error(`未知 scope：${name}（可选：${ALL_SCOPES.join(", ")}）`)
     const targets = scope.targets
       .filter((target) => existsSync(target.path))
       .map((target) => ({ ...target, ...dirSize(target.path) }))
@@ -148,7 +203,11 @@ async function collect(scopeNames) {
       bytes,
       over: bytes > limitMb * 1024 * 1024,
       targets,
-      busy: scope.ports ? (await Promise.all(scope.ports.map(portInUse))).some(Boolean) : false,
+      busy: scope.ports
+        ? existsSync(join(repoRoot, ".next", "dev", "lock")) ||
+          existsSync(join(repoRoot, ".next", "lock")) ||
+          (await Promise.all(scope.ports.map(portInUse))).some(Boolean)
+        : false,
     })
   }
   return report
@@ -163,7 +222,9 @@ function printReport(report) {
       }`,
     )
     for (const target of scope.targets)
-      console.log(`  ${mb(target.bytes).padStart(10)}  ${target.label}（${target.files} 文件）`)
+      console.log(
+        `  ${mb(target.bytes).padStart(10)}  ${target.label}（${target.files} 文件）`,
+      )
   }
   const total = report.reduce((sum, scope) => sum + scope.bytes, 0)
   console.log(`\n可清理合计：${mb(total)}`)
@@ -193,7 +254,9 @@ async function main() {
   const scopes = args.guard ? ["next"] : args.scopes
   const report = await collect(scopes)
   const override = args.thresholdMb
-  if (override !== null) for (const scope of report) scope.over = scope.bytes > override * 1024 * 1024
+  if (override !== null)
+    for (const scope of report)
+      scope.over = scope.bytes > override * 1024 * 1024
 
   const over = report.filter((scope) => scope.over)
 
@@ -202,7 +265,9 @@ async function main() {
     if (!over.length) return 0
     for (const scope of over) {
       if (scope.busy) {
-        console.warn(`\n[${scope.name}] 检测到端口占用（dev server 在跑），跳过。`)
+        console.warn(
+          `\n[${scope.name}] 检测到端口占用（dev server 在跑），跳过。`,
+        )
         continue
       }
       prune(scope)
@@ -232,7 +297,9 @@ async function main() {
   let reclaimed = 0
   for (const scope of report) {
     if (scope.busy) {
-      console.warn(`\n[${scope.name}] 检测到端口占用（dev server 在跑），跳过。`)
+      console.warn(
+        `\n[${scope.name}] 检测到端口占用（dev server 在跑），跳过。`,
+      )
       continue
     }
     reclaimed += prune(scope)
@@ -260,12 +327,16 @@ function prune(scope) {
   return reclaimed
 }
 
-main()
-  .then((code) => {
-    process.exitCode = code
-  })
-  .catch((error) => {
-    // guard 场景绝不能把 pnpm dev / e2e 链路带崩。
-    console.error(`[clean] ${error.message}`)
-    process.exitCode = process.argv.includes("--guard") ? 0 : 1
-  })
+if (
+  process.argv[1] &&
+  resolve(process.argv[1]) === fileURLToPath(import.meta.url)
+)
+  main()
+    .then((code) => {
+      process.exitCode = code
+    })
+    .catch((error) => {
+      // guard 场景绝不能把 pnpm dev / e2e 链路带崩。
+      console.error(`[clean] ${error.message}`)
+      process.exitCode = process.argv.includes("--guard") ? 0 : 1
+    })

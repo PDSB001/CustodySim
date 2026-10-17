@@ -27,7 +27,7 @@ export async function PATCH(
     .uuid()
     .safeParse((await context.params).id)
   if (!id.success) return failure("VALIDATION_ERROR", "申请编号无效", 400)
-  const parsed = ChatRequestReviewSchema.safeParse(await request.json())
+  const parsed = ChatRequestReviewSchema.safeParse(await request.json().catch(() => null))
   if (!parsed.success) return failure("VALIDATION_ERROR", "审批参数不合法", 400)
   try {
     const result = await db.transaction(async (tx) => {

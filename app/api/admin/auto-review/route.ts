@@ -17,6 +17,7 @@ import {
   users,
 } from "@/lib/db/schema"
 import { getGlmReviewConfig } from "@/lib/glm-review-config"
+import { getGlmReviewConcurrencyStatus } from "@/lib/glm-review-concurrency"
 import { ISOLATION_REPORT_TEMPLATE_NAME } from "@/lib/isolation-report-template"
 
 export async function GET() {
@@ -75,6 +76,7 @@ export async function GET() {
       provider: config.provider,
       apiKeyVariable: config.apiKeyVariable,
       configurationError: config.configurationError,
+      ...getGlmReviewConcurrencyStatus(config.model),
       apiKeysConfigured: {
         bigmodel: Boolean(providerConfigs.bigmodel.apiKey),
         zai: Boolean(providerConfigs.zai.apiKey),

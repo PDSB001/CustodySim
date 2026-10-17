@@ -66,7 +66,7 @@ export async function GET() {
 export async function PUT(request: NextRequest) {
   const actor = await getAdminUser()
   if (!actor) return failure("FORBIDDEN", "仅管理员可管理电子围栏", 403)
-  const parsed = AdminElectronicFenceSchema.safeParse(await request.json())
+  const parsed = AdminElectronicFenceSchema.safeParse(await request.json().catch(() => null))
   if (!parsed.success)
     return failure("VALIDATION_ERROR", "电子围栏参数不合法", 400)
   try {

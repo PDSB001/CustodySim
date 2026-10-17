@@ -37,7 +37,7 @@ export async function POST(request: NextRequest) {
     const ip = getSensitiveActionIp(request.headers)
     if ((await getSensitiveActionRetryAfterSeconds(user.id, ip)) > 0)
       return failure("RATE_LIMITED", "尝试过于频繁，请稍后重试", 429)
-    const parsed = MfaCodeSchema.safeParse(await request.json())
+    const parsed = MfaCodeSchema.safeParse(await request.json().catch(() => null))
     if (!parsed.success)
       return failure("VALIDATION_ERROR", "请输入 6 位验证器代码", 400)
     const [factor] = await db

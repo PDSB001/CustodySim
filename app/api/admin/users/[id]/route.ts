@@ -4,6 +4,7 @@ import { z } from "zod"
 
 import { failure, success } from "@/lib/api-response"
 import { getAdminUser } from "@/lib/admin-api"
+import { AdminMembershipError, guardAdminRemoval } from "@/lib/admin-membership"
 import { UserUpdateSchema } from "@/lib/admin-schemas"
 import { writeAuditLog } from "@/lib/audit"
 import { db } from "@/lib/db"
@@ -21,7 +22,9 @@ export async function PATCH(request: NextRequest, { params }: RouteContext) {
   const { id } = await params
   if (!z.string().uuid().safeParse(id).success)
     return failure("VALIDATION_ERROR", "用户 ID 不合法", 400)
-  const parsed = UserUpdateSchema.safeParse(await request.json())
+  const parsed = UserUpdateSchema.safeParse(
+    await request.json().catch(() => null),
+  )
   if (!parsed.success)
     return failure(
       "VALIDATION_ERROR",
@@ -60,6 +63,8 @@ export async function PATCH(request: NextRequest, { params }: RouteContext) {
         400,
       )
     const updated = await db.transaction(async (tx) => {
+      if (parsed.data.status === "disabled")
+        await guardAdminRemoval(tx, actor.id, id)
       const [row] = await tx
         .update(users)
         .set({
@@ -106,6 +111,12 @@ export async function PATCH(request: NextRequest, { params }: RouteContext) {
       organizationName: organization?.name ?? null,
     })
   } catch (error) {
+    if (error instanceof AdminMembershipError)
+      return failure(
+        error.status === 403 ? "FORBIDDEN" : "VALIDATION_ERROR",
+        error.message,
+        error.status,
+      )
     console.error("[API admin/users PATCH]", error)
     return failure("INTERNAL_ERROR", "服务器错误", 500)
   }
@@ -121,6 +132,7 @@ export async function DELETE(_request: NextRequest, { params }: RouteContext) {
     return failure("VALIDATION_ERROR", "不能删除当前登录账号", 400)
   try {
     const deleted = await db.transaction(async (tx) => {
+      await guardAdminRemoval(tx, actor.id, id)
       // persons.user_id 为级联删除，删号会一并移除其在押人员档案及其附属记录。
       const [row] = await tx.delete(users).where(eq(users.id, id)).returning({
         id: users.id,
@@ -145,6 +157,12 @@ export async function DELETE(_request: NextRequest, { params }: RouteContext) {
     if (!deleted) return failure("NOT_FOUND", "用户不存在", 404)
     return success({ id })
   } catch (error) {
+    if (error instanceof AdminMembershipError)
+      return failure(
+        error.status === 403 ? "FORBIDDEN" : "VALIDATION_ERROR",
+        error.message,
+        error.status,
+      )
     const code =
       typeof error === "object" && error && "code" in error ? error.code : null
     // 业务历史（任务、打卡、积分、档案记录、会签等）为保留留痕会阻止删除。

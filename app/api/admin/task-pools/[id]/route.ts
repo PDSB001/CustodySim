@@ -32,7 +32,7 @@ export async function PUT(request: NextRequest, context: RouteContext) {
   const actor = await getAdminUser()
   if (!actor) return failure("FORBIDDEN", "仅管理员可管理随机任务池", 403)
   const params = ParamsSchema.safeParse(await context.params)
-  const parsed = TaskPoolSchema.safeParse(await request.json())
+  const parsed = TaskPoolSchema.safeParse(await request.json().catch(() => null))
   if (!params.success || !parsed.success)
     return failure("VALIDATION_ERROR", "随机任务池配置不合法", 400)
   try {

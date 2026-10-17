@@ -175,7 +175,7 @@ export async function POST(request: NextRequest) {
   if (!actor) return failure("UNAUTHORIZED", "请先登录", 401)
   if (actor.role === "SUPERVISED")
     return failure("FORBIDDEN", "无审核权限", 403)
-  const parsed = ReviewSchema.safeParse(await request.json())
+  const parsed = ReviewSchema.safeParse(await request.json().catch(() => null))
   if (!parsed.success) return failure("VALIDATION_ERROR", "审核参数不合法", 400)
   try {
     return success(await applyTaskReview(actor, parsed.data), { status: 201 })

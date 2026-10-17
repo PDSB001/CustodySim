@@ -9,7 +9,7 @@ import {
   Send,
   Star,
 } from "lucide-react"
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useId, useRef, useState } from "react"
 import { z } from "zod"
 
 import { requestApi } from "@/components/shared/api-client"
@@ -127,7 +127,10 @@ function CopywriteField({
   const written = value ?? ""
   const [draft, setDraft] = useState(written)
   const composing = useRef(false)
-  useEffect(() => setDraft(written), [written])
+  const inputId = useId()
+  useEffect(() => {
+    if (!composing.current) setDraft(written)
+  }, [written])
   const typedCount = written.length
   const exact = written.trim().length > 0 && written.trim() === source
   if (!source)
@@ -146,7 +149,7 @@ function CopywriteField({
     ) + (extra ? 1 : 0)
   return (
     <div className="space-y-2">
-      <Label>
+      <Label htmlFor={inputId}>
         {field.required ? "* " : ""}
         {field.name}
       </Label>
@@ -183,6 +186,8 @@ function CopywriteField({
           {extra && <span className="text-red-500 underline">{extra}</span>}
         </p>
         <Textarea
+          id={inputId}
+          name={field.name}
           value={draft}
           onCompositionStart={() => {
             composing.current = true
@@ -270,9 +275,9 @@ function TaskPayloadForm({ task }: { task: z.infer<typeof Task> }) {
     },
     onError: (_, variables) => {
       const latest = currentSerializedData.current
-      const failedLatestRequest = variables.serialized === lastRequestedData.current
-      if (failedLatestRequest)
-        lastRequestedData.current = lastSavedData.current
+      const failedLatestRequest =
+        variables.serialized === lastRequestedData.current
+      if (failedLatestRequest) lastRequestedData.current = lastSavedData.current
       const needsLatestSave =
         latest !== variables.serialized &&
         (failedLatestRequest || latest !== lastRequestedData.current)

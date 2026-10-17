@@ -11,7 +11,7 @@ import { getSessionUser } from "@/lib/session"
 export async function POST(request: Request) {
   const actor = await getSessionUser()
   if (!actor) return failure("UNAUTHORIZED", "请先登录", 401)
-  const parsed = ChatRealtimeTokenSchema.safeParse(await request.json())
+  const parsed = ChatRealtimeTokenSchema.safeParse(await request.json().catch(() => null))
   if (!parsed.success) return failure("VALIDATION_ERROR", "会话编号无效", 400)
   try {
     const conversation = await getChatConversationAccess(

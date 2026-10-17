@@ -14,7 +14,7 @@ type RouteContext = { params: Promise<{ id: string }> }
 export async function PATCH(request: NextRequest, { params }: RouteContext) {
   const actor = await getAdminUser()
   if (!actor) return failure("FORBIDDEN", "仅管理员可调整监管档案", 403)
-  const parsed = CustodyProfileSchema.safeParse(await request.json())
+  const parsed = CustodyProfileSchema.safeParse(await request.json().catch(() => null))
   if (!parsed.success)
     return failure("VALIDATION_ERROR", "监管级别或囚犯状态不合法", 400)
   const { id } = await params

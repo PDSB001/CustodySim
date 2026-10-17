@@ -20,6 +20,8 @@ export const AutoReviewDecision = z
   })
   .strict()
 export type AutoDecision = z.infer<typeof AutoReviewDecision>
+export const AUTO_REVIEW_APPROVAL_CONFIDENCE = 0.8
+export const AUTO_REVIEW_RETURN_CONFIDENCE = 0.9
 export const ReviewTemplate = z.object({
   name: z.string().max(160).optional(),
   content: z.string().max(8000).nullable().optional(),
@@ -117,7 +119,11 @@ export function validateAutoDecision(
   if (!parsed.success) return manualDecision("模型未返回有效的审核结论")
   const decision = parsed.data
   if (decision.result === "MANUAL") return decision
-  if (decision.confidence < 0.9)
+  const minimumConfidence =
+    decision.result === "APPROVED"
+      ? AUTO_REVIEW_APPROVAL_CONFIDENCE
+      : AUTO_REVIEW_RETURN_CONFIDENCE
+  if (decision.confidence < minimumConfidence)
     return manualDecision("模型判断不确定，需人工复核")
   if (decision.result === "APPROVED" && decision.issues.length)
     return manualDecision("模型结论存在矛盾，需人工复核")

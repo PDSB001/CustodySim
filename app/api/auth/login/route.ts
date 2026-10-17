@@ -37,7 +37,7 @@ export const runtime = "nodejs"
 
 export async function POST(request: NextRequest) {
   try {
-    const parsed = LoginSchema.safeParse(await request.json())
+    const parsed = LoginSchema.safeParse(await request.json().catch(() => null))
     if (!parsed.success)
       return failure(
         "VALIDATION_ERROR",

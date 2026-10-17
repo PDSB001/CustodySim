@@ -71,7 +71,7 @@ export async function POST(request: NextRequest) {
   if (!actor) return failure("UNAUTHORIZED", "请先登录", 401)
   if (actor.role !== "SUPERVISED")
     return failure("FORBIDDEN", "仅被监管人可发起申请", 403)
-  const parsed = ApplicationDraftSchema.safeParse(await request.json())
+  const parsed = ApplicationDraftSchema.safeParse(await request.json().catch(() => null))
   if (!parsed.success) return failure("VALIDATION_ERROR", "申请数据不合法", 400)
   const attachments = parsed.data.attachments ?? []
   if (attachments.length) {

@@ -26,7 +26,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
   if (!actor) return failure("FORBIDDEN", "仅管理员可管理档案表单", 403)
   const [params, parsed] = await Promise.all([
     context.params.then((value) => ParamsSchema.safeParse(value)),
-    request.json().then((value: unknown) => ProfileFormSchema.safeParse(value)),
+    request.json().catch(() => null).then((value: unknown) => ProfileFormSchema.safeParse(value)),
   ])
   if (!params.success || !parsed.success)
     return failure("VALIDATION_ERROR", "档案表单参数不合法", 400)

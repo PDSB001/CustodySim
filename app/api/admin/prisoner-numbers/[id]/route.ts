@@ -20,7 +20,7 @@ export async function PATCH(request: NextRequest, { params }: RouteContext) {
   const { id } = await params
   if (!z.string().uuid().safeParse(id).success)
     return failure("VALIDATION_ERROR", "人员 ID 不合法", 400)
-  const parsed = UpdateSchema.safeParse(await request.json())
+  const parsed = UpdateSchema.safeParse(await request.json().catch(() => null))
   if (!parsed.success)
     return failure(
       "VALIDATION_ERROR",

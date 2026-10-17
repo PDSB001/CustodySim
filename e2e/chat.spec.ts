@@ -457,6 +457,38 @@ test("聊天图片消息：类型、体积校验与会话摘要", async ({}, tes
   }
 })
 
+test("空会话能实时显示对端发来的第一条消息", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "desktop-chrome", "实时首条消息只需验证一次")
+  const [liu, zhou] = await Promise.all([loginApi("rank_101_liu"), loginApi("rank_101_zhou")])
+  try {
+    const room = await call<{ id: string }>(liu, "post", "/api/chat/conversations", { kind: "ROOM" })
+    let received = false
+    let emptyRequests = 0
+    // Present an empty initial history without deleting shared E2E chat fixtures.
+    await page.route(`**/api/chat/conversations/${room.data.id}/messages*`, async (route) => {
+      if (route.request().method() !== "GET" || received) return route.continue()
+      emptyRequests++
+      await route.fulfill({ json: { success: true, data: [] } })
+    })
+    await page.goto("/login")
+    await page.getByLabel("账号").fill("rank_101_liu")
+    await page.getByLabel("密码").fill("Demo12345")
+    await page.getByRole("button", { name: /登\s*录/ }).click()
+    await expect(page).toHaveURL("/my")
+    await page.goto("/my/chat")
+    await page.getByRole("button").filter({ hasText: "群聊" }).first().click()
+    // The second request is the join acknowledgement catch-up: the socket is ready.
+    await expect.poll(() => emptyRequests).toBeGreaterThanOrEqual(2)
+    received = true
+    const text = `首条实时消息-${randomUUID()}`
+    await call(zhou, "post", `/api/chat/conversations/${room.data.id}/messages`, { content: text })
+    // The conversation preview also contains the text; assert the message bubble itself.
+    await expect(page.locator("span.whitespace-pre-wrap").filter({ hasText: text })).toBeVisible()
+  } finally {
+    await Promise.all([liu.dispose(), zhou.dispose()])
+  }
+})
+
 test("聊天工作台可以发送并渲染图片消息", async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== "desktop-chrome", "图片上传仅需执行一次")
   // 先确保存在一个群聊会话，避免工作面落在"先选一个会话"的空态上

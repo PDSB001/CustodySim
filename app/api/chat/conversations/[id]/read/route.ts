@@ -20,7 +20,7 @@ export async function POST(
     .uuid()
     .safeParse((await context.params).id)
   if (!id.success) return failure("VALIDATION_ERROR", "会话编号无效", 400)
-  const parsed = ChatReadSchema.safeParse(await request.json())
+  const parsed = ChatReadSchema.safeParse(await request.json().catch(() => null))
   if (!parsed.success) return failure("VALIDATION_ERROR", "消息编号无效", 400)
   const conversation = await getChatConversationAccess(actor, id.data)
   if (!conversation) return failure("NOT_FOUND", "会话不存在", 404)

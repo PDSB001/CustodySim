@@ -20,7 +20,7 @@ export async function PATCH(
   if (actor.role === "SUPERVISED")
     return failure("FORBIDDEN", "无补卡审核权限", 403)
   const params = Params.safeParse(await context.params)
-  const parsed = ReviewSchema.safeParse(await request.json())
+  const parsed = ReviewSchema.safeParse(await request.json().catch(() => null))
   if (!params.success || !parsed.success)
     return failure("VALIDATION_ERROR", "审核参数不合法", 400)
   try {

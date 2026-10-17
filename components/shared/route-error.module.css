@@ -1,0 +1,59 @@
+/* Self-contained fallback: global-error replaces the layout and its global styles. */
+.panel {
+  box-sizing: border-box;
+  max-width: 32rem;
+  margin: 3rem auto;
+  padding: 2rem;
+  border: 1px solid var(--border, #cbd5e1);
+  border-radius: 0.75rem;
+  background: var(--background, #fff);
+  color: var(--foreground, #172033);
+  font-family: system-ui, sans-serif;
+  line-height: 1.6;
+}
+
+.title {
+  margin: 0 0 1rem;
+  font-size: 1.25rem;
+  font-weight: 600;
+}
+.message {
+  margin: 0 0 1rem;
+  color: var(--muted-foreground, #475569);
+}
+.digest {
+  margin: 0 0 1rem;
+  font-size: 0.875rem;
+  overflow-wrap: anywhere;
+}
+.retry {
+  min-height: 2.75rem;
+  padding: 0.625rem 1rem;
+  border: 1px solid transparent;
+  border-radius: 0.5rem;
+  background: var(--primary, #1d4ed8);
+  color: var(--primary-foreground, #fff);
+  font: inherit;
+  cursor: pointer;
+}
+.retry:hover {
+  filter: brightness(0.92);
+}
+.retry:focus-visible {
+  outline: 3px solid var(--ring, #2563eb);
+  outline-offset: 3px;
+}
+
+@media (prefers-color-scheme: dark) {
+  .panel {
+    background: var(--background, #0f172a);
+    color: var(--foreground, #f1f5f9);
+    border-color: var(--border, #475569);
+  }
+  .message {
+    color: var(--muted-foreground, #cbd5e1);
+  }
+  .retry:focus-visible {
+    outline-color: var(--ring, #93c5fd);
+  }
+}

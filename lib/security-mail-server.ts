@@ -90,13 +90,8 @@ async function reserveEmailAttempts(
 ) {
   await db.transaction(async (tx) => {
     // Same lock order across all requests; limits count attempts, including failed credentials and delivery.
-    await reserveLimit(
-      tx,
-      `${kind}:ip`,
-      ip || "unknown",
-      kind === "send" ? 20 : 100,
-      0,
-    )
+    if (ip)
+      await reserveLimit(tx, `${kind}:ip`, ip, kind === "send" ? 20 : 100, 0)
     await reserveLimit(
       tx,
       `${kind}:user`,
@@ -128,12 +123,10 @@ export async function queueSecurityNotice(
     kind: "notice",
     params: { event, time: new Date().toISOString() },
   }
-  await tx
-    .insert(securityMailOutbox)
-    .values({
-      userId,
-      payloadEncrypted: encryptMfaSecret(JSON.stringify(mail)),
-    })
+  await tx.insert(securityMailOutbox).values({
+    userId,
+    payloadEncrypted: encryptMfaSecret(JSON.stringify(mail)),
+  })
 }
 
 export async function beginEmailBinding(
@@ -189,16 +182,14 @@ export async function beginEmailBinding(
       .where(
         and(eq(challenges.userId, actor.id), isNull(challenges.consumedAt)),
       )
-    await tx
-      .insert(challenges)
-      .values({
-        id,
-        userId: actor.id,
-        emailEncrypted: encryptMfaSecret(input.email),
-        codeHash: hashEmailCode(id, code),
-        tokenVersion: current.tokenVersion,
-        expiresAt: new Date(Date.now() + 300_000),
-      })
+    await tx.insert(challenges).values({
+      id,
+      userId: actor.id,
+      emailEncrypted: encryptMfaSecret(input.email),
+      codeHash: hashEmailCode(id, code),
+      tokenVersion: current.tokenVersion,
+      expiresAt: new Date(Date.now() + 300_000),
+    })
     await writeAuditLog(
       {
         actor,

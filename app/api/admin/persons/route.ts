@@ -109,7 +109,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   const actor = await getAdminUser()
   if (!actor) return failure("FORBIDDEN", "仅管理员可管理人员", 403)
-  const parsed = PersonSchema.safeParse(await request.json())
+  const parsed = PersonSchema.safeParse(await request.json().catch(() => null))
   if (!parsed.success)
     return failure(
       "VALIDATION_ERROR",

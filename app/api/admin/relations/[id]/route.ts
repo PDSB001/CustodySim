@@ -21,7 +21,7 @@ export async function PATCH(
   const actor = await getAdminUser()
   if (!actor) return failure("FORBIDDEN", "仅管理员可管理监管关系", 403)
   const params = Params.safeParse(await context.params)
-  const body = SupervisionRelationSchema.safeParse(await request.json())
+  const body = SupervisionRelationSchema.safeParse(await request.json().catch(() => null))
   if (!params.success || !body.success)
     return failure("VALIDATION_ERROR", "参数不合法", 400)
   try {

@@ -44,7 +44,7 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   const actor = await getAdminUser()
   if (!actor) return failure("FORBIDDEN", "仅管理员可管理监管关系", 403)
-  const parsed = SupervisionRelationSchema.safeParse(await request.json())
+  const parsed = SupervisionRelationSchema.safeParse(await request.json().catch(() => null))
   if (!parsed.success)
     return failure(
       "VALIDATION_ERROR",

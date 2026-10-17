@@ -35,9 +35,10 @@ export async function GET(
     try {
       text = (await buildReaderDocument(book.bytes, book.format)).text
     } catch (error) {
+      console.error("[API library content] parsing failed", error)
       return failure(
         "VALIDATION_ERROR",
-        error instanceof Error ? error.message : "无法解析文档",
+        "无法解析文档，请联系管理员检查书籍文件",
         400,
       )
     }

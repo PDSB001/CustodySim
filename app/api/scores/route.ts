@@ -210,7 +210,7 @@ export async function POST(request: NextRequest) {
   if (!actor) return failure("UNAUTHORIZED", "请先登录", 401)
   if (actor.role === "SUPERVISED")
     return failure("FORBIDDEN", "仅管理人员可调整积分", 403)
-  const parsed = ManualScoreSchema.safeParse(await request.json())
+  const parsed = ManualScoreSchema.safeParse(await request.json().catch(() => null))
   if (!parsed.success)
     return failure("VALIDATION_ERROR", "积分调整参数不合法", 400)
   if (

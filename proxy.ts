@@ -38,7 +38,7 @@ function getContentSecurityPolicy(
   return [
     "default-src 'self'",
     // Tencent Maps GL currently requires eval internally for its WebGL runtime.
-    `script-src 'self' 'nonce-${nonce}'${allowsUnsafeEval ? " 'unsafe-eval'" : ""}${usesLibrary ? " 'wasm-unsafe-eval'" : ""} https://map.qq.com https://*.map.qq.com`,
+    `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'${allowsUnsafeEval ? " 'unsafe-eval'" : ""}${usesLibrary ? " 'wasm-unsafe-eval'" : ""} https://map.qq.com https://*.map.qq.com`,
     usesTencentMap ? "worker-src 'self' blob:" : "worker-src 'self'",
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data: blob: https://*.qq.com https://*.gtimg.com https://*.qpic.cn",

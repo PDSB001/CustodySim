@@ -81,8 +81,13 @@ export function parseCheckinSlotSettings(value: unknown): CheckinSlotSetting[] {
     .sort((left, right) => left.time.localeCompare(right.time))
 }
 
-export async function getCustodyProfileForUser(userId: string) {
-  const [profile] = await db
+type CustodyDatabase = Pick<typeof db, "select" | "update">
+
+export async function getCustodyProfileForUser(
+  userId: string,
+  database: CustodyDatabase = db,
+) {
+  const [profile] = await database
     .select({
       custodyLevel: persons.custodyLevel,
       custodyStatus: persons.custodyStatus,
@@ -96,6 +101,8 @@ export async function getCustodyProfileForUser(userId: string) {
   const status = await syncScheduledCustodyStatus(
     userId,
     profile.custodyStatus as PrisonerCustodyStatus,
+    new Date(),
+    database,
   )
   return {
     custodyLevel: profile.custodyLevel as CustodyLevel,
@@ -107,13 +114,16 @@ export async function syncScheduledCustodyStatus(
   userId: string,
   currentStatus?: PrisonerCustodyStatus,
   now = new Date(),
+  database: CustodyDatabase = db,
 ) {
   let status = currentStatus
   if (!status) {
-    const [profile] = await db
+    const [profile] = await database
       .select({ custodyStatus: persons.custodyStatus })
       .from(persons)
-      .where(and(eq(persons.userId, userId), eq(persons.personType, "SUPERVISED")))
+      .where(
+        and(eq(persons.userId, userId), eq(persons.personType, "SUPERVISED")),
+      )
       .limit(1)
     if (!profile) return "OUT_OF_CUSTODY" as PrisonerCustodyStatus
     status = profile.custodyStatus as PrisonerCustodyStatus
@@ -124,7 +134,7 @@ export async function syncScheduledCustodyStatus(
     status !== "TEMPORARY_OUT_OF_CUSTODY"
   )
     return status
-  const approvedAbsences = await db
+  const approvedAbsences = await database
     .select({ type: applications.type, payload: applications.payload })
     .from(applications)
     .where(
@@ -151,7 +161,7 @@ export async function syncScheduledCustodyStatus(
         ? "IN_CUSTODY"
         : status
   if (nextStatus !== status)
-    await db
+    await database
       .update(persons)
       .set({ custodyStatus: nextStatus, updatedAt: now })
       .where(eq(persons.userId, userId))
@@ -206,7 +216,10 @@ export function startScheduledCustodyStatusScheduler() {
   const timer = setInterval(
     () =>
       void syncAllScheduledCustodyStatuses().catch((error: unknown) =>
-        console.error("[custody status] scheduled absence-status sync failed", error),
+        console.error(
+          "[custody status] scheduled absence-status sync failed",
+          error,
+        ),
       ),
     5 * 60 * 1000,
   )

@@ -26,6 +26,8 @@ const ResponseSchema = z.object({
   provider: z.string(),
   apiKeyVariable: z.string(),
   configurationError: z.string().nullable(),
+  concurrencyLimit: z.number().int().nonnegative().optional(),
+  pauseReason: z.string().nullable().optional(),
   apiKeysConfigured: z.object({ bigmodel: z.boolean(), zai: z.boolean() }),
   actors: z.array(
     z.object({
@@ -95,7 +97,9 @@ export function AutoReviewManage() {
                 当前状态：
                 {query.data.settings.enabled ||
                 query.data.settings.makeupEnabled
-                  ? "已开启"
+                  ? query.data.pauseReason
+                    ? "已开启（模型审核暂停）"
+                    : "已开启"
                   : "已关闭"}{" "}
                 · 服务商：
                 {settings.provider === "zai" ? "z.ai" : "智谱 BigModel"} ·
@@ -130,6 +134,11 @@ export function AutoReviewManage() {
               {query.data.configurationError && (
                 <p role="alert" className="text-destructive">
                   {query.data.configurationError}
+                </p>
+              )}
+              {query.data.pauseReason && (
+                <p role="alert" className="text-destructive">
+                  {query.data.pauseReason}
                 </p>
               )}
               {!query.data.storageReady && (

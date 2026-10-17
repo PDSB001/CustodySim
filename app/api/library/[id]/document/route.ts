@@ -79,9 +79,10 @@ export async function GET(
   } catch (error) {
     if (error instanceof ReaderSourceChangedError)
       return failure("NOT_FOUND", "书籍已变更，请重新打开", 404)
+    console.error("[API library document] parsing failed", error)
     return failure(
       "VALIDATION_ERROR",
-      error instanceof Error ? error.message : "无法解析阅读文档",
+      "无法解析阅读文档，请联系管理员检查书籍文件",
       400,
     )
   }

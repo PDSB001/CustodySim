@@ -35,7 +35,7 @@ export async function POST(request: NextRequest) {
         `尝试过于频繁，请在 ${retryAfter} 秒后重试`,
         429,
       )
-    const parsed = ChangePasswordSchema.safeParse(await request.json())
+    const parsed = ChangePasswordSchema.safeParse(await request.json().catch(() => null))
     if (!parsed.success)
       return failure(
         "VALIDATION_ERROR",

@@ -19,7 +19,7 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
   const { id } = await params
   if (!z.string().uuid().safeParse(id).success)
     return failure("VALIDATION_ERROR", "组织参数无效", 400)
-  const parsed = AssignSchema.safeParse(await request.json())
+  const parsed = AssignSchema.safeParse(await request.json().catch(() => null))
   if (!parsed.success) return failure("VALIDATION_ERROR", "用户参数无效", 400)
   try {
     const [organization] = await db

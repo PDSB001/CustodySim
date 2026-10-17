@@ -31,7 +31,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
   if (!actor) return failure("FORBIDDEN", "仅管理员可管理档案盒", 403)
   const [params, parsed] = await Promise.all([
     context.params.then((value) => ParamsSchema.safeParse(value)),
-    request.json().then((value: unknown) => ArchiveBoxSchema.safeParse(value)),
+    request.json().catch(() => null).then((value: unknown) => ArchiveBoxSchema.safeParse(value)),
   ])
   if (!params.success || !parsed.success)
     return failure("VALIDATION_ERROR", "档案盒参数不合法", 400)

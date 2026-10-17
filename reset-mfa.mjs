@@ -5,7 +5,7 @@
  * 用途：丢失验证器与恢复码时，解除二次验证锁定。
  * 用法：
  *   node --env-file=.env.local reset-mfa.mjs                  # 只查询状态（默认）
- *   node --env-file=.env.local reset-mfa.mjs <用户名> --apply  # 执行重置
+ *   node --env-file=.env.local reset-mfa.mjs <用户名> --apply --confirm-database=<库名>
  *
  * 注意：这是权限敏感操作，仅限开发 / 测试库。
  * 生产环境应走恢复码，或由管理员重置密码后重新绑定，不要使用本脚本。
@@ -16,10 +16,20 @@ const { Client } = pg
 
 const [username, ...flags] = process.argv.slice(2)
 const apply = flags.includes("--apply")
+const confirmedDatabase = flags
+  .find((flag) => flag.startsWith("--confirm-database="))
+  ?.slice("--confirm-database=".length)
+
+if (apply && !confirmedDatabase) {
+  console.error(
+    "重置须显式指定 --confirm-database=<目标数据库名>；请先不带 --apply 查询目标库。",
+  )
+  process.exit(1)
+}
 
 if (!username) {
   console.error(
-    "用法: node --env-file=.env.local reset-mfa.mjs <用户名> [--apply]",
+    "用法: node --env-file=.env.local reset-mfa.mjs <用户名> [--apply --confirm-database=<库名>]",
   )
   process.exit(1)
 }
@@ -43,6 +53,8 @@ try {
 
   const database = await client.query("select current_database() as name")
   console.log(`目标库: ${database.rows[0]?.name}`)
+  if (apply && confirmedDatabase !== database.rows[0]?.name)
+    throw new Error("确认的数据库名与实际连接不一致，已拒绝重置")
 
   const found = await client.query(
     "select id, username, role, status from users where username = $1",
@@ -67,15 +79,13 @@ try {
     )
 
     if (!factors.rows.length) {
-      console.log(
-        "该账号没有任何 MFA 记录 —— 登录不需要验证码，问题不在这里。",
-      )
+      console.log("该账号没有任何 MFA 记录 —— 登录不需要验证码，问题不在这里。")
     } else {
       console.table(factors.rows)
 
       if (!apply) {
         console.log(
-          "\n以上仅为查询。确认要重置请追加 --apply（会删除 MFA 记录与恢复码）。",
+          "\n以上仅为查询。确认要重置请追加 --apply --confirm-database=<上方目标库名>（会删除 MFA 记录与恢复码）。",
         )
       } else {
         const removed = await client.query(

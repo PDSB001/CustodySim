@@ -32,7 +32,7 @@ const pool =
     // 单条语句上限：兜住跑飞的查询，防止它长期占着连接（应用不执行 DDL，不影响建索引等维护）。
     statement_timeout: 15_000,
   })
-if (process.env.NODE_ENV !== "production") globalForDb.custodySimPool = pool
+globalForDb.custodySimPool = pool
 
 // Session-level advisory locks need a pinned PostgreSQL connection for their lifetime.
 export const dbPool = pool

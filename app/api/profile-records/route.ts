@@ -101,7 +101,7 @@ export async function POST(request: NextRequest) {
   if (!actor) return failure("UNAUTHORIZED", "请先登录", 401)
   if (actor.role !== "SUPERVISED")
     return failure("FORBIDDEN", "仅被监管人可填写档案", 403)
-  const parsed = ProfileRecordDraftSchema.safeParse(await request.json())
+  const parsed = ProfileRecordDraftSchema.safeParse(await request.json().catch(() => null))
   if (!parsed.success) return failure("VALIDATION_ERROR", "档案数据不合法", 400)
   try {
     const [form] = await db

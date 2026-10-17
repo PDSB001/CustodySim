@@ -30,7 +30,7 @@ export async function POST(request: NextRequest) {
         `尝试过于频繁，请在 ${retryAfter} 秒后重试`,
         429,
       )
-    const parsed = MfaSetupSchema.safeParse(await request.json())
+    const parsed = MfaSetupSchema.safeParse(await request.json().catch(() => null))
     if (!parsed.success)
       return failure("VALIDATION_ERROR", "请输入当前密码", 400)
     const [account] = await db

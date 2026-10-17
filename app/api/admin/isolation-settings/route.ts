@@ -34,7 +34,7 @@ export async function GET() {
 export async function PUT(request: NextRequest) {
   const actor = await getAdminUser()
   if (!actor) return failure("FORBIDDEN", "仅管理员可修改禁闭设置", 403)
-  const parsed = SettingsSchema.safeParse(await request.json())
+  const parsed = SettingsSchema.safeParse(await request.json().catch(() => null))
   if (!parsed.success) return failure("VALIDATION_ERROR", JSON.stringify(parsed.error.flatten().fieldErrors), 400)
   try {
     const [saved] = await db.insert(isolationSettings).values({ id: "default", ...parsed.data, templateId: parsed.data.templateIds[0] ?? null, updatedAt: new Date() }).onConflictDoUpdate({ target: isolationSettings.id, set: { ...parsed.data, templateId: parsed.data.templateIds[0] ?? null, updatedAt: new Date() } }).returning()

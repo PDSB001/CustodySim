@@ -30,7 +30,7 @@ export async function GET() {
 export async function PUT(request: NextRequest) {
   const actor = await getAdminUser()
   if (!actor) return failure("FORBIDDEN", "仅管理员可管理界面配置", 403)
-  const parsed = UiConfigSchema.safeParse(await request.json())
+  const parsed = UiConfigSchema.safeParse(await request.json().catch(() => null))
   if (!parsed.success)
     return failure(
       "VALIDATION_ERROR",

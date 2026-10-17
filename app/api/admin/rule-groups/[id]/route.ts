@@ -18,7 +18,7 @@ export async function PATCH(
   const actor = await getAdminUser()
   if (!actor) return failure("FORBIDDEN", "仅管理员可管理规则组", 403)
   const params = Params.safeParse(await context.params)
-  const parsed = RuleGroupSchema.safeParse(await request.json())
+  const parsed = RuleGroupSchema.safeParse(await request.json().catch(() => null))
   if (!params.success || !parsed.success)
     return failure("VALIDATION_ERROR", "参数不合法", 400)
   try {

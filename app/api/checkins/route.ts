@@ -54,7 +54,7 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   const actor = await getSessionUser()
   if (!actor) return failure("UNAUTHORIZED", "请先登录", 401)
-  const parsed = CheckinSchema.safeParse(await request.json())
+  const parsed = CheckinSchema.safeParse(await request.json().catch(() => null))
   if (!parsed.success) return failure("VALIDATION_ERROR", "打卡参数不合法", 400)
   const photo = parsed.data.photo?.trim()
   if (photo) {

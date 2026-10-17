@@ -16,6 +16,7 @@ import {
   UsersRound,
 } from "lucide-react"
 import Link from "next/link"
+import { useSyncExternalStore } from "react"
 import { z } from "zod"
 
 import { CheckinHomeCard } from "@/components/checkin/checkin-home-card"
@@ -139,7 +140,8 @@ const homeContent = {
   },
 } as const
 
-type MetricTone = "brand" | "info" | "success" | "warning" | "danger" | "neutral"
+type MetricTone =
+  "brand" | "info" | "success" | "warning" | "danger" | "neutral"
 
 /**
  * 数值型指标为 0 时退回中性色，避免"没有待办也保持高亮"；
@@ -400,6 +402,10 @@ function RoommateSummaryCard() {
   )
 }
 
+const subscribeToHydration = () => () => {}
+const clientHydrated = () => true
+const serverHydrated = () => false
+
 export function RoleWorkspaceHome({
   user,
   kind,
@@ -408,17 +414,31 @@ export function RoleWorkspaceHome({
   kind: WorkspaceKind
 }) {
   const content = homeContent[kind]
-  const uiConfig = useQuery({
+  const hydrated = useSyncExternalStore(
+    subscribeToHydration,
+    clientHydrated,
+    serverHydrated,
+  )
+  const uiQuery = useQuery({
     queryKey: ["ui-config", kind],
     queryFn: () => requestApi(`/api/ui-config?scope=${kind}`, UiConfigSchema),
     staleTime: 60_000,
   })
-  const summary = useQuery({
+  const summaryQuery = useQuery({
     queryKey: ["dashboard-summary"],
     queryFn: () => requestApi("/api/dashboard-summary", DashboardSummarySchema),
     refetchInterval: 30_000,
     refetchOnWindowFocus: true,
   })
+  // Layout queries can fill the browser cache before this streamed segment hydrates.
+  // Its first render must still match the server's fallback text and loading state.
+  const uiConfig = { data: hydrated ? uiQuery.data : undefined }
+  const summary = {
+    ...summaryQuery,
+    data: hydrated ? summaryQuery.data : undefined,
+    isLoading: !hydrated || summaryQuery.isLoading,
+    error: hydrated ? summaryQuery.error : null,
+  }
   const pendingReviewCount =
     (summary.data?.pendingTasks ?? 0) + (summary.data?.pendingMakeups ?? 0)
 

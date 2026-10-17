@@ -101,7 +101,7 @@ export async function GET(request: NextRequest) {
 export async function PATCH(request: NextRequest) {
   const actor = await getSessionUser()
   if (!actor) return failure("UNAUTHORIZED", "请先登录", 401)
-  const parsed = ReadSchema.safeParse(await request.json())
+  const parsed = ReadSchema.safeParse(await request.json().catch(() => null))
   if (!parsed.success) return failure("VALIDATION_ERROR", "通知参数不合法", 400)
   try {
     const [notice] = await db

@@ -49,7 +49,7 @@ export function MarqueeBanner({
     resizeObserver.observe(container)
     resizeObserver.observe(content)
     return () => resizeObserver.disconnect()
-  }, [text])
+  }, [text, shouldScroll, prefersReducedMotion])
 
   if (!text.trim()) return null
 

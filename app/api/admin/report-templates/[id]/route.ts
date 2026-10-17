@@ -21,7 +21,7 @@ export async function PUT(
 
   const params = Params.safeParse(await context.params)
   if (!params.success) return failure("VALIDATION_ERROR", "参数不合法", 400)
-  const parsed = ReportTemplateSchema.safeParse(await request.json())
+  const parsed = ReportTemplateSchema.safeParse(await request.json().catch(() => null))
   if (!parsed.success)
     return failure(
       "VALIDATION_ERROR",

@@ -91,6 +91,24 @@ it("禁闭、图片和没有明确要求的模板交人工", () => {
       ?.result,
   ).toBe("MANUAL")
 })
+it("模型并发不能占满数据库连接池", () => {
+  expect(
+    getGlmReviewConcurrencyLimit("glm-4.7-flash", {
+      GLM_REVIEW_MAX_CONCURRENCY: "50",
+      DATABASE_POOL_MAX: "20",
+    }),
+  ).toBe(5)
+  expect(
+    getGlmReviewConcurrencyLimit("glm-4.5-flash", {
+      GLM_REVIEW_MAX_CONCURRENCY: "50",
+      DATABASE_POOL_MAX: "8",
+    }),
+  ).toBe(2)
+  expect(
+    getGlmReviewConcurrencyLimit("glm-4.7-flash", { DATABASE_POOL_MAX: "1" }),
+  ).toBe(0)
+})
+
 it("不确定或矛盾的模型结论交人工", () => {
   expect(
     validateAutoDecision({ ...approved, confidence: 0.7 }, data).result,
@@ -104,6 +122,59 @@ it("不确定或矛盾的模型结论交人工", () => {
       data,
     ).result,
   ).toBe("MANUAL")
+})
+it.each([0.8, 0.85, 0.9])(
+  "基本合格的简短回答在置信度 %s 时可以通过",
+  (confidence) => {
+    const answer = { 说明: "整理了书架，已经放整齐了。" }
+    expect(
+      validateAutoDecision({ ...approved, confidence }, answer).result,
+    ).toBe("APPROVED")
+  },
+)
+it.each([0.79, 0.8, 0.85, 0.89])(
+  "宽松通过不降低置信度 %s 的自动退回门槛",
+  (confidence) => {
+    expect(
+      validateAutoDecision(
+        {
+          ...approved,
+          result: "RETURNED",
+          confidence,
+          issues: [
+            { field: "说明", quote: "今天", problem: "缺少明确要求的结果" },
+          ],
+        },
+        data,
+      ).result,
+    ).toBe("MANUAL")
+  },
+)
+it("低于通过门槛或明确交人工的结论不会被自动改为通过", () => {
+  expect(
+    validateAutoDecision({ ...approved, confidence: 0.79 }, data).result,
+  ).toBe("MANUAL")
+  expect(
+    validateAutoDecision({ ...approved, result: "MANUAL" }, data).result,
+  ).toBe("MANUAL")
+})
+it("口语化的基本回答可以进入模型，必填和抄写校验仍保留", () => {
+  expect(
+    prepareAutoReview(template, { 说明: "整理书架了，已经整齐了。" }, false)
+      .input,
+  ).toBeDefined()
+  expect(
+    prepareAutoReview(
+      {
+        ...template,
+        fields: [
+          { ...template.fields[0], type: "COPYWRITE", options: ["规定原文"] },
+        ],
+      },
+      { 说明: "随便写" },
+      false,
+    ).decision?.result,
+  ).toBe("RETURNED")
 })
 it("退回必须引用实际回答的证据", () => {
   const returned = {

@@ -4,6 +4,40 @@ import { eq, inArray, sql } from "drizzle-orm"
 import * as s from "../lib/db/schema"
 import { hashPassword } from "../lib/auth"
 
+test("自动审核管理页显示连接预算不足的暂停原因", async ({ page }) => {
+  const reason =
+    "数据库连接预算不足，模型自动审核已暂停。待审记录保持待审，仍可人工审核。"
+  await page.route("**/api/admin/auto-review", async (route) => {
+    if (route.request().method() !== "GET") return route.continue()
+    const response = await route.fetch()
+    const payload = await response.json()
+    await route.fulfill({
+      response,
+      json: {
+        ...payload,
+        data: {
+          ...payload.data,
+          settings: { ...payload.data.settings, enabled: true },
+          concurrencyLimit: 0,
+          pauseReason: reason,
+        },
+      },
+    })
+  })
+  await page.goto("/login")
+  await page.getByLabel("账号").fill("rank_admin")
+  await page.getByLabel("密码").fill("Demo12345")
+  await page.getByRole("button", { name: /登\s*录/ }).click()
+  await expect(page.getByRole("heading", { name: "快捷管理" })).toBeVisible()
+  await page.goto("/auto-review")
+  await expect(
+    page.getByText("当前状态：已开启（模型审核暂停）", { exact: false }),
+  ).toBeVisible()
+  await expect(
+    page.getByRole("alert").filter({ hasText: reason }),
+  ).toBeVisible()
+})
+
 test("管理员页面读取当前环境模板，保存设置并在刷新后保留", async ({
   page,
   playwright,

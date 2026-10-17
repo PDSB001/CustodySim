@@ -142,7 +142,7 @@ export async function POST(
   if (!actor) return failure("UNAUTHORIZED", "请先登录", 401)
   const id = IdSchema.safeParse((await context.params).id)
   if (!id.success) return failure("VALIDATION_ERROR", "会话编号无效", 400)
-  const parsed = ChatMessageDraftSchema.safeParse(await request.json())
+  const parsed = ChatMessageDraftSchema.safeParse(await request.json().catch(() => null))
   if (!parsed.success)
     return failure(
       "VALIDATION_ERROR",

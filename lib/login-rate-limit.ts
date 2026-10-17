@@ -117,7 +117,8 @@ export async function clearLoginFailures(
   namespace = "login",
 ) {
   await db.transaction(async (tx) => {
-    for (const key of getLoginRateLimitKeys(username, ip, namespace)) {
+    // A successful login proves this account only, not other attempts from its IP.
+    for (const key of getLoginRateLimitKeys(username, null, namespace)) {
       await lockRateLimitKey(tx, key)
       await tx.delete(loginRateLimits).where(eq(loginRateLimits.key, key))
     }

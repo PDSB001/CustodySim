@@ -236,7 +236,7 @@ export async function POST(request: NextRequest) {
   if (!actor) return failure("UNAUTHORIZED", "请先登录", 401)
   if (actor.role !== "SUPERVISED")
     return failure("FORBIDDEN", "仅被监管人可发起聊天", 403)
-  const parsed = ChatCreateConversationSchema.safeParse(await request.json())
+  const parsed = ChatCreateConversationSchema.safeParse(await request.json().catch(() => null))
   if (!parsed.success) return failure("VALIDATION_ERROR", "会话参数不合法", 400)
   try {
     const actorRoomId = await getSupervisedRoom(actor.id)

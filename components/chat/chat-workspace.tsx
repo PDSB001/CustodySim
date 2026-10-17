@@ -26,6 +26,7 @@ import { z } from "zod"
 
 import { formatDate, requestApi } from "@/components/shared/api-client"
 import { subscribeChatRealtimeSession } from "@/lib/chat-realtime-session"
+import { invalidateChatEvent } from "@/lib/chat-query-events"
 import { EmptyState } from "@/components/shared/empty-state"
 import { PageHeader } from "@/components/shared/page-header"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
@@ -189,19 +190,7 @@ function useChatRealtime(selectedConversationId: string | null) {
     socket.on(
       "chat:event",
       (event: { conversationId?: string; type?: string }) => {
-        client.invalidateQueries({ queryKey: ["chat-conversations"] })
-        if (!event.conversationId) return
-        // 新消息只让"增量尾巴"（chat-tail）去补：历史页里可能有图片（单张 data URL
-        // 约 1.4 MB），每个事件都重取整段历史等于把同一张图反复搬运。
-        // 撤回与会话变更会影响历史页里的既有条目，才需要整段重取。
-        if (event.type === "message.created")
-          client.invalidateQueries({
-            queryKey: ["chat-tail", event.conversationId],
-          })
-        else
-          client.invalidateQueries({
-            queryKey: ["chat-messages", event.conversationId],
-          })
+        invalidateChatEvent(client, event)
       },
     )
     socket.connect()

@@ -15,11 +15,7 @@ import {
   taskPoolTemplates,
   users,
 } from "@/lib/db/schema"
-import {
-  expandRuleTargets,
-  resolveScopes,
-  type TargetScope,
-} from "@/lib/rule-engine"
+import { expandRuleTargets, resolveScopes } from "@/lib/rule-engine"
 import {
   computeDeadline,
   isRuleScheduledForDate,
@@ -48,7 +44,7 @@ function stableIndex(seed: string, length: number) {
   return (hash >>> 0) % length
 }
 
-export async function ensureUserTasks(userId: string, now = new Date()) {
+async function loadTaskContext(userId?: string) {
   const [
     allRules,
     ownScopes,
@@ -69,7 +65,12 @@ export async function ensureUserTasks(userId: string, now = new Date()) {
     db
       .select({ id: users.id, organizationId: users.organizationId })
       .from(users)
-      .where(eq(users.role, "SUPERVISED")),
+      .where(
+        and(
+          eq(users.role, "SUPERVISED"),
+          userId ? eq(users.id, userId) : undefined,
+        ),
+      ),
     db.select().from(reportTemplates),
     db.select().from(reportTemplateFields),
     db.select().from(taskPools).where(eq(taskPools.enabled, true)),
@@ -77,21 +78,51 @@ export async function ensureUserTasks(userId: string, now = new Date()) {
   ])
   const { buildOrgDescendantsMap } = await import("@/lib/supervision-scope")
   const descendants = buildOrgDescendantsMap(allOrganizations)
+  const targets = new Map(
+    allRules.map((rule) => [
+      rule.id,
+      expandRuleTargets(
+        resolveScopes({
+          ownScopes: ownScopes.filter((scope) => scope.ruleId === rule.id),
+          groupScopes: rule.ruleGroupId
+            ? inheritedScopes.filter(
+                (scope) => scope.groupId === rule.ruleGroupId,
+              )
+            : [],
+        }),
+        descendants,
+        supervisedUsers,
+      ),
+    ]),
+  )
+  return {
+    allRules,
+    supervisedUsers,
+    templates,
+    templateFields,
+    pools,
+    poolLinks,
+    targets,
+  }
+}
+
+type TaskContext = Awaited<ReturnType<typeof loadTaskContext>>
+
+export async function ensureUserTasks(userId: string, now = new Date()) {
+  await ensureTasksFromContext(userId, now, await loadTaskContext(userId))
+}
+
+async function ensureTasksFromContext(
+  userId: string,
+  now: Date,
+  context: TaskContext,
+) {
+  const { allRules, templates, templateFields, pools, poolLinks, targets } =
+    context
   const supervisorIds = await getSupervisorIdsForSupervised(userId)
   for (const rule of allRules) {
     if (!["REPORT", "STUDY", "LABOR"].includes(rule.taskType)) continue
-    const scopes = resolveScopes({
-      ownScopes: ownScopes.filter(
-        (scope) => scope.ruleId === rule.id,
-      ) as TargetScope[],
-      groupScopes: rule.ruleGroupId
-        ? (inheritedScopes.filter(
-            (scope) => scope.groupId === rule.ruleGroupId,
-          ) as TargetScope[])
-        : [],
-    })
-    if (!expandRuleTargets(scopes, descendants, supervisedUsers).has(userId))
-      continue
+    if (!targets.get(rule.id)?.has(userId)) continue
     if (
       !isRuleScheduledForDate(
         {
@@ -180,11 +211,10 @@ export async function ensureUserTasks(userId: string, now = new Date()) {
 }
 
 export async function ensureScheduledTasks(now = new Date()) {
-  const supervisedUsers = await db
-    .select({ id: users.id })
-    .from(users)
-    .where(eq(users.role, "SUPERVISED"))
-  for (const user of supervisedUsers) await ensureUserTasks(user.id, now)
+  // One fresh snapshot per sweep, never reused across requests or permission changes.
+  const context = await loadTaskContext()
+  for (const user of context.supervisedUsers)
+    await ensureTasksFromContext(user.id, now, context)
 }
 
 export async function runLeaveTaskAutoApprovalSweep(now = new Date()) {

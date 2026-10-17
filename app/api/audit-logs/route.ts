@@ -37,31 +37,36 @@ export async function GET(request: NextRequest) {
     !Number.isNaN(cursorDate.getTime()) &&
     UUID_PATTERN.test(cursorId ?? "")
 
-  const rows = await db
-    .select()
-    .from(auditLogs)
-    .where(
-      hasCursor
-        ? or(
-            lt(auditLogs.createdAt, cursorDate),
-            and(
-              eq(auditLogs.createdAt, cursorDate),
-              lt(auditLogs.id, sql`${cursorId}::uuid`),
-            ),
-          )
-        : undefined,
-    )
-    .orderBy(desc(auditLogs.createdAt), desc(auditLogs.id))
-    // 多取一条用于判断是否还有下一页，不额外发 count 查询
-    .limit(limit + 1)
+  try {
+    const rows = await db
+      .select()
+      .from(auditLogs)
+      .where(
+        hasCursor
+          ? or(
+              lt(auditLogs.createdAt, cursorDate),
+              and(
+                eq(auditLogs.createdAt, cursorDate),
+                lt(auditLogs.id, sql`${cursorId}::uuid`),
+              ),
+            )
+          : undefined,
+      )
+      .orderBy(desc(auditLogs.createdAt), desc(auditLogs.id))
+      // 多取一条用于判断是否还有下一页，不额外发 count 查询
+      .limit(limit + 1)
 
-  const hasMore = rows.length > limit
-  const items = hasMore ? rows.slice(0, limit) : rows
-  const last = items.at(-1)
+    const hasMore = rows.length > limit
+    const items = hasMore ? rows.slice(0, limit) : rows
+    const last = items.at(-1)
 
-  return success({
-    items,
-    nextCursor:
-      hasMore && last ? `${last.createdAt.toISOString()}|${last.id}` : null,
-  })
+    return success({
+      items,
+      nextCursor:
+        hasMore && last ? `${last.createdAt.toISOString()}|${last.id}` : null,
+    })
+  } catch (error) {
+    console.error("[API audit-logs GET]", error)
+    return failure("INTERNAL_ERROR", "服务器错误", 500)
+  }
 }

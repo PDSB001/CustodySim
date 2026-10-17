@@ -25,7 +25,7 @@ export const runtime = "nodejs"
 export async function POST(request: NextRequest) {
   try {
     // 先解析请求体：原生客户端把挑战令牌放在 body 里，需要先拿到才能校验。
-    const parsed = MfaVerificationSchema.safeParse(await request.json())
+    const parsed = MfaVerificationSchema.safeParse(await request.json().catch(() => null))
     if (!parsed.success)
       return failure("VALIDATION_ERROR", "请输入验证器代码或恢复码", 400)
     // 浏览器走 httpOnly cookie；原生客户端读不到 cookie，改用请求体里的令牌。

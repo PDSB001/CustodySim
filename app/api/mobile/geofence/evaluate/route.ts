@@ -23,7 +23,7 @@ export async function POST(request: NextRequest) {
   if (!actor) return failure("UNAUTHORIZED", "请先登录", 401)
   if (actor.role !== "SUPERVISED")
     return failure("FORBIDDEN", "仅被监管移动端可上报围栏位置", 403)
-  const parsed = GeofenceEvaluationSchema.safeParse(await request.json())
+  const parsed = GeofenceEvaluationSchema.safeParse(await request.json().catch(() => null))
   if (!parsed.success)
     return failure("VALIDATION_ERROR", "围栏定位数据不合法", 400)
   const now = new Date()
