@@ -23,6 +23,10 @@ Node 版本集中在 `.node-version`，pnpm 版本来自 `package.json` 的 `pac
 业务 API 测试和浏览器测试顺序执行，避免同时改写测试数据。
 浏览器测试在 Next 启动前执行缓存清理守卫；检测到开发端口占用时跳过清理。
 
+`pnpm test:e2e:production` 使用 `playwright.production.config.ts` 构建并启动本地 standalone，始终连接 `custodysim_e2e`。它在桌面和移动视口验证生产 CSP 的 nonce/strict-dynamic、普通页面、地图 SDK 动态加载、eval 及 Blob Worker，监听 `securitypolicyviolation`；SDK 响应由测试提供，使用虚构公开地图 key。CI 在其他数据库/浏览器回归结束后运行它，`pnpm test:all` 同样包含此项。
+
+浏览器验证入口为 Zod 开启 jitless，避免其 Function 特性探测触发 CSP 违规；服务端验证保持原方式。Windows 测试启动器会将 standalone 内指向内部目录的生成符号链接规范为目录联接，绕过部分 Next/pnpm 产物的链接类型限制。
+
 失败时展开失败步骤查看日志；浏览器 trace 保留在 `web-test-results-*` artifact 中，
 保存 7 天。构建成功只说明代码能生成产物，仍需根据改动验收实际功能。
 
