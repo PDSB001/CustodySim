@@ -14,6 +14,7 @@
 # testing
 /coverage
 /test-results/
+/playwright-report/
 /.logs/
 # playwright 临时产物目录（由 --output 指定的本机路径产生）
 /.pw-tmp-results/
@@ -34,7 +35,6 @@
 /artifacts/
 /.next-e2e/
 /.codex-vitest-tmp/
-/artifacts/episteme-upstream/
 
 # deployment backups
 /.backups/
@@ -56,10 +56,4 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
-/artifacts/app-split-history/
-/artifacts/prepare-app-repository.ps1
-
-/artifacts/app-split-validation/
 /.app-workspace/
-/artifacts/android-migration-backup/
-/artifacts/simplify-app.mjs

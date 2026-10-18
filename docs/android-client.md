@@ -1,6 +1,6 @@
 # 原生客户端接入规格
 
-核对日期：2026-10-18。服务端契约由 CustodySim 维护，Android 实现在[独立仓库](https://github.com/PDSB001/CustodySim-app)。本文描述协议，不表示 App 提供全部 Web 管理入口。[旧版规格及事故记录](archive/android-client-legacy.md)只供历史参考。
+核对日期：2026-10-18。服务端契约由 CustodySim 维护，Android 实现在[独立仓库](https://github.com/PDSB001/CustodySim-app)。本文描述协议，不表示 App 提供全部 Web 管理入口。[旧版规格及事故记录](archive/android/android-client-legacy.md)只供历史参考。
 
 ## 1. 请求身份与发现
 

@@ -8,7 +8,7 @@
 - 已验证的修复代码提交：`bb55d1b`；审查文档在后续独立提交中归档。原报告与独立复验中的未提交状态、行号和文件数量是当时快照。
 - **修复基线是包含本文和相关补丁的提交，请以实际 git log、git status 为准。不要只读取原始审查提交，或把历史复验文档中的未提交状态视为永久现状。**
 - Android 独立仓库：`C:\Users\jxy\Documents\CustodySim-app`。本轮 Web 修复没有修改它。
-- 原报告：`CODE-REVIEW-2026-10-17.md`；逐项处理记录：`docs/code-review-follow-up-2026-10-17.md`。
+- 原报告：[original.md](original.md)；逐项处理记录：[fixes.md](fixes.md)。目录整理未改变原审查基线。
 - 本轮不执行生产数据修改、部署或全量 schema push。数据库回归只操作 `custodysim_e2e`。编辑 Next 代码前阅读仓库 AGENTS.md 指定的本地版本文档。
 
 ## 一、尚未解决的确定问题或规模风险

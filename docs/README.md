@@ -13,6 +13,8 @@
 | [常见问题](faq.md)                    | 状态含义、提交失败、定位、阅读与缓存               |
 | [App 服务器设置](server-selection.md) | 检测、切换、重新登录与数据隔离                     |
 
+仓库文件归属见[目录说明](repository-layout.md)，工具用途见[脚本导航](../scripts/README.md)。
+
 ## 开发与运维
 
 | 文档                                              | 解决的问题                                |
@@ -37,18 +39,20 @@
 - [业务数据库回归](../e2e/business/README.md) · [积分与禁闭回归](../e2e/scoring/README.md)
 - [Android 文档中心](https://github.com/PDSB001/CustodySim-app/blob/main/docs/README.md)
 
-本轮修订范围与验证见 [2026-10-18 文档修缮记录](maintenance-2026-10-18.md)。
+本轮修订范围与验证见 [2026-10-18 文档修缮记录](archive/maintenance/2026-10-18.md)。
 
 ## 审查与历史记录
 
-| 记录                                                                                           | 如何使用                      |
-| ---------------------------------------------------------------------------------------------- | ----------------------------- |
-| [2026-10-17 修复跟进](code-review-follow-up-2026-10-17.md)                                     | 已落地修复与验证基线          |
-| [剩余问题清单](../CODE-REVIEW-REMAINING-2026-10-17.md)                                         | 后续工作范围；不表示都已修复  |
-| [原始代码审查](../CODE-REVIEW-2026-10-17.md) / [独立复验](../CODE-REVIEW-VERIFY-2026-10-17.md) | 当时快照，对照跟进清单阅读    |
-| [历史设计与验证索引](archive/README.md)                                                        | 旧 UI、工具链、性能与迁移记录 |
+审查按日期放在 [reviews](reviews/README.md)，设计与设备历史放在 [archive](archive/README.md)。
 
-历史文档保留当时的路径、版本和测试数据，页首明确标识其性质；执行命令时使用当前指南。图书馆历史设计见 [Web](library-web-design.md) / [App](library-app-design.md)。
+| 记录                                                                                            | 如何使用                      |
+| ----------------------------------------------------------------------------------------------- | ----------------------------- |
+| [2026-10-17 修复跟进](reviews/2026-10-17/fixes.md)                                              | 已落地修复与验证基线          |
+| [剩余问题清单](reviews/2026-10-17/remaining.md)                                                 | 后续工作范围；不表示都已修复  |
+| [原始代码审查](reviews/2026-10-17/original.md) / [独立复验](reviews/2026-10-17/verification.md) | 当时快照，对照跟进清单阅读    |
+| [历史设计与验证索引](archive/README.md)                                                         | 旧 UI、工具链、性能与迁移记录 |
+
+历史文档保留当时的路径、版本和测试数据，页首明确标识其性质；执行命令时使用当前指南。图书馆历史设计见 [Web](archive/web/library-web-design.md) / [App](archive/android/library-app-design.md)。
 
 ## 文档维护规则
 

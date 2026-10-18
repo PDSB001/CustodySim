@@ -1,8 +1,8 @@
-> 历史记录（归档标识：2026-10-18）。以下保留原版本、路径、方案与验证结果，可能包含已废弃的构建命令或阅读器。当前操作请使用 [文档中心](README.md) 的指南，不据旧结果推断当前生产或真机状态。
+> 历史记录（归档标识：2026-10-18）。以下保留原版本、路径、方案与验证结果，可能包含已废弃的构建命令或阅读器。当前操作请使用 [文档中心](../../README.md) 的指南，不据旧结果推断当前生产或真机状态。
 
 # Web 性能优化（2026-09-25）
 
-> 历史实施与验证记录。版本、测试数量及设备表现按记录当时理解；当前操作入口见 [文档目录](README.md)。
+> 历史实施与验证记录。版本、测试数量及设备表现按记录当时理解；当前操作入口见 [文档目录](../../README.md)。
 
 ## 改动
 
@@ -89,7 +89,7 @@ node scripts/measure-web-bundles.mjs '/(supervised)/my/page' '/(dashboard)/perso
 
 - 新增 `GET /api/chat/messages/{id}/image`：返回原始图片字节，`Content-Type` 由 data URL 的 MIME 推出，`Cache-Control: private, max-age=31536000, immutable`（内容按消息 ID 不可变）+ `Vary: Cookie, Authorization`（浏览器缓存按凭据分桶，避免同机换号串图）+ `nosniff`。鉴权、留存期与可见性判定与消息列表完全同源；失败一律 404（不区分"不存在 / 不是图片 / 已撤回 / 超期"）。
 - 消息列表与发送响应改为统一下发形态：图片消息给 `hasImage` + `imageUrl`、`content` 置 `null`；撤回后一律不给内容。
-- **代际兼容**：服务端按 `X-CustodySim-Client` 的代际下发。已发布的**代际 1 仍内联 data URL**（否则它会看不到图片），代际 ≥ 2 与浏览器只拿 `imageUrl`。协议细节见 [Android 协议](android-client.md)。
+- **代际兼容**：服务端按 `X-CustodySim-Client` 的代际下发。已发布的**代际 1 仍内联 data URL**（否则它会看不到图片），代际 ≥ 2 与浏览器只拿 `imageUrl`。协议细节见 [Android 协议](../../android-client.md)。
 - **`proxy.ts` 的全局 `private, no-store` 需要豁免**：该中间件给所有 `/api/**` 响应强制禁缓存，与图片端点的强缓存直接冲突（实测表现为 `Cache-Control` 被覆盖成 `private, no-store`、`immutable` 失效）。现在按路径放行，路径规则与地址生成共用 `lib/chat-image-path.ts` 一份定义，避免两处漂移后"缓存静默失效"。
 - Web 端渲染改用 `imageUrl`（保留 `content` 兜底，兼容旧服务端），`<Image>` 保持 `unoptimized`（走 next/image 优化器会由服务端无凭据回源，反而取不到图）。
 

@@ -4,8 +4,8 @@
  *
  * 用途：丢失验证器与恢复码时，解除二次验证锁定。
  * 用法：
- *   node --env-file=.env.local reset-mfa.mjs                  # 只查询状态（默认）
- *   node --env-file=.env.local reset-mfa.mjs <用户名> --apply --confirm-database=<库名>
+ *   node --env-file=.env.local scripts/reset-mfa.mjs <用户名> # 只查询状态（默认）
+ *   node --env-file=.env.local scripts/reset-mfa.mjs <用户名> --apply --confirm-database=<库名>
  *
  * 注意：这是权限敏感操作，仅限开发 / 测试库。
  * 生产环境应走恢复码，或由管理员重置密码后重新绑定，不要使用本脚本。
@@ -29,7 +29,7 @@ if (apply && !confirmedDatabase) {
 
 if (!username) {
   console.error(
-    "用法: node --env-file=.env.local reset-mfa.mjs <用户名> [--apply --confirm-database=<库名>]",
+    "用法: node --env-file=.env.local scripts/reset-mfa.mjs <用户名> [--apply --confirm-database=<库名>]",
   )
   process.exit(1)
 }

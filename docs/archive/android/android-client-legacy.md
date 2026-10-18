@@ -1,14 +1,14 @@
-> 历史归档：2026-10-18 前的接入规格与事故记录。包含已废弃路径、变体及缓存策略；当前操作以 [原生客户端规格](../android-client.md) 为准。
+> 历史归档：2026-10-18 前的接入规格与事故记录。包含已废弃路径、变体及缓存策略；当前操作以 [原生客户端规格](../../android-client.md) 为准。
 
 # 安卓客户端接入规格
 
-面向已位于本仓库 `android/` 的 Kotlin + Compose 客户端。构建与私有地址见 [Android 开发指南](../android-development.md)，生产运行见 [部署指南](../deployment.md)。本文区分接口约定与客户端现状；接口存在不代表 App 已提供全部管理入口。
+面向已位于本仓库 `android/` 的 Kotlin + Compose 客户端。构建与私有地址见 [Android 开发指南](../../android-development.md)，生产运行见 [部署指南](../../deployment.md)。本文区分接口约定与客户端现状；接口存在不代表 App 已提供全部管理入口。
 
 服务端所有站内接口都能用 Bearer 令牌直接调用，因此本文只写**原生特有**、**易踩坑**和**别等**的部分。本文与代码冲突时以代码为准，并回改本文。
 
 ## 1. 必带的请求头
 
-运行时服务器选择使用匿名 `GET /api/mobile/server-info` 检测，不携带任何会话或可信设备凭据。业务连接、存储隔离和切换步骤见[服务器设置](../server-selection.md)。
+运行时服务器选择使用匿名 `GET /api/mobile/server-info` 检测，不携带任何会话或可信设备凭据。业务连接、存储隔离和切换步骤见[服务器设置](../../server-selection.md)。
 
 | 头                            | 值                   | 说明                                                               |
 | ----------------------------- | -------------------- | ------------------------------------------------------------------ |
@@ -326,7 +326,7 @@ java.lang.OutOfMemoryError: Failed to allocate a 35248776 byte allocation with 1
 已做的降峰值改动（`reader/html/HtmlReader.kt`）：`htmlReaderMarkup` 改为一次性写入预分配缓冲、转义单遍完成，去掉 `trimIndent()` 与链式 `replace()`；
 host 文档改为缓存字节，`shouldInterceptRequest` 不再每次重新编码整本。结构性改动随后落地：host 文档只带元数据，
 章节正文按 `/reader/chapter/{i}` 逐节取用，长章节的分块只对真正读到的章节计算，整本拷贝与预先分块都不再存在
-（详见 [阅读器分格式翻页重构](../android-reader-pagination-refactor.md) 的第 10 节）。
+（详见 [阅读器分格式翻页重构](android-reader-pagination-refactor.md) 的第 10 节）。
 
 其它仍然成立的检查项：`shouldInterceptRequest` 对 `assets.open` 与 `runBlocking { repository.resource(...) }` 没有兜底，失败时会从 Chromium 线程抛异常，应补 try/catch；
 `DocumentReaderKt`（`readerHtml`/`readerScript`）已被 R8 整类删除，instrumented 测试若指向优化变体会抛 `NoSuchMethodError`；

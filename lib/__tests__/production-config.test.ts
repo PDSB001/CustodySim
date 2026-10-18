@@ -46,7 +46,7 @@ test("MFA reset requires explicit database confirmation before connecting", () =
   const result = spawnSync(
     process.execPath,
     [
-      fileURLToPath(new URL("../../reset-mfa.mjs", import.meta.url)),
+      fileURLToPath(new URL("../../scripts/reset-mfa.mjs", import.meta.url)),
       "fixture",
       "--apply",
     ],

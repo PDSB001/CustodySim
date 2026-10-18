@@ -16,7 +16,7 @@
 | 运维人员          | [生产部署](docs/deployment.md) · [配置参考](docs/configuration.md) · [运维排障](docs/operations.md)                                                      |
 | Android 维护者    | [独立 App 仓库](https://github.com/PDSB001/CustodySim-app) · [构建指南](https://github.com/PDSB001/CustodySim-app/blob/main/docs/android-development.md) |
 
-完整专题、图解及审查记录见[文档中心](docs/README.md)。
+完整专题、图解及审查记录见[文档中心](docs/README.md)；文件归属见[目录说明](docs/repository-layout.md)，维护工具见[脚本导航](scripts/README.md)。
 
 ## 能做什么
 
