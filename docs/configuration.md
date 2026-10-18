@@ -1,61 +1,84 @@
 # 配置参考
 
-面向开发和技术维护人员。这里的“配置”指服务器和构建参数；普通用户的头像、外观、打卡 GPS 与位置上传设置见[使用指南](user-guide.md)。
+核对日期：2026-10-18。服务端配置使用本仓库 .env.local；App 构建配置使用独立仓库根目录 local.properties。两者不可替代。
 
-以 [.env.example](../.env.example) 和读取配置的代码为准。服务端使用根目录 `.env.local`；Android 使用 `android/local.properties`。两者不可互相替代，不提交真实凭据和私有域名。
+示例见 [.env.example](../.env.example)。服务端进程修改配置后需重启；NEXT_PUBLIC_* 在 Web 构建时进入浏览器产物，变更后重新构建。不要给服务端密钥加 NEXT_PUBLIC_ 前缀。
 
-## 基础配置
+## 必需配置与连接预算
 
-| 配置                               | 用途与要求                                                       |
-| ---------------------------------- | ---------------------------------------------------------------- |
-| `DATABASE_URL`                     | PostgreSQL 连接串，生产必填；需事先创建数据库和有权限的账号      |
-| `DATABASE_POOL_MAX`                | Web 连接池上限，默认 20；还需为实时进程和维护连接留余量          |
-| `AUTH_SECRET`                      | 独立随机会话签名密钥，至少 32 字符；示例占位符会被拒绝           |
-| `MFA_ENCRYPTION_KEY`               | 独立且稳定的 MFA 密钥，至少 32 字符，不随会话密钥一起轮换        |
-| `ARCHIVE_SIGNATURE_ENCRYPTION_KEY` | 手写签名加密密钥，未配时回退 AUTH_SECRET；已有数据不可直接换钥匙 |
-| `APP_ORIGIN`                       | 生产 HTTPS 来源，供写操作来源验证和浏览器实时白名单使用          |
-| `AUTH_COOKIE_SECURE`               | HTTPS 生产 true；仅 HTTP 开发可设 false                          |
-| `TRUST_PROXY`                      | 仅在服务只能经过可信代理，且代理覆盖 X-Real-IP 时设 true         |
+| 配置                             | 当前用途                                                         |
+| -------------------------------- | ---------------------------------------------------------------- |
+| DATABASE_URL                     | PostgreSQL 连接串，必须显式指定数据库名                          |
+| DATABASE_POOL_MAX                | Web 池上限，默认 20；还要为实时进程、升级和维护留连接            |
+| AUTH_SECRET                      | 会话签名；独立随机值，至少 32 字符，拒绝示例占位符               |
+| MFA_ENCRYPTION_KEY               | MFA/安全邮箱等加密；生产必填，稳定保存，不随会话密钥一起轮换     |
+| ARCHIVE_SIGNATURE_ENCRYPTION_KEY | 手写签名加密；缺省兼容回退 AUTH_SECRET，新部署应单独配置         |
+| APP_ORIGIN                       | 生产 HTTPS 来源，用于来源校验与实时白名单；推荐单个根地址        |
+| AUTH_COOKIE_SECURE               | HTTPS true；仅 HTTP 开发 false                                   |
+| TRUST_PROXY                      | 默认 false；只有应用只能被可信代理访问、代理覆盖真实 IP 头时启用 |
 
-密码存储使用 bcrypt（cost 12，见 `lib/auth.ts`），不是 MD5 或单次 SHA。会话、MFA 和档案签名是不同用途的密钥，备份时与数据库一并妥善保管；轮换前明确旧数据和会话的影响。
+密码为 bcrypt cost 12。数据库备份不包含解密密钥的备份保证；丢失 MFA/签名密钥可能无法读取旧数据，轮换前审查兼容方案。
 
-请求携带 Authorization 时只使用该头鉴权，无效或空头不会回退到浏览器 Cookie；Bearer 方案名不区分大小写。停用账号会递增会话版本并撤销受信任设备，重新启用后需重新登录，旧访问令牌与刷新令牌不能恢复使用。管理员重置密码在数据库内原子递增版本，避免与退出、改密等操作并发时覆盖版本。退出登录的会话撤销和审计在同一事务中完成；撤销失败返回错误并清除本机 Cookie，不能视为已经退出全部设备。
+池配置不是模型速率上限：自动审核总占用每 Web 进程最多 min(5, floor(poolMax/4))，服务商/模型另受跨进程 PostgreSQL 锁限制。池不足 4 时模型审核暂停并提示原因，人工可继续。
 
-## 聊天与端口
+## 聊天、端口与保活
 
-| 配置                            | 默认 / 说明                                                        |
-| ------------------------------- | ------------------------------------------------------------------ |
-| `PORT`                          | PM2 Web 默认 3000                                                  |
-| `REALTIME_PORT`                 | 实时服务默认 3001                                                  |
-| `NEXT_PUBLIC_CHAT_REALTIME_URL` | 留空使用同源反代；开发可指定开发机 3001 地址；构建时进入浏览器产物 |
-| `CHAT_RETENTION_DAYS`           | 实时维护任务硬删除天数，默认 28，必须是正整数                      |
+| 配置                          | 默认 / 说明                                |
+| ----------------------------- | ------------------------------------------ |
+| PORT                          | PM2 Web 固定 3000                          |
+| REALTIME_PORT                 | 独立运行默认 3001；PM2 配置固定 3001       |
+| NEXT_PUBLIC_CHAT_REALTIME_URL | 留空走同源 /socket.io/；本地可指定实时端口 |
+| CHAT_RETENTION_DAYS           | 默认 28，正整数，实时维护任务硬删除阈值    |
 
-普通用户读取窗口 14 天、监管审计窗口 28 天由 `lib/chat.ts` 定义，修改清理变量不会同步改变读取窗口。实时服务启动时及此后每 6 小时清理。PM2 配置加载 `.env.local`，修改服务端参数需 `--update-env`；公开构建变量变化还需重新构建。
+普通用户读取窗口 14 天、监管审计窗口 28 天由代码定义，改变删除阈值不会同步改变读取窗口。启动时及每 6 小时执行清理。
 
-实时服务的 `/health` 在 PostgreSQL `LISTEN` 就绪时返回 `200` 和 `{"ok":true}`；连接未建立或断开时返回 `503` 和 `{"ok":false}`。断开后每 5 秒安排一次重连，失败事件不会创建重复监听。
+/health 在 PostgreSQL LISTEN 就绪时 200，否则 503；断开后每 5 秒安排重连。Engine.IO 服务端每 20 秒 ping，10 秒 pong 超时；Nginx 超时 120 秒大于这两者之和。该保活覆盖 CDN 300 秒空闲超时，不能绕过连接总寿命或网络中断。
 
-EdgeOne 图片与书籍共享缓存为可选功能，默认关闭。设置 `EDGEONE_MEDIA_CACHE_ENABLED=true` 并提供独立的 `EDGEONE_MEDIA_SIGNING_KEY`（至少 32 字符，不能复用 AUTH_SECRET）后，按[缓存部署说明](./edgeone-media-cache.md)配置边缘函数。每次请求先校验当前登录与资源权限，节点只缓存图片/书籍原文件/EPUB 插图字节；保留原 URL 与 App 兼容。书籍内容版本生成列由现有部署脚本增量升级，升级不改变阅读缓存版本算法。仅设置环境变量不会自动在 EdgeOne 创建规则或函数。
+实时凭据限单会话，5 分钟到期，Web 正常提前 1 分钟换新；心跳不延长权限。/socket.io/ 必须支持升级并旁路缓存，恢复后 HTTP 补查。见[架构](architecture.md)与[部署](deployment.md)。
 
-实时通道使用 Engine.IO 心跳：服务端每 20 秒发送文本帧 `2`，Web 和现有 Android 客户端回应 `3`；10 秒没有回应则断开。心跳在没有聊天消息时也会收发，可避免 CDN 的 300 秒空闲超时。Nginx 的读写超时保留 120 秒，大于心跳周期与回应期限之和。CDN 需允许 WebSocket 升级，并让 `/socket.io/` 绕过缓存。
+## 模型与自动审核
 
-Web 在网络恢复后重新加入当前会话并通过 HTTP 补查消息与撤回状态；网络失败采用带随机抖动的重连退避。实时 JWT 仍只对单个会话有效，5 分钟到期，心跳不会续长权限；正常提前 1 分钟换新，服务端到期断开或拒绝旧凭证时通过正常登录鉴权重新申请。CDN 若另外限制连接总寿命，仍需重新连接，心跳不能绕过该限制。仅修改 Web 和实时服务即可生效，不需要更新 Android APK 或数据库。
+| 配置                       | 用途                                         |
+| -------------------------- | -------------------------------------------- |
+| GLM_API_KEY                | 默认 BigModel 的独立服务端密钥               |
+| ZAI_API_KEY                | 管理页切换 z.ai 后使用，不回退 BigModel 密钥 |
+| GLM_REVIEW_MAX_CONCURRENCY | 可选整数 1–50，仍受数据库连接预算限制        |
 
-部署自检按单个 `APP_ORIGIN=https://example.com` 读取公开地址，建议采用这一格式，不带路径和尾斜杠。服务端密钥不可加 `NEXT_PUBLIC_` 前缀。
+当前模型随管理页服务商配置确定：BigModel 为 glm-4.1v-thinking-flash，z.ai 为 glm-4.5-flash。GLM_REVIEW_MODEL 不用于切换管理页模型；不要据旧测试环境变量认定当前选用 4.7。
 
-## 可选与一次性参数
+开启、审核账号、模板、服务商、补卡独立开关保存在数据库；默认关闭。旧 AUTO_TASK_REVIEW_* 不再控制开关。密钥更改需重启，管理页服务商和范围保存后下次扫描读取。账号实际模型权益、可用性与额度以供应商控制台为准；详见[自动审核](automatic-task-review.md)。
 
-| 配置                                         | 用途                                                          |
-| -------------------------------------------- | ------------------------------------------------------------- |
-| `NEXT_PUBLIC_TENCENT_MAP_KEY`                | 腾讯地图浏览器 Key，控制台限制域名，电子围栏使用 GCJ-02       |
-| `MAXMIND_LICENSE_KEY` / `MAXMIND_GEOIP_CONF` | 本地 GeoIP 数据更新，命令 `pnpm geoip:update`                 |
-| `GLM_API_KEY`                                | 原智谱 BigModel 服务端 Key，默认服务商继续使用该密钥          |
-| `ZAI_API_KEY`                                | 切换至 z.ai 后使用的服务端 Key，不会接收 BigModel 密钥        |
-| `TENCENT_SES_*`                              | 安全邮箱验证码与通知，具体字段见[SES 指南](security-email.md) |
-| `INITIAL_ADMIN_*`                            | 一次性管理员初始化，密码使用后移除，不保存进 shell 历史       |
-| `ALLOW_DEMO_SEED`                            | 非生产演示数据显式开关，生产禁止启用                          |
-| `E2E_DATABASE_NAME` / `E2E_DATABASE_URL`     | 独立测试库，URL 优先                                          |
-| `E2E_BASE_URL`                               | Playwright 地址                                               |
+## 可选资源与服务
 
-打卡关闭 GPS 时采用本地 geoip-lite 的 IP 粗略城市信息，不把 IP 发到第三方定位接口；精确定位另行使用移动端权限和服务端策略。可选服务未配置时，不应视对应能力为已上线。
+| 配置                                              | 用途 / 约束                                  |
+| ------------------------------------------------- | -------------------------------------------- |
+| EDGEONE_MEDIA_CACHE_ENABLED                       | 默认 false，启用后还需配置边缘函数与旁路规则 |
+| EDGEONE_MEDIA_SIGNING_KEY                         | 独立 >=32 字符，只在源站，不复用 AUTH_SECRET |
+| NEXT_PUBLIC_TENCENT_MAP_KEY                       | 地图浏览器公开 key，控制台限制业务域名       |
+| MAXMIND_LICENSE_KEY / MAXMIND_GEOIP_CONF          | 本地 GeoIP 更新，pnpm geoip:update           |
+| TENCENT_SES_SECRET_ID / SECRET_KEY                | SES 凭据，仅服务端                           |
+| TENCENT_SES_REGION / FROM                         | 与验证发信地址及模板地域一致                 |
+| TENCENT_SES_CODE_TEMPLATE_ID / NOTICE_TEMPLATE_ID | 已审核模板，见[安全邮箱](security-email.md)  |
 
-打卡明细优先显示保存的城市级地点，历史记录缺失时在服务端用本地 GeoIP 库补解析，不改写原记录。GPS 过期后只展示保留的 IP 粗略地点。原生客户端头或旧 OkHttp UA 会显示为 App；浏览器 UA 解析为浏览器名称和版本，原始 UA 可展开查看。现有记录的 UA 保存在 browser_type，最长 100 字符，无法补回历史截断内容；此展示修正无需新增数据库迁移。生产读取代理 IP 的配置项是 TRUST_PROXY=true。
+[EdgeOne 指南](edgeone-media-cache.md)区分浏览器、普通节点、命名 Cache API 和 App 磁盘缓存。启用 env 不会自动发布边缘函数或 Nginx 配置。
+
+IP 粗定位由本地 geoip-lite 解析，不向第三方定位 API 发送访客 IP。打卡明细显示保存地点，历史缺失时可临时补解析；无法恢复历史截断 UA。原生头或旧 OkHttp UA 显示为 App，浏览器 UA 解析为名称版本。TRUST_PROXY 才是读取可信代理 IP 的开关。
+
+## 一次性与测试配置
+
+| 配置                                   | 使用方式                                                   |
+| -------------------------------------- | ---------------------------------------------------------- |
+| INITIAL_ADMIN_USERNAME / PASSWORD      | 仅一次性初始化，成功后删除                                 |
+| INITIAL_ADMIN_NAME / ORGANIZATION_NAME | 可选初始名称与组织                                         |
+| ALLOW_DEMO_SEED                        | 仅非生产演示显式 true，生产禁用                            |
+| E2E_DATABASE_NAME / E2E_DATABASE_URL   | 固定隔离库 custodysim_e2e；URL 优先                        |
+| E2E_BASE_URL                           | 普通 / 积分浏览器地址，默认本地 3100                       |
+| E2E_PRODUCTION_BASE_URL                | 生产 CSP 本地地址，默认 3110；只允许 localhost / 127.0.0.1 |
+
+数据库测试会写数据；不要把测试变量加入生产配置。脚本与 PM2 读取配置不代表 Bash 已有 DATABASE_URL，psql 用法见[运维手册](operations.md)。
+
+## Android 配置边界
+
+App 的 sdk.dir 与开发端点存独立仓库 local.properties；公开 release 不嵌入服务器默认值，production 可预置远端地址，debug/debugR8 支持联调。运行时明确选择的服务器优先，升级 APK 不应静默切走用户保存的选择。
+
+详见[App 构建配置](https://github.com/PDSB001/CustodySim-app/blob/main/docs/android-development.md)和[服务器切换](server-selection.md)。

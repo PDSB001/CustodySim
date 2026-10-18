@@ -1,14 +1,35 @@
-# 账号与申请流程回归
+# 业务数据库回归
 
-```sh
+核对日期：2026-10-18。
+
+```bash
 pnpm db:setup-e2e
 pnpm test:e2e:business
 ```
 
-复用积分测试的数据库隔离配置，强制使用 `custodysim_e2e`。使用真实 JWT、密码哈希、Route Handler 与 PostgreSQL；仅适配 Next.js 的 Cookie 上下文。随机测试账号及其业务数据会在结束后清理。
+使用真实 PostgreSQL、JWT、密码哈希、Route Handler 与业务事务，适配 Next 请求 Cookie 上下文；外部模型/邮件等使用受控替身，不发送真实业务内容。
 
-- 通过真实数据库行锁让两个改密请求同时验证旧密码，验证只有一个成功、另一个返回 409，且旧 JWT 失效。
-- 注入审计写入失败，验证申请提交连同审批队列一起回滚，重试只创建一份申请。
-- 验证审批审计失败时审批记录、申请状态和印章一起回滚，重试正常成功，重复审批返回 409。
+## 隔离与执行
 
-日期有效性另由 `lib/__tests__/shanghai-datetime.test.ts` 验证，覆盖不存在的日期、合法闰日和 ISO 时区转换。
+只允许 custodysim_e2e，拒绝与业务连接重用，执行前核对 current_database()。E2E_DATABASE_URL 优先，否则从本机配置派生；初始化写结构和演示数据。
+
+测试创建随机账号及记录并清理自己的数据，部分调度可作用于其他演示记录。不要在业务库运行，也不要与积分/浏览器/其他数据库写测试并行。完整入口见[开发指南](../../docs/development.md)。
+
+## 覆盖范围
+
+| 文件                                                  | 主要验证                                           |
+| ----------------------------------------------------- | -------------------------------------------------- |
+| workflows.test.ts                                     | 改密并发、申请与审批事务、审计失败回滚             |
+| native-auth.test.ts                                   | 原生登录、MFA、刷新轮换、停用与登出                |
+| security-email.test.ts                                | 邮箱确认、限流、发送失败、撤销与防重放             |
+| auto-review.test.ts                                   | 模型决策、转人工、重复扫描、配置变化、连接预算暂停 |
+| review-regressions.test.ts / review-snapshots.test.ts | 审核范围、任务/补卡原因与快照                      |
+| checkin-records.test.ts / location-track.test.ts      | 点名记录、定位批次与权限                           |
+| edgeone-media.test.ts                                 | 签名、缓存取字节、撤权、版本与资源边界             |
+| community.test.ts                                     | 匿名、可见字段、自愿分享与删除                     |
+| attachments.test.ts                                   | 图片/附件校验及权限                                |
+| person-list.test.ts / web-performance.test.ts         | 人员分页、游标与查询行为                           |
+
+具体断言以各文件为准，测试数量随代码变更。通过数据库回归不等于真实浏览器、EdgeOne 节点或 Android 设备已验收。
+
+日期边界另见 lib/**tests**/shanghai-datetime.test.ts；评分与禁闭精确时间链见[积分测试](../scoring/README.md)。

@@ -20,9 +20,9 @@ Web 和 Android 分享选项按分类默认收起，体貌和身体尺寸合并�
 
 ## 数据库升级
 
-已有数据库先执行：node scripts/upgrade-community.mjs --database=<目标数据库名>。脚本核对实际数据库名后，在事务里增建三张社区表、两个档案字段和索引；可重复运行。不要对生产数据库使用 drizzle-kit push 自动确认。
+正常增量部署已自动调用 upgrade-community.mjs；独立执行时从项目根目录运行 node scripts/upgrade-community.mjs --database=<目标数据库名>。脚本核对实际数据库名后，在事务里增建三张社区表、两个档案字段和索引；可重复运行。不要对生产数据库使用 drizzle-kit push 自动确认。
 
-新数据库使用项目现有 schema 初始化流程。本机 custodysim 和独立测试库 custodysim_e2e 已完成升级；部署到其他环境前仍需对目标库执行此脚本。未发布服务端或安装 App。
+新数据库使用项目现有 schema 初始化流程。其他环境是否已升级必须对目标环境核验；历史本机结果不代表当前生产部署状态。备份及操作入口见[部署指南](deployment.md)。
 
 ## API
 

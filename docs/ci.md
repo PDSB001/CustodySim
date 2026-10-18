@@ -1,69 +1,56 @@
 # 持续集成
 
-Web/API 与 Android 分别在各自仓库运行 GitHub Actions。PR、主分支推送和手动
-`Run workflow` 都会触发检查。流水线只负责验证和保留构建产物；正式 APK 由维护者
-在本机签名构建。Actions 不需要添加任何私有密钥、服务地址或生产环境配置。
+核对日期：2026-10-18。双仓各自运行 GitHub Actions，只做检查与构建产物。正式 Android APK 由维护者本机签名。
 
-## Web/API
+![Web 与 Android 两条独立验证流水线](assets/ci-pipeline.svg)
 
-入口：`.github/workflows/ci.yml`，主分支 `master`。
+## Web / API
 
-| Job | 检查内容 |
-| --- | --- |
-| Lint, types and unit tests | ESLint、TypeScript、全部 Vitest 单元测试、缓存清理守卫与实时服务断库重连回归、部署脚本的隔离模拟测试 |
-| Database and browser regression | 临时 PostgreSQL 18；初始化独立测试库；积分与业务 API 测试；桌面/移动浏览器与积分页面回归 |
-| Next.js build | 按锁文件安装依赖，执行 Next.js 构建 |
-| Web CI gate | 所有上游 Job 成功才通过；失败、取消或跳过都不会放行 |
+入口为 [.github/workflows/ci.yml](../.github/workflows/ci.yml)，主分支 master；PR、推送、手动运行和 workflow_call 触发。
 
-Node 版本集中在 `.node-version`，pnpm 版本来自 `package.json` 的 `packageManager`。
-依赖安装统一使用 `--frozen-lockfile`，缓存键随锁文件变化。
-测试数据库和测试用密钥都是当前 runner 的一次性公开测试配置，不访问真实服务。
-业务、积分和普通浏览器测试严格限定 `custodysim_e2e`，与 `custodysim_ci` 分开。
-显式配置 `E2E_DATABASE_URL` 时，初始化和测试都使用该连接；其他数据库名称会被拒绝。
-业务 API 测试和浏览器测试顺序执行，避免同时改写测试数据。
-浏览器测试在 Next 启动前执行缓存清理守卫；检测到开发端口占用时跳过清理。
+| Job                             | 内容                                                                                                     |
+| ------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| Lint, types and unit tests      | workflow 静态检查、ESLint、TypeScript、Vitest、三组运维安全模拟                                          |
+| Database and browser regression | PostgreSQL 18、测试库初始化、排程升级重复执行、积分 API、业务 API、普通浏览器、评分/安全浏览器、生产 CSP |
+| Next.js build                   | 单独生产构建                                                                                             |
+| Web CI gate                     | 三个上游均 success 才通过                                                                                |
 
-`pnpm test:e2e:production` 使用 `playwright.production.config.ts` 构建并启动本地 standalone，始终连接 `custodysim_e2e`。它在桌面和移动视口验证生产 CSP 的 nonce/strict-dynamic、普通页面、地图 SDK 动态加载、eval 及 Blob Worker，监听 `securitypolicyviolation`；SDK 响应由测试提供，使用虚构公开地图 key。CI 在其他数据库/浏览器回归结束后运行它，`pnpm test:all` 同样包含此项。
+Ubuntu 24.04；Node 从 .node-version 读取（当前 24），pnpm 从 packageManager 读取（当前 12.4.2），依赖使用 frozen-lockfile。Web 同分支运行排队，**不自动取消**前一个运行。
 
-浏览器验证入口为 Zod 开启 jitless，避免其 Function 特性探测触发 CSP 违规；服务端验证保持原方式。Windows 测试启动器会将 standalone 内指向内部目录的生成符号链接规范为目录联接，绕过部分 Next/pnpm 产物的链接类型限制。
+临时服务中的 custodysim_ci 与真正执行回归的 custodysim_e2e 分开；测试密钥为公开一次性值。业务、积分和浏览器套件顺序执行，禁止复用业务数据库或外部真实服务。测试库配置细节见[开发指南](development.md)。
 
-失败时展开失败步骤查看日志；浏览器 trace 保留在 `web-test-results-*` artifact 中，
-保存 7 天。构建成功只说明代码能生成产物，仍需根据改动验收实际功能。
+### 生产 CSP 回归
 
-建议在 GitHub 分支规则中将 **Web CI gate** 设为必需检查。不要用路径过滤跳过
-整份 workflow，否则必需检查可能一直处于等待状态。
+`pnpm test:e2e:production` 构建真实 standalone，并在本地桌面和移动视口检查 nonce/strict-dynamic、普通页面、动态地图脚本、eval 与 Blob Worker。监听 securitypolicyviolation；SDK 由测试替身提供，不访问真实地图服务。
+
+启动器在构建前校验 custodysim_e2e 和本地 HTTP 来源。浏览器入口对 Zod 使用 jitless，避免 Function 特性探测触发 CSP；普通页面继续禁用 unsafe-eval。Windows 仅规范 standalone 内部生成目录链接，不处理仓库外文件。
+
+### 失败怎么查
+
+1. 先看实际失败 Job 和第一条断言，而不是只看末尾 ECONNRESET。
+2. 浏览器失败下载 web-test-results-*，检查 trace 与 error-context；报告保留 7 天。
+3. “flaky”表示重试后通过，仍需检查首次失败；skipped 不等于测试成功。
+4. 数据库失败先看隔离库初始化与结构升级，避免同时启动其他会写该库的套件。
+5. gate 失败向上看：失败、取消、跳过的上游都不放行。
+
+分支保护建议要求 **Web CI gate**；不要通过整份 workflow 路径过滤造成必需检查永久等待。
 
 ## Android
 
-独立仓库 `CustodySim-app` 的入口是 `.github/workflows/ci.yml`，主分支 `main`。
-日常源码仍在主项目的 `.app-workspace` 独立 Git worktree 中；这里的 workflow
-需要提交到 App 仓库，不能提交进 Web 仓库。
+详见 [App CI](https://github.com/PDSB001/CustodySim-app/blob/main/docs/ci.md)。源码与 workflow 都提交到独立 App 仓库 main。
 
-Android CI 使用 JDK 17、仓库 Gradle wrapper 与 API 37。检查包括：
+| 项目         | 当前行为                                                  |
+| ------------ | --------------------------------------------------------- |
+| 环境         | Ubuntu 24.04、JDK 17、仓库 Gradle wrapper、API 37         |
+| 校验         | workflow、wrapper、Episteme 文件哈希                      |
+| 构建         | Debug 单测 / lint / APK、未签名 Release APK、对应源码归档 |
+| 产物         | APK、源码 ZIP、COMMIT.txt、SHA256SUMS，保留 14 天         |
+| 报告         | 测试与 lint，保留 7 天                                    |
+| 并发         | 同分支新运行**取消**旧运行                                |
+| 必需检查建议 | Android CI gate                                           |
 
-- Gradle wrapper 校验与缓存；PR 只能读取主分支缓存。
-- Episteme `UPSTREAM.json` 中每个文件的 SHA-256 校验。
-- Debug 单元测试、Lint、Debug 与未签名 Release 构建。
-- 对应源码归档完整性与私有文件排除检查。
-
-Lint 保持 warnings-as-errors，仅排除依赖更新提醒和 Timber 的日志风格提醒。
-依赖升级由维护者单独审查，不让新版本发布时间改变同一提交的检查结果。
-
-产物 `android-build-<commit SHA>` 包含 Debug APK、未签名 Release APK、
-同次构建的对应源码、`COMMIT.txt` 和 `SHA256SUMS`，保留 14 天。
-测试/Lint 报告保留 7 天。未签名 APK 用于构建验证，正式分发包由维护者自行
-构建并签名，且应从同一提交生成对应源码，随 APK 一起提供。
-
-建议将 **Android CI gate** 设为 App 主分支必需检查。CI 不验证真机手势、
-阅读帧率或正式包签名连续性，这些由本机发布流程验收。
+warnings-as-errors 保留；只排除构建文件明确列出的依赖更新与日志风格提示。不保存签名材料、私有端点或正式发布凭据。构建成功不证明真机手势、帧率或正式签名连续性。
 
 ## 维护规则
 
-两份 workflow 都只申请 `contents: read`，不读取仓库 Secrets。
-第三方 Action 固定到提交 SHA，由 Dependabot 每周提出版本更新 PR。
-同分支检查按队列运行，后续检查不会自动取消正在运行的检查；每个 Job 都有限时。
-主分支不要提交本机 `.env.local`、`local.properties`、签名文件或私有测试截图。
-
-新增数据库变更时，补充隔离库回归；新增 Android 上游源文件时，通过 vendor
-脚本更新 `UPSTREAM.json`，避免 CI 校验与实际代码分离。调整工具版本时，同步
-验证锁文件和 wrapper，不在 workflow 中另装一套浮动版本。
+两份 workflow 仅申请 contents: read；第三方 Action 固定 SHA，Dependabot 提出更新。工具版本以仓库配置为准，不临时安装浮动替代版。新增上游阅读器文件通过 vendor 脚本更新 UPSTREAM.json；调整原生协议时同时回归 Web 和 App。

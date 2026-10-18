@@ -1,63 +1,59 @@
 # CustodySim
 
-CustodySim 包含 Web 管理与业务端、Android 客户端和独立聊天实时服务，支持组织与人员管理、点名打卡、任务表单、申请审批、档案签名与图片导出、通知、聊天和位置上报。
+面向组织管理、任务办理与协作的 Web/API 系统，配套独立 Android 客户端。支持点名与补卡、任务和申请审核、档案签名、通知、聊天、图书阅读、积分与匿名社区。
 
-当前版本：**1.5.2-test**。操作权限由服务端角色与组织范围控制。
+![CustodySim 系统组成与访问链路](docs/assets/system-overview.svg)
 
-Android 客户端已建立独立仓库：[CustodySim-app](https://github.com/PDSB001/CustodySim-app)。后续 App 开发与发布以新仓库为准；主目录内的 `.app-workspace/` 是独立 App Git worktree，日常联调在这里进行，发布前同步到独立发布目录；主仓库不再维护 `android/`。
+> 文档核对日期：2026-10-18。Web 版本 **1.5.2-test**；Android 版本 **1.6.1-test（versionCode 4）**。两端分别发布，版本号不要求相同。
 
-许可证范围：Web 与服务端沿用根目录 MIT；Android 独立仓库的组合应用按 AGPL-3.0-only 分发，原有 MIT 声明保留。详见[独立仓库许可与源码分发说明](https://github.com/PDSB001/CustodySim-app/blob/main/README-LICENSE.md)。
+## 从这里开始
 
-## 选择适合你的文档
+| 你的角色          | 建议阅读                                                                                                                                                 |
+| ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 日常使用者        | [使用指南](docs/user-guide.md) · [常见问题](docs/faq.md)                                                                                                 |
+| 监管人员 / 管理员 | [管理人员指南](docs/staff-guide.md) · [自动审核](docs/automatic-task-review.md)                                                                          |
+| 开发者            | [开发与测试](docs/development.md) · [系统架构](docs/architecture.md) · [CI](docs/ci.md)                                                                  |
+| 运维人员          | [生产部署](docs/deployment.md) · [配置参考](docs/configuration.md) · [运维排障](docs/operations.md)                                                      |
+| Android 维护者    | [独立 App 仓库](https://github.com/PDSB001/CustodySim-app) · [构建指南](https://github.com/PDSB001/CustodySim-app/blob/main/docs/android-development.md) |
 
-**如果你是使用者**，不需要搭建服务器：使用管理员提供的网址或安装包，按[使用指南](docs/user-guide.md)登录并办理事项。遇到问题先看[常见问题](docs/faq.md)。
+完整专题、图解及审查记录见[文档中心](docs/README.md)。
 
-**如果你是监管人员或管理员**，按[管理人员指南](docs/staff-guide.md)安排和审核业务。管理员账号与服务器维护是两种职责，业务操作不要求执行部署命令。
+## 能做什么
 
-**如果你负责开发或运维**，从下表进入技术指南。部署服务后，请把使用指南和正确的访问入口交给用户，而不是要求用户照着构建命令操作。
+| 业务       | 主要能力                                              |
+| ---------- | ----------------------------------------------------- |
+| 日常办理   | 时段打卡、补卡申请、任务表单、逐级申请、通知确认      |
+| 审核与档案 | 任务与补卡集中审核、原因与轨迹、档案会签、签名与导出  |
+| 学习与激励 | PDF / EPUB / DOCX / TXT、有效阅读计时、学习任务、积分 |
+| 协作与管理 | 组织和监管范围、聊天图片、匿名社区、自愿档案分享      |
 
-## 技术人员入口
+操作权限由服务端的角色、组织及监管关系校验。界面显示某个入口不等于获得该资源权限。
 
-| 需要做什么                       | 文档                                            |
-| -------------------------------- | ----------------------------------------------- |
-| 本地启动 Web 和聊天服务          | [开发与测试](docs/development.md)               |
-| CI 检查、测试隔离与构建产物      | [持续集成](docs/ci.md)                          |
-| 首次部署、增量更新、Nginx 与排障 | [生产部署](docs/deployment.md)                  |
-| 数据库、密钥、实时服务与可选能力 | [配置参考](docs/configuration.md)               |
-| 构建、安装和联调 Android         | [Android 开发指南](docs/android-development.md) |
-| 原生鉴权、定位、图片和聊天协议   | [Android 接口与行为](docs/android-client.md)    |
-| 专题说明和历史验证记录           | [文档目录](docs/README.md)                      |
+## 本地启动
 
-## 技术组成
-
-| 模块           | 当前配置                                                 | 入口                    |
-| -------------- | -------------------------------------------------------- | ----------------------- |
-| Web / HTTP API | Next.js 16.3.3、React 19、TypeScript                     | app/、components/、lib/ |
-| 数据库         | PostgreSQL、Drizzle ORM、node-postgres                   | lib/db/schema.ts        |
-| 聊天实时服务   | Socket.IO，独立 Node 进程                                | realtime-server.mjs     |
-| Android        | Kotlin 2.4.0、Compose、Miuix 0.9.3                       | `.app-workspace/`（独立仓库） |
-| Android 构建   | Gradle 9.8.0、AGP 9.4.1；min 26 / compile 37 / target 37 | `.app-workspace/gradle/` |
-
-## 本地开发快速启动
-
-准备 Node.js（项目声明最低 20.9.0）、pnpm 12.4.2 和独立开发 PostgreSQL 数据库后：
+推荐使用仓库 [.node-version](.node-version) 指定的 **Node 24** 与 package.json 锁定的 **pnpm 12.4.2**。package.json 声明的 Node 下限为 20.9.0，完整安装还需满足 pnpm 和各依赖自身要求。
 
 ```bash
 pnpm install --frozen-lockfile
 ```
 
-将 [.env.example](.env.example) 复制为 `.env.local`，填写自己的数据库连接和独立随机密钥；默认密钥占位符不可直接运行。然后：
+将 [.env.example](.env.example) 复制为 .env.local，填入独立开发数据库和每用途独立的随机密钥。已有文件不要覆盖；占位密钥不能运行。
 
 ```bash
+# 仅限新开发库：核对连接目标后同步结构
 pnpm db:push
 pnpm dev
 ```
 
-另开终端执行 `pnpm dev:realtime`，Web 默认使用 3000，实时服务使用 3001。管理员初始化、实时地址和测试库配置见[开发指南](docs/development.md)。生产环境按[部署指南](docs/deployment.md)操作。
+另开终端运行 `pnpm dev:realtime`。Web 默认 3000，聊天实时服务默认 3001。管理员初始化、手机联调和独立测试库见[开发指南](docs/development.md)。
+
+## 仓库与技术边界
+
+- 本仓库维护 Next.js 16.3.3、React 19.2.8、TypeScript、PostgreSQL/Drizzle、Socket.IO 实时服务。
+- Android 在独立的 [CustodySim-app](https://github.com/PDSB001/CustodySim-app) 仓库维护；当前工作目录为同级 CustodySim-app。旧 android/ 和 .app-workspace/ 路径只在历史材料中保留。
+- Web / 服务端使用根目录 [MIT 许可](LICENSE)；Android 组合应用按 AGPL-3.0-only 分发，见[许可与对应源码说明](https://github.com/PDSB001/CustodySim-app/blob/main/README-LICENSE.md)。
+- CI 负责检查和构建；正式 APK 由维护者本机签名。生产发布按[部署指南](docs/deployment.md)执行。
 
 ## 维护约定
 
-- package.json 和 Android 构建文件是版本、命令和依赖的依据，文档与对应代码一起更新。
-- .env.local、.app-workspace/local.properties、凭据、签名密钥及数据库备份不提交仓库。
-- 集成测试和 E2E 会写数据库，必须使用独立测试库。
-- 历史截图与测试结果只代表记录时的版本，不代表当前生产已部署或所有设备已验证。
+版本与命令以构建文件为依据；修改功能同时更新对应指南。凭据、签名、备份、真实用户截图不入库。集成测试只使用 custodysim_e2e，不能指向业务库。历史验证结果只证明记录时的环境，不能替代当前生产或真机验收。

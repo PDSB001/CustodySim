@@ -1,47 +1,59 @@
-# 文档目录
+# 文档中心
 
-维护日期：2026-09-26。日常操作优先阅读指南；历史记录中的版本、测试数量和设备表现保留当时语境。
+核对日期：**2026-10-18**。本轮按当前双仓代码修订操作说明，示意图为本项目绘制，页面截图只使用隔离测试库的演示账号。
 
-## 使用者与业务管理人员
+![按角色选择阅读路径](assets/document-map.svg)
 
-| 你想了解什么                           | 从这里开始                     |
-| -------------------------------------- | ------------------------------ |
-| 第一次登录、每天怎么用                 | [使用指南](user-guide.md)      |
-| 打卡、任务、申请、档案与聊天的具体操作 | [使用指南](user-guide.md)      |
-| 看不懂状态、提交失败、定位与图片问题   | [常见问题](faq.md)             |
-| 如何配置业务、批阅任务和跟进申请       | [管理人员指南](staff-guide.md) |
+## 日常使用
 
-这些文档按界面操作编写，不要求使用者了解数据库、API 或命令行。Web 与 App 不完全等同，使用指南列出了两端入口。
+| 文档                                  | 解决的问题                                         |
+| ------------------------------------- | -------------------------------------------------- |
+| [使用指南](user-guide.md)             | 登录、点名补卡、任务、申请、档案、聊天、阅读与社区 |
+| [管理人员指南](staff-guide.md)        | 配置业务、集中审核、查看原因和轨迹、跟进异常       |
+| [常见问题](faq.md)                    | 状态含义、提交失败、定位、阅读与缓存               |
+| [App 服务器设置](server-selection.md) | 检测、切换、重新登录与数据隔离                     |
 
-## 开发与技术维护人员
+## 开发与运维
 
-- [项目概览](../README.md)
-- [开发与测试](development.md)：本地初始化、双进程启动、检查命令、测试隔离。
-- [持续集成](ci.md)：Web/API 与 Android 的检查、构建产物和维护规则。
-- [配置参考](configuration.md)：环境变量、密钥、代理与可选服务。
-- [生产部署](deployment.md)：首次与增量部署、两份脚本区别、Nginx 和故障排查。
-- [Android 开发指南](android-development.md)：工具链、私有地址、构建变体与运行验证。
-- [Android 接口与行为](android-client.md)：鉴权、定位、图片与聊天协议。
+| 文档                                              | 解决的问题                                |
+| ------------------------------------------------- | ----------------------------------------- |
+| [系统架构](architecture.md)                       | 双仓边界、进程、数据和鉴权链路            |
+| [开发与测试](development.md)                      | 初始化、双进程、测试隔离与命令矩阵        |
+| [持续集成](ci.md)                                 | Web / Android 检查、产物、失败排查        |
+| [生产部署](deployment.md)                         | 首次部署、增量更新、Nginx、自检与回退     |
+| [配置参考](configuration.md)                      | 服务端环境变量、密钥、代理、可选服务      |
+| [运维排障](operations.md)                         | Bash 日志、数据库连接、审核与阅读故障     |
+| [数据库升级](database-web-performance-upgrade.md) | 增量升级清单、索引检查与回滚边界          |
+| [原生客户端协议](android-client.md)               | Bearer / MFA / 刷新、定位、聊天与阅读契约 |
+| [Android 开发入口](android-development.md)        | 独立 App 仓库与当前构建文档               |
 
-## 专题
+## 功能专题
 
-- [App 服务器设置](server-selection.md)：用户操作、匿名检测协议和会话隔离。
-
+- [图书馆与有效阅读计时](library.md)
+- [EdgeOne 图片、书籍和正文缓存](edgeone-media-cache.md)
+- [自动任务与补卡审核](automatic-task-review.md)
+- [匿名社区与自愿档案分享](community.md)
 - [安全邮箱与腾讯云 SES](security-email.md)
-- [自动任务审核](automatic-task-review.md)
-- [数据库性能升级](database-web-performance-upgrade.md)
-- [Gradle 与构建缓存](android-build-cache.md)
-- [Android API 37 适配](android-target-api-37.md)
-- [积分 E2E](../e2e/scoring/README.md)、[业务 E2E](../e2e/business/README.md)
+- [业务数据库回归](../e2e/business/README.md) · [积分与禁闭回归](../e2e/scoring/README.md)
+- [Android 文档中心](https://github.com/PDSB001/CustodySim-app/blob/main/docs/README.md)
 
-## 历史实施与验证记录
+本轮修订范围与验证见 [2026-10-18 文档修缮记录](maintenance-2026-10-18.md)。
 
-- [Web 性能](web-performance.md)
-- [Android 性能复测](android-performance.md)
-- [Miuix 界面改造](android-ui-refactor.md)
-- [玻璃材质试点与迭代](android-glass-pilot.md)
-- [Android 警告清理](android-warning-audit.md)
+## 审查与历史记录
 
-## 维护规则
+| 记录                                                                                           | 如何使用                      |
+| ---------------------------------------------------------------------------------------------- | ----------------------------- |
+| [2026-10-17 修复跟进](code-review-follow-up-2026-10-17.md)                                     | 已落地修复与验证基线          |
+| [剩余问题清单](../CODE-REVIEW-REMAINING-2026-10-17.md)                                         | 后续工作范围；不表示都已修复  |
+| [原始代码审查](../CODE-REVIEW-2026-10-17.md) / [独立复验](../CODE-REVIEW-VERIFY-2026-10-17.md) | 当时快照，对照跟进清单阅读    |
+| [历史设计与验证索引](archive/README.md)                                                        | 旧 UI、工具链、性能与迁移记录 |
 
-变更配置需同步 `.env.example` 和配置参考；变更部署流程需同步部署指南；变更原生协议需同步接口文档；变更 SDK 需同步 Android 开发指南。验证结果注明日期、环境和未验证项，不把“构建成功”写成“生产可用”。示例使用占位域名，不复制私有配置。
+历史文档保留当时的路径、版本和测试数据，页首明确标识其性质；执行命令时使用当前指南。图书馆历史设计见 [Web](library-web-design.md) / [App](library-app-design.md)。
+
+## 文档维护规则
+
+1. 改功能时同步指南；改环境变量时同步 .env.example、配置参考；改原生协议时同步双仓接口说明。
+2. 当前指南标注核对日期；历史记录保留原日期，不把旧测试数量改成新结果。
+3. 示例用 example.com 和占位标识，不写真实凭据、会话、业务截图或私有网络配置。
+4. 图示须有可读文字、替代描述，并说明是结构示意还是实际截图。
+5. 文档链接以仓库相对路径或另一仓库的公开链接为准，避免依赖某台机器的绝对目录。

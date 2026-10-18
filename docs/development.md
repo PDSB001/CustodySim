@@ -1,10 +1,10 @@
 # 开发与测试
 
-面向需要修改代码或运行测试的开发者。只想登录使用系统，请阅读[使用指南](user-guide.md)。完成本页后应能同时打开本地 Web 和聊天实时服务，并知道哪些测试会写数据库。
+核对日期：2026-10-18。日常使用请看[使用指南](user-guide.md)；Android 构建在[独立 App 仓库](https://github.com/PDSB001/CustodySim-app/blob/main/docs/android-development.md)进行。
 
-## 初始化
+## 准备环境
 
-项目声明 Node.js >= 20.9.0，包管理器锁定 `pnpm@12.4.2`。使用支持该 pnpm 版本的 Node 环境，不同时生成 npm/yarn 锁文件。
+仓库 CI 使用 [.node-version](../.node-version) 指定的 **Node 24**；包管理器为 **pnpm 12.4.2**。package.json 的 Node 声明下限为 20.9.0，但安装工具和依赖也有各自要求，联调优先与 CI 保持一致。
 
 ```bash
 node --version
@@ -12,41 +12,66 @@ pnpm --version
 pnpm install --frozen-lockfile
 ```
 
-复制 `.env.example` 为 `.env.local`（PowerShell：`Copy-Item .env.example .env.local`；Bash：`cp .env.example .env.local`），填写已创建的独立开发数据库和密钥，见[配置参考](configuration.md)。不要覆盖已有私有配置。
+复制 .env.example 为 .env.local，填写独立开发库及随机密钥。Bash 用 `cp .env.example .env.local`；PowerShell 用 `Copy-Item .env.example .env.local`。已有私有配置不要覆盖。
 
 ```bash
+# 仅开发/新空库；先确认连接目标
 pnpm db:push
 ```
 
-此命令同步结构，会写数据库，执行前确认是开发库。初始管理员通过临时设置 `INITIAL_ADMIN_USERNAME` / `INITIAL_ADMIN_PASSWORD` 后运行 `pnpm db:bootstrap-admin` 创建，使用后清除临时凭据。已有管理员会拒绝重复初始化，首次登录在 Web 完成改密。
+初始管理员使用一次性的 INITIAL_ADMIN_USERNAME / INITIAL_ADMIN_PASSWORD，执行 `pnpm db:bootstrap-admin` 后删除临时配置。已有管理员会阻止重复初始化；首次改密在 Web 完成。[配置参考](configuration.md)说明密钥和可选能力。
 
-演示数据只能在非生产环境显式设置 `ALLOW_DEMO_SEED=true` 后运行 `pnpm db:seed`。
+演示 seed 只能在非生产环境显式启用 ALLOW_DEMO_SEED=true。不要在有业务数据的库运行 seed。
 
-## 启动两个服务
+## 启动 Web 与实时服务
 
-终端一执行 `pnpm dev`；终端二执行 `pnpm dev:realtime`。只启动 Web 不会启动实时服务。
+```bash
+# 终端一
+pnpm dev
+```
 
-Web 监听 `0.0.0.0:3000`，实时服务默认端口 3001。浏览器联调在 `.env.local` 设置 `NEXT_PUBLIC_CHAT_REALTIME_URL=http://localhost:3001`，修改后重启 Web。手机访问时将 localhost 换成开发机局域网 IP，并允许防火墙通过两个端口。HTTP 联调可设 `AUTH_COOKIE_SECURE=false`，HTTPS 生产保持 true。
+```bash
+# 终端二
+pnpm dev:realtime
+```
 
-Android 使用独立的编译期地址，见[Android 指南](android-development.md)。
+Web 默认 3000，实时服务 3001。本地 .env.local 可设置 NEXT_PUBLIC_CHAT_REALTIME_URL=http://localhost:3001；改变 NEXT_PUBLIC_* 后重启或重新构建 Web。手机联调使用开发机局域网地址，两个端口都需可达，Android 在独立仓库配置私有开发端点。仅 HTTP 开发可设置 AUTH_COOKIE_SECURE=false。
 
-## 检查命令
+`pnpm dev` 先执行缓存清理守卫；不要在另一个 Next 实例运行时强制删除 .next。生产构建与开发共用输出目录，也不要并行执行。
 
-| 命令                            | 内容                               | 数据库                             |
-| ------------------------------- | ---------------------------------- | ---------------------------------- |
-| `pnpm lint`                     | 受维护 TS/JS 源码，零警告规则      | 不需要                             |
-| `pnpm typecheck`                | TypeScript 类型检查                | 不需要                             |
-| `pnpm test` / `pnpm test:watch` | 单元测试 / 监听                    | 不需要                             |
-| `pnpm build`                    | 生产构建                           | 需有效配置，页面构建可能访问数据库 |
-| `pnpm test:e2e`                 | Playwright 登录与业务入口          | 独立测试库                         |
-| `pnpm test:e2e:scoring`         | 积分集成与浏览器场景               | 独立测试库                         |
-| `pnpm test:e2e:business`        | 业务数据库集成                     | 独立测试库                         |
-| `pnpm test:all`                 | 静态、类型、单元及上述三组集成检查 | 独立测试库                         |
+## 检查命令矩阵
 
-设置 `E2E_DATABASE_NAME=custodysim_e2e`，或用 `E2E_DATABASE_URL` 指向独立实例，再运行 `pnpm db:setup-e2e`。初始化需要创建数据库的权限；首次安装浏览器运行 `pnpm exec playwright install chromium`。
+| 命令                     | 检查内容                           | 数据库 / 进程             |
+| ------------------------ | ---------------------------------- | ------------------------- |
+| pnpm lint                | ESLint，零警告                     | 不需要数据库              |
+| pnpm typecheck           | TypeScript                         | 不需要数据库              |
+| pnpm test                | Vitest 单测及三组运维安全回归      | 安全回归启动隔离替身进程  |
+| pnpm test:watch          | Vitest 监听                        | 不包含运维脚本            |
+| pnpm test:safety         | 清理守卫、实时服务、部署流程模拟   | 不操作真实生产 PM2        |
+| pnpm build               | Turbopack 生产构建                 | 需要有效配置              |
+| pnpm test:e2e            | 桌面/移动普通浏览器                | 隔离 Next + 实时服务      |
+| pnpm test:e2e:scoring    | 积分数据库 + 评分/安全浏览器       | 串行执行两个套件          |
+| pnpm test:e2e:business   | 业务 Route Handler 数据库回归      | 直接连接隔离 PostgreSQL   |
+| pnpm test:e2e:production | 实际 standalone 的 CSP 浏览器回归  | 本地构建与服务，默认 3110 |
+| pnpm test:all            | 静态、单测、安全、上述全部集成检查 | 按脚本顺序执行            |
 
-E2E 默认使用 3100 端口，可用 `E2E_BASE_URL` 覆盖。测试包含真实写入，禁止指向业务库；完整场景见[业务测试](../e2e/business/README.md)和[积分测试](../e2e/scoring/README.md)。
+## 独立测试库
 
-## 修改入口
+测试强制使用名为 **custodysim_e2e** 的数据库。E2E_DATABASE_URL 优先；未设置时从业务连接派生服务器和凭据，再换为该库名。任意别名、与业务库相同的连接会被拒绝。
 
-`app/api/` 为 HTTP 接口，`lib/` 为鉴权、领域规则和数据库访问，`components/` 为 Web UI，`realtime-server.mjs` 为 Socket.IO 服务，`scripts/` 为维护工具，`.app-workspace/` 为独立 App 仓库的本地开发 worktree。修改 Next.js 代码前按根目录 AGENTS.md 阅读 `node_modules/next/dist/docs/` 中对应版本指南。
+```bash
+pnpm db:setup-e2e
+pnpm exec playwright install chromium
+pnpm test:e2e:business
+pnpm test:e2e
+```
+
+初始化需要创建数据库/结构与 seed 权限，会写测试库。业务、积分、浏览器套件不可同时运行；周结扫描也会修改测试库内其他演示记录。普通浏览器默认 3100，实时服务 3001，E2E_BASE_URL 可更换 Web 地址；不复用已有开发服务。
+
+生产 CSP 套件在构建前校验本地 HTTP 来源与 custodysim_e2e，使用受控地图 SDK 和虚构 key。Windows 启动器仅处理 standalone 内部生成目录链接。参见 [CI](ci.md)、[业务回归](../e2e/business/README.md)与[积分回归](../e2e/scoring/README.md)。
+
+## 修改入口与文档
+
+app/api 是接口；lib 是权限、领域规则、数据库；components 是 UI；scripts 是维护工具。修改 Next.js 代码前，按 [AGENTS.md](../AGENTS.md) 阅读 node_modules/next/dist/docs 中当前版本指南，不能照搬旧版 API。
+
+涉及协议同时更新[原生规格](android-client.md)，涉及环境变量同步 .env.example 与[配置参考](configuration.md)。代码审查与真实模型、设备、生产验收结果分别记录。
