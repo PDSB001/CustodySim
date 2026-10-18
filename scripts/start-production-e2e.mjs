@@ -42,6 +42,12 @@ async function run(args) {
   }
 }
 
+// Match `pnpm build`: TS 7 checks the project before Next's compatibility checker.
+const checked = await run([
+  "node_modules/@typescript/native/bin/tsc",
+  "--noEmit",
+])
+if (checked !== 0) process.exit(checked)
 const built = await run(["node_modules/next/dist/bin/next", "build"])
 if (built !== 0) process.exit(built)
 const runtime = resolve(root, ".next/standalone")

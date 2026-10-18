@@ -1,6 +1,5 @@
-// Next 16 exposes native flat configs. Using FlatCompat here converts those
-// configs back to the legacy shape and makes ESLint 9 encounter circular
-// plugin references while formatting errors.
+// Preserve Next's native flat configs; adapt older plugin rule APIs for ESLint 10.
+import { fixupConfigRules } from "@eslint/compat"
 import nextCoreWebVitals from "eslint-config-next/core-web-vitals"
 import nextTypeScript from "eslint-config-next/typescript"
 
@@ -8,11 +7,19 @@ const config = [
   {
     // Generated bundles and reports contain third-party code. Lint the sources that
     // produce them, including every repository script and configuration file.
-    ignores: [".next*/**", ".app-workspace/**", "artifacts/**", "coverage/**",
-      "test-results/**", "playwright-report/**", ".pw-tmp-results/**", "out/**", "build/**"],
+    ignores: [
+      ".next*/**",
+      ".app-workspace/**",
+      "artifacts/**",
+      "coverage/**",
+      "test-results/**",
+      "playwright-report/**",
+      ".pw-tmp-results/**",
+      "out/**",
+      "build/**",
+    ],
   },
-  ...nextCoreWebVitals,
-  ...nextTypeScript,
+  ...fixupConfigRules([...nextCoreWebVitals, ...nextTypeScript]),
   {
     rules: {
       // Existing controlled-form synchronization relies on these patterns.

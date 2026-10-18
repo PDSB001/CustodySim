@@ -31,7 +31,7 @@
 
 ## 本地启动
 
-推荐使用仓库 [.node-version](.node-version) 指定的 **Node 24** 与 package.json 锁定的 **pnpm 12.4.2**。package.json 声明的 Node 下限为 20.9.0，完整安装还需满足 pnpm 和各依赖自身要求。
+推荐使用仓库 [.node-version](.node-version) 指定的 **Node 24** 与 package.json 锁定的 **pnpm 12.14.0**。package.json 支持 Node 24 或 >=26，已对齐 geoip-lite、PDF.js 和测试工具的实际要求；部署前也应核对 Node 版本。
 
 ```bash
 pnpm install --frozen-lockfile
@@ -49,7 +49,7 @@ pnpm dev
 
 ## 仓库与技术边界
 
-- 本仓库维护 Next.js 16.3.3、React 19.2.8、TypeScript、PostgreSQL/Drizzle、Socket.IO 实时服务。
+- 本仓库维护 Next.js 16.4.2、React 19.3.1、TypeScript、PostgreSQL/Drizzle、Socket.IO 实时服务。
 - Android 在独立的 [CustodySim-app](https://github.com/PDSB001/CustodySim-app) 仓库维护；当前工作目录为同级 CustodySim-app。旧 android/ 和 .app-workspace/ 路径只在历史材料中保留。
 - Web / 服务端使用根目录 [MIT 许可](LICENSE)；Android 组合应用按 AGPL-3.0-only 分发，见[许可与对应源码说明](https://github.com/PDSB001/CustodySim-app/blob/main/README-LICENSE.md)。
 - CI 负责检查和构建；正式 APK 由维护者本机签名。生产发布按[部署指南](docs/deployment.md)执行。

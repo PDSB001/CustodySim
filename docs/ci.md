@@ -15,7 +15,7 @@
 | Next.js build                   | 单独生产构建                                                                                             |
 | Web CI gate                     | 三个上游均 success 才通过                                                                                |
 
-Ubuntu 24.04；Node 从 .node-version 读取（当前 24），pnpm 从 packageManager 读取（当前 12.4.2），依赖使用 frozen-lockfile。Web 同分支运行排队，**不自动取消**前一个运行。
+Ubuntu 24.04；Node 从 .node-version 读取（当前 24），pnpm 从 packageManager 读取（当前 12.14.0），依赖使用 frozen-lockfile。Web 同分支运行排队，**不自动取消**前一个运行。
 
 临时服务中的 custodysim_ci 与真正执行回归的 custodysim_e2e 分开；测试密钥为公开一次性值。业务、积分和浏览器套件顺序执行，禁止复用业务数据库或外部真实服务。测试库配置细节见[开发指南](development.md)。
 
@@ -53,4 +53,4 @@ warnings-as-errors 保留；只排除构建文件明确列出的依赖更新与�
 
 ## 维护规则
 
-两份 workflow 仅申请 contents: read；第三方 Action 固定 SHA，Dependabot 提出更新。工具版本以仓库配置为准，不临时安装浮动替代版。新增上游阅读器文件通过 vendor 脚本更新 UPSTREAM.json；调整原生协议时同时回归 Web 和 App。
+两份 workflow 仅申请 contents: read；第三方 Action 固定 SHA。Dependabot 每周检查 Actions 及各自的 npm / Gradle 依赖，兼容的 minor/patch 更新合组，仍需人工审查和 CI；兼容方案与升级结果见[依赖升级](dependency-upgrades.md)。工具版本以仓库配置为准，不临时安装浮动替代版。新增上游阅读器文件通过 vendor 脚本更新 UPSTREAM.json；调整原生协议时同时回归 Web 和 App。

@@ -4,7 +4,7 @@
 
 ## 准备环境
 
-仓库 CI 使用 [.node-version](../.node-version) 指定的 **Node 24**；包管理器为 **pnpm 12.4.2**。package.json 的 Node 声明下限为 20.9.0，但安装工具和依赖也有各自要求，联调优先与 CI 保持一致。
+仓库 CI 使用 [.node-version](../.node-version) 指定的 **Node 24**；包管理器为 **pnpm 12.14.0**。package.json 支持 Node 24 或 >=26，对齐现有 geoip-lite 与测试工具要求；联调优先与 CI 保持一致。
 
 ```bash
 node --version
@@ -44,11 +44,11 @@ Web 默认 3000，实时服务 3001。本地 .env.local 可设置 NEXT_PUBLIC_CH
 | 命令                     | 检查内容                           | 数据库 / 进程             |
 | ------------------------ | ---------------------------------- | ------------------------- |
 | pnpm lint                | ESLint，零警告                     | 不需要数据库              |
-| pnpm typecheck           | TypeScript                         | 不需要数据库              |
+| pnpm typecheck           | TypeScript 7 原生检查              | 不需要数据库              |
 | pnpm test                | Vitest 单测及三组运维安全回归      | 安全回归启动隔离替身进程  |
 | pnpm test:watch          | Vitest 监听                        | 不包含运维脚本            |
 | pnpm test:safety         | 清理守卫、实时服务、部署流程模拟   | 不操作真实生产 PM2        |
-| pnpm build               | Turbopack 生产构建                 | 需要有效配置              |
+| pnpm build               | TS7 检查 + Turbopack 生产构建      | 需要有效配置              |
 | pnpm test:e2e            | 桌面/移动普通浏览器                | 隔离 Next + 实时服务      |
 | pnpm test:e2e:scoring    | 积分数据库 + 评分/安全浏览器       | 串行执行两个套件          |
 | pnpm test:e2e:business   | 业务 Route Handler 数据库回归      | 直接连接隔离 PostgreSQL   |

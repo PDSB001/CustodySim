@@ -22,6 +22,7 @@
 | [系统架构](architecture.md)                       | 双仓边界、进程、数据和鉴权链路            |
 | [开发与测试](development.md)                      | 初始化、双进程、测试隔离与命令矩阵        |
 | [持续集成](ci.md)                                 | Web / Android 检查、产物、失败排查        |
+| [依赖升级](dependency-upgrades.md)                 | 当前升级基线、兼容方案、安全告警与验证   |
 | [生产部署](deployment.md)                         | 首次部署、增量更新、Nginx、自检与回退     |
 | [配置参考](configuration.md)                      | 服务端环境变量、密钥、代理、可选服务      |
 | [运维排障](operations.md)                         | Bash 日志、数据库连接、审核与阅读故障     |
