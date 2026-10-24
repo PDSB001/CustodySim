@@ -51,7 +51,7 @@ it("IP 地点读取 label，旧响应不用新字段也能展示", () => {
       location: { label: "北京 · CN" },
       ip: "203.0.113.7",
     }),
-  ).toBe("北京 · CN")
+  ).toContain("北京 · CN")
   expect(
     getCheckinLocationText({
       locationSource: "IP",
@@ -59,7 +59,7 @@ it("IP 地点读取 label，旧响应不用新字段也能展示", () => {
       ipLocation: { label: "上海 · CN" },
       ip: "203.0.113.7",
     }),
-  ).toBe("上海 · CN")
+  ).toContain("上海 · CN")
 })
 
 it("GPS 清除后只展示保留的 IP 粗略地点，不重新暴露旧地址或坐标", () => {

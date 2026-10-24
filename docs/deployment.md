@@ -17,7 +17,7 @@
 
 ## 首次部署
 
-1. 准备 Node 24、pnpm 12.14.0、PostgreSQL、PM2、Nginx 与 HTTPS 证书。源站应用端口只允许可信代理或受控网络访问。
+1. 准备 Node 26（以 .node-version 的 26.12.1 为准）、pnpm 12.14.0、PostgreSQL、PM2、Nginx 与 HTTPS 证书。源站应用端口只允许可信代理或受控网络访问。
 2. 克隆仓库，复制 .env.example 为 .env.local。填写 DATABASE_URL、独立随机密钥、APP_ORIGIN=https://example.com 和 AUTH_COOKIE_SECURE=true，见[配置参考](configuration.md)。
 3. 使用新的空数据库运行：
 

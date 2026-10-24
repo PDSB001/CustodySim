@@ -11,7 +11,7 @@
 | TypeScript 类型检查          | 5.9.3            | 7.0.2 原生编译器            |
 | ESLint                       | 9.39.5           | 10.13.0                     |
 | pnpm                         | 12.4.2           | 12.14.0                     |
-| Node 类型                    | 20.19.43         | 24.19.2，与 CI Node 24 对齐 |
+| Node 类型                    | 20.19.43         | 26.6.5，与 CI Node 26 对齐  |
 | Playwright                   | 1.62.1           | 1.64.1，需重新安装 Chromium |
 | Vitest                       | 4.1.11           | 5.0.5                       |
 | Drizzle ORM / Kit            | 0.45.2 / 0.31.10 | 0.45.4 / 0.31.11            |
@@ -36,9 +36,11 @@ ESLint 10、TypeScript 7 已完成迁移，取消上一轮的 Dependabot 暂缓�
 - 按 [TypeScript 官方并行方案](https://devblogs.microsoft.com/typescript/announcing-typescript-7-0/#running-side-by-side-with-typescript-6-0)，`@typescript/native` 是 typescript 7.0.2 的别名，提供 `tsc`；`typescript` 指向官方 `@typescript/typescript6` 6.0.2 兼容包，转发 6.0.3 API 并提供 `tsc6`。因此 pnpm typecheck 使用原生 7，ESLint 等旧工具仍能读取所需 API。
 - Next 16.4 的内建检查按 `typescript/package.json` 选取编译器，因此此并行方案中的 Next 附加检查仍用 6。`pnpm build` 先执行原生 7 的 typecheck，再运行 Next 构建；没有设置 ignoreBuildErrors。CI 的独立类型检查同样使用 7，不能误把兼容包标成“整个仓库仍用 6”或“完全移除了 6”。
 - 按 [ESLint 10 迁移指南](https://eslint.org/docs/latest/use/migrate-to-10.0.0)，使用官方 `@eslint/compat` 2.1.1 包装 Next flat config 内的插件规则，适配移除的 context / SourceCode API，保留原有规则。React / import / jsx-a11y 三个插件尚未更新 peer 声明，只为精确插件版本与 ESLint 10.13.0 声明受测兼容组合；其他 peer 检查继续生效。`pnpm peers check` 通过，新增四个违规片段分别验证 React、无障碍、import、TypeScript 规则仍会报错。
-- `@types/node` 继续使用 Node 24 的最新版本 24.19.2，与 CI 和生产推荐运行时保持一致；outdated 中的 Node 26 类型不视作漏升，避免允许调用 Node 24 没有的 API。
+- `@types/node` 升到 Node 26 的最新版本 26.6.5（类型包 patch 落后于运行时属正常），与 CI 和生产运行时 26.12.1 保持同一主版本，避免出现"代码用 26 API、声明仍写 24"的错配。
 
-Node 声明统一为 **^24.0.0 || >=26.0.0**，CI 继续使用 24。旧声明 >=20.9.0 不符合已有 geoip-lite >=24 的实际要求，PDF.js 也要求 >=22.13；部署前须核对 Node。Vitest 按[官方 5.0 迁移指南](https://vitest.dev/guide/migration.html)升级，保留默认 mock 隔离，不关闭新校验。
+Node 声明统一为 **>=26.0.0**，`.node-version` 固定 **26.12.1**，CI 与本机运行时一致。此前声明 >=20.9.0 不符合当时 geoip-lite >=24 的实际要求（该依赖现已由 maxmind 取代），PDF.js 也要求 >=22.13；部署前须核对 Node。Vitest 按[官方 5.0 迁移指南](https://vitest.dev/guide/migration.html)升级，保留默认 mock 隔离，不关闭新校验。
+
+Node 26.12.1 上复核时发现一个只影响测试夹具的运行时问题：EdgeOne 媒体缓存用例把 3.7MB 正文按 23 字节切分，约 16 万个微块连续转发会让 `structuredClone` 反序列化失败、worker 以 `0xC0000409` 退出；同一份代码在 26.4.0 上正常（已用官方 zip 就地对照确认）。夹具已给单个响应加 1024 块上限，保留跨 UTF-8 边界切块的语义，同时不再制造真实运行时不会出现的微块量级；该重负载用例显式设 20s 超时。部署侧的媒体缓存函数本身未改动。
 
 ## 传递依赖修复与安全审计
 

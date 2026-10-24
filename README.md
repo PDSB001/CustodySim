@@ -31,7 +31,7 @@
 
 ## 本地启动
 
-推荐使用仓库 [.node-version](.node-version) 指定的 **Node 24** 与 package.json 锁定的 **pnpm 12.14.0**。package.json 支持 Node 24 或 >=26，已对齐 geoip-lite、PDF.js 和测试工具的实际要求；部署前也应核对 Node 版本。
+推荐使用仓库 [.node-version](.node-version) 指定的 **Node 26.12.1** 与 package.json 锁定的 **pnpm 12.14.0**。package.json 要求 Node >=26，已对齐 PDF.js 和测试工具的实际要求；部署前也应核对 Node 版本。
 
 ```bash
 pnpm install --frozen-lockfile

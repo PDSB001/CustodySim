@@ -39,6 +39,9 @@
 # deployment backups
 /.backups/
 
+# local IP geolocation database (downloaded, ~96MB)
+/data/geoip/
+
 # debug
 npm-debug.log*
 yarn-debug.log*

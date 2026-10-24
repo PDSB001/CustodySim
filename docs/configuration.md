@@ -50,19 +50,28 @@
 
 ## 可选资源与服务
 
-| 配置                                              | 用途 / 约束                                  |
-| ------------------------------------------------- | -------------------------------------------- |
-| EDGEONE_MEDIA_CACHE_ENABLED                       | 默认 false，启用后还需配置边缘函数与旁路规则 |
-| EDGEONE_MEDIA_SIGNING_KEY                         | 独立 >=32 字符，只在源站，不复用 AUTH_SECRET |
-| NEXT_PUBLIC_TENCENT_MAP_KEY                       | 地图浏览器公开 key，控制台限制业务域名       |
-| MAXMIND_LICENSE_KEY / MAXMIND_GEOIP_CONF          | 本地 GeoIP 更新，pnpm geoip:update           |
-| TENCENT_SES_SECRET_ID / SECRET_KEY                | SES 凭据，仅服务端                           |
-| TENCENT_SES_REGION / FROM                         | 与验证发信地址及模板地域一致                 |
-| TENCENT_SES_CODE_TEMPLATE_ID / NOTICE_TEMPLATE_ID | 已审核模板，见[安全邮箱](security-email.md)  |
+| 配置                                              | 用途 / 约束                                   |
+| ------------------------------------------------- | --------------------------------------------- |
+| EDGEONE_MEDIA_CACHE_ENABLED                       | 默认 false，启用后还需配置边缘函数与旁路规则  |
+| EDGEONE_MEDIA_SIGNING_KEY                         | 独立 >=32 字符，只在源站，不复用 AUTH_SECRET  |
+| NEXT_PUBLIC_TENCENT_MAP_KEY                       | 地图浏览器公开 key，控制台限制业务域名        |
+| GEOIP_AUTO_UPDATE                                 | 设为 true 后启动即自查，此后每 7 天更新本地库 |
+| GEOIP_DATA_DIR                                    | 可选，覆盖数据库目录，默认 <仓库>/data/geoip  |
+| GEOIP_GITHUB_TOKEN                                | 可选，只读 Release 元数据，避免匿名 API 限额  |
+| MAXMIND_LICENSE_KEY / MAXMIND_GEOIP_CONF          | 兼容旧配置，仍可作为自动更新开关；凭据不外发  |
+| TENCENT_SES_SECRET_ID / SECRET_KEY                | SES 凭据，仅服务端                            |
+| TENCENT_SES_REGION / FROM                         | 与验证发信地址及模板地域一致                  |
+| TENCENT_SES_CODE_TEMPLATE_ID / NOTICE_TEMPLATE_ID | 已审核模板，见[安全邮箱](security-email.md)   |
 
 [EdgeOne 指南](edgeone-media-cache.md)区分浏览器、普通节点、命名 Cache API 和 App 磁盘缓存。启用 env 不会自动发布边缘函数或 Nginx 配置。
 
-IP 粗定位由本地 geoip-lite 解析，不向第三方定位 API 发送访客 IP。打卡明细显示保存地点，历史缺失时可临时补解析；无法恢复历史截断 UA。原生头或旧 OkHttp UA 显示为 App，浏览器 UA 解析为名称版本。TRUST_PROXY 才是读取可信代理 IP 的开关。
+IP 定位由本地合并库解析（`maxmind` 读取器读 mmdb），不向第三方定位 API 发送访客 IP。数据来自 [NetworkCats/Merged-IP-Data](https://github.com/NetworkCats/Merged-IP-Data)：它把 GeoLite2、DB-IP、IPinfo、纯真 QQWry 等来源按字段优先级合并成单个 `Merged-IP.mmdb`，每天 01:00 UTC 重建，字段与 GeoLite2-City 兼容。
+
+数据库落在 `data/geoip/`（已 gitignore，约 96MB，可用 `GEOIP_DATA_DIR` 改目录），不再放在 `node_modules` 里，因此安装与构建不会冲掉数据。文件缺失或损坏时，IP 定位降级成"暂不可用"文案，打卡本身不受影响。
+
+`GEOIP_AUTO_UPDATE=true` 时进程启动先自查一次，之后每 7 天检查上游；`bash deploy.sh` 也会在部署时更新一次。上游不提供官方校验和，更新流程用四道关卡代替：读取 Release 元数据（有 token 时含 SHA-256，否则退回匿名 HEAD 比对 ETag）、本地自算 SHA-256 与长度写进 `data/geoip/version.json`、用 mmdb 读取器打开并抽查固定 IP 的国籍、装库前把上一版留在 `.backups/geoip`（只保留 2 份）以便回滚。
+
+打卡明细显示城市级粗略定位与数据归属，只取国家、一级行政区、城市和时区，经纬度、邮编、ASN、代理标记一律不落库不外显。上游含 CC BY-SA 4.0 与 CC BY 4.0 数据，需保留 GeoLite2 by MaxMind 与 "IP Geolocation by DB-IP" 署名，并遵守 [MaxMind GeoLite EULA](https://www.maxmind.com/en/geolite/eula)；IP 粗定位不应用于识别具体个人或地址。历史缺失时可临时补解析；无法恢复历史截断 UA。原生头或旧 OkHttp UA 显示为 App，浏览器 UA 解析为名称版本。TRUST_PROXY 才是读取可信代理 IP 的开关。
 
 ## 一次性与测试配置
 

@@ -13,6 +13,7 @@ CustodySim/
 ├─ deploy/              Nginx 片段与 EdgeOne 函数
 ├─ scripts/             构建、运维、数据库与验证工具
 ├─ e2e/                 浏览器和数据库集成测试
+├─ data/geoip/          本地 IP 库（下载产物，已忽略）
 ├─ docs/
 │  ├─ README.md         当前文档入口
 │  ├─ assets/           可提交的图解和演示截图

@@ -28,7 +28,10 @@ vi.mock("next/headers", () => ({
 /** 1×1 PNG，解码后 67 字节，远小于单张 1MB 上限。 */
 const IMAGE_A =
   "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
-/** 补卡强制要求能解析出 IP 定位，非生产环境信任 x-real-ip，用公网 IP 让 geoip-lite 命中。 */
+/**
+ * 补卡强制要求能解析出 IP 定位，非生产环境信任 x-real-ip，用公网 IP 让本地
+ * mmdb 命中。跑这组用例前需先执行 `pnpm geoip:update` 准备数据（CI 已内置）。
+ */
 const PUBLIC_IP = "8.8.8.8"
 
 const ids: string[] = []

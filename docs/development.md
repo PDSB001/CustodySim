@@ -4,7 +4,7 @@
 
 ## 准备环境
 
-仓库 CI 使用 [.node-version](../.node-version) 指定的 **Node 24**；包管理器为 **pnpm 12.14.0**。package.json 支持 Node 24 或 >=26，对齐现有 geoip-lite 与测试工具要求；联调优先与 CI 保持一致。
+仓库 CI 使用 [.node-version](../.node-version) 指定的 **Node 26.12.1**；包管理器为 **pnpm 12.14.0**。package.json 要求 Node >=26，对齐 PDF.js 与测试工具要求；联调优先与 CI 保持一致。
 
 ```bash
 node --version

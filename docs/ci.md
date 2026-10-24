@@ -11,11 +11,11 @@
 | Job                             | 内容                                                                                                     |
 | ------------------------------- | -------------------------------------------------------------------------------------------------------- |
 | Lint, types and unit tests      | workflow 静态检查、ESLint、TypeScript、Vitest、三组运维安全模拟                                          |
-| Database and browser regression | PostgreSQL 18、测试库初始化、排程升级重复执行、积分 API、业务 API、普通浏览器、评分/安全浏览器、生产 CSP |
+| Database and browser regression | PostgreSQL 18、测试库初始化、本地 IP 库下载、排程升级重复执行、积分 API、业务 API、普通浏览器、评分/安全浏览器、生产 CSP |
 | Next.js build                   | 单独生产构建                                                                                             |
 | Web CI gate                     | 三个上游均 success 才通过                                                                                |
 
-Ubuntu 24.04；Node 从 .node-version 读取（当前 24），pnpm 从 packageManager 读取（当前 12.14.0），依赖使用 frozen-lockfile。Web 同分支运行排队，**不自动取消**前一个运行。
+Ubuntu 24.04；Node 从 .node-version 读取（当前 26.12.1），pnpm 从 packageManager 读取（当前 12.14.0），依赖使用 frozen-lockfile。Web 同分支运行排队，**不自动取消**前一个运行。
 
 临时服务中的 custodysim_ci 与真正执行回归的 custodysim_e2e 分开；测试密钥为公开一次性值。业务、积分和浏览器套件顺序执行，禁止复用业务数据库或外部真实服务。测试库配置细节见[开发指南](development.md)。
 

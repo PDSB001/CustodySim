@@ -11,10 +11,14 @@ env_local_value() {
   sed -n "s/^[[:space:]]*$1[[:space:]]*=[[:space:]]*//p" .env.local | tail -n 1
 }
 
-# 密钥可能只写在 .env.local（scripts/update-geoip.ts 通过 --env-file 读取），
-# 因此不能只看 shell 环境变量。
-if [[ -n "${MAXMIND_LICENSE_KEY:-}" ]] ||
-  [[ -n "$(env_local_value MAXMIND_LICENSE_KEY || true)" ]]; then
+# 下载的是合并 mmdb（NetworkCats/Merged-IP-Data），不需要任何凭据；
+# 旧 MaxMind 配置只保留为"是否在部署时更新"的开关。
+GEOIP_UPDATE_ENABLED="${GEOIP_AUTO_UPDATE:-$(env_local_value GEOIP_AUTO_UPDATE || true)}"
+if [[ "$GEOIP_UPDATE_ENABLED" == "true" ]] ||
+  [[ -n "${MAXMIND_LICENSE_KEY:-}" ]] ||
+  [[ -n "$(env_local_value MAXMIND_LICENSE_KEY || true)" ]] ||
+  [[ -n "${MAXMIND_GEOIP_CONF:-}" ]] ||
+  [[ -n "$(env_local_value MAXMIND_GEOIP_CONF || true)" ]]; then
   pnpm geoip:update
 fi
 

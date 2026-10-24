@@ -1,6 +1,11 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 
-import { getCoarseIpLocation, getRecordIpLocation } from "@/lib/ip-location"
+import { releaseGeoIpReader } from "@/lib/geoip-database"
+import {
+  getCoarseIpLocation,
+  getRecordIpLocation,
+  ipLocationFromResponse,
+} from "@/lib/ip-location"
 
 describe("本地 IP 粗略定位", () => {
   it("优先沿用历史地点快照，缺失时才按 IP 解析", () => {
@@ -60,5 +65,51 @@ describe("本地 IP 粗略定位", () => {
     expect(Object.keys(location)).not.toContain("ll")
     expect(Object.keys(location)).not.toContain("lat")
     expect(Object.keys(location)).not.toContain("lng")
+  })
+
+  it("把 mmdb 结果收敛为城市级字段，优先中文名并丢弃坐标", () => {
+    const location = ipLocationFromResponse({
+      city: {
+        geoname_id: 1,
+        names: { en: "Mountain View", "zh-CN": "山景城" },
+      },
+      subdivisions: [
+        { geoname_id: 2, iso_code: "CA", names: { en: "California" } },
+      ],
+      country: { geoname_id: 3, iso_code: "US", names: { en: "United States" } },
+      location: {
+        accuracy_radius: 1000,
+        latitude: 37.4,
+        longitude: -122.0,
+        time_zone: "America/Los_Angeles",
+      },
+      postal: { code: "94043" },
+    })
+    expect(location).toEqual({
+      source: "IP",
+      precision: "CITY",
+      label: "山景城 · California · US",
+      country: "US",
+      region: "California",
+      city: "山景城",
+      timezone: "America/Los_Angeles",
+    })
+    expect(Object.keys(location)).not.toContain("postal")
+  })
+
+  it("数据库缺失时降级为占位文案而不是抛错", () => {
+    vi.stubEnv("GEOIP_DATA_DIR", "__missing_geoip_dir__")
+    releaseGeoIpReader()
+    expect(getCoarseIpLocation("8.8.8.8")).toEqual({
+      source: "IP",
+      precision: "CITY",
+      label: "IP 粗略定位暂不可用",
+      country: null,
+      region: null,
+      city: null,
+      timezone: null,
+    })
+    vi.unstubAllEnvs()
+    releaseGeoIpReader()
   })
 })

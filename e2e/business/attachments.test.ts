@@ -36,7 +36,8 @@ const IMAGE_B = "data:image/jpeg;base64,YQ=="
 const IMAGE_INVALID = "data:image/gif;base64,R0lGOD"
 /**
  * 补卡强制要求能解析出 IP 定位（createCheckinMakeup 无 allowNoLocation 豁免），
- * 非生产环境下 getRequestIp 信任 x-real-ip，这里用公网 IP 让 geoip-lite 命中。
+ * 非生产环境下 getRequestIp 信任 x-real-ip，这里用公网 IP 让本地 mmdb 命中
+ * （跑前需 `pnpm geoip:update`）。
  */
 const PUBLIC_IP = "8.8.8.8"
 

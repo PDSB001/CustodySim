@@ -10,6 +10,9 @@ const source = readFileSync(
   "utf8",
 )
 
+/** 单个上游响应最多切成的块数，避免超大正文制造十万级微块。 */
+const MAX_SPLIT_CHUNKS = 1024
+
 function runtime(kind: "chat" | "book" | "resource" | "document" = "chat") {
   const id = randomUUID()
   const pathname =
@@ -120,6 +123,17 @@ function runtime(kind: "chat" | "book" | "resource" | "document" = "chat") {
         ? gzipSync(body)
         : new TextEncoder().encode(body)
       let position = 0
+      /*
+       * 分块总数要封顶：3.7MB 正文按 23 字节切会产生约 16 万个微块，
+       * Node 26.12 在这么多块连续转发时会触发 structuredClone 反序列化失败
+       * 并让 worker 直接退出（0xC0000409）。真实运行时按网络包大小发送，
+       * 不会出现这种量级，所以这里只保证"跨 UTF-8 边界切块"的语义，
+       * 大响应按块数上限放大实际块长。
+       */
+      const step = Math.max(
+        chunkSize,
+        Math.ceil(encoded.length / MAX_SPLIT_CHUNKS),
+      )
       const response = new Response(
         splitDocument
           ? new ReadableStream({
@@ -128,7 +142,7 @@ function runtime(kind: "chat" | "book" | "resource" | "document" = "chat") {
                 // Split the envelope and UTF-8 characters across chunks.
                 const end = Math.min(
                   encoded.length,
-                  position + (position < 30 ? 1 : chunkSize),
+                  position + (position < 30 ? 1 : step),
                 )
                 controller.enqueue(encoded.subarray(position, end))
                 position = end
@@ -552,7 +566,8 @@ test("large gzip MISS and HIT preserve bytes, isolate identity and never pollute
   app.authorize(403)
   app.encoding("gzip")
   expect((await app.request()).status).toBe(403)
-})
+  // 3.7MB 正文要过大响应路径三次，慢机器上会超过默认 5s。
+}, 20_000)
 
 test("an HTTP client decodes gzip MISS and HIT as JSON without changing the reader contract", async () => {
   const app = runtime("document")

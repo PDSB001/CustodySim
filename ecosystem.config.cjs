@@ -40,9 +40,14 @@ module.exports = {
     {
       name: "custodysim",
       script: ".next/standalone/server.js",
+      // 固定 cwd 为仓库根目录：本地 IP 库按 process.cwd()/data/geoip 解析，
+      // 显式声明后 pm2 resurrect 也不会因为启动目录不同而找不到数据。
+      cwd: __dirname,
       instances: 1,
       exec_mode: "fork",
       env: {
+        // 本地 IP 库默认落在仓库根目录；.env.local 里的 GEOIP_DATA_DIR 可覆盖。
+        GEOIP_DATA_DIR: path.join(__dirname, "data", "geoip"),
         ...loadEnvLocal(),
         NODE_ENV: "production",
         TZ: "Asia/Shanghai",
@@ -52,9 +57,10 @@ module.exports = {
       // 于是 V8 迟迟不做激进 GC，pm2 却按 RSS 到 300M 就把进程杀掉 —— 表现就是
       // restarts 一路涨、uptime 只有几分钟，每次被杀还会掐断正在处理的请求。
       // 两个值一起调：先让 V8 在 384M 堆时主动 GC，再给 pm2 留出足够余量
-      // （堆 384M + 运行时开销 ≈ 500M，600M 的 RSS 上限留了缓冲）。
+      // （堆 384M + 运行时开销 ≈ 500M）。mmdb 是常驻的 ~96MB Buffer，
+      // 记在堆外但计入 RSS，所以上限从 600M 提到 700M。
       node_args: "--max-old-space-size=384",
-      max_memory_restart: "600M",
+      max_memory_restart: "700M",
       kill_timeout: 30000,
       log_date_format: "YYYY-MM-DD HH:mm:ss",
       error_file: path.join(logDirectory, "error.log"),

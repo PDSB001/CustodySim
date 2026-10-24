@@ -60,6 +60,9 @@ jobs:
           persist-credentials: false
       - uses: ./.github/actions/setup-web
       - run: pnpm db:setup-e2e
+      # 业务用例会断言 IP 粗略定位，本地合并库（~96MB）不在仓库里，先下载。
+      - name: Local GeoIP database
+        run: pnpm geoip:update
       - name: Isolation schedule migration (including repeat run)
         run: |
           DATABASE_URL="$E2E_DATABASE_URL" node scripts/upgrade-isolation-schedule.mjs --database=custodysim_e2e

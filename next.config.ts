@@ -34,7 +34,8 @@ const nextConfig: NextConfig = {
    */
   images: { unoptimized: true },
   allowedDevOrigins: ["127.0.0.1", "localhost", ...localNetworkHosts],
-  serverExternalPackages: ["geoip-lite"],
+  // mmdb 读取器只在服务端按需打开本地文件，交给 Node 直接 require 更稳。
+  serverExternalPackages: ["maxmind", "mmdb-lib"],
   outputFileTracingIncludes: {
     "/api/library/pdf-worker": [
       "./node_modules/pdfjs-dist/build/pdf.worker.min.mjs",
@@ -44,7 +45,6 @@ const nextConfig: NextConfig = {
       "./node_modules/pdfjs-dist/standard_fonts/**/*",
       "./node_modules/pdfjs-dist/wasm/**/*",
     ],
-    "/*": ["./node_modules/geoip-lite/data/**/*"],
   },
   async headers() {
     return [{ source: "/:path*", headers: fallbackSecurityHeaders }]

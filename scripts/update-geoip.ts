@@ -1,61 +1,58 @@
-import { execFile } from "node:child_process"
-import { existsSync, readFileSync } from "node:fs"
-import path from "node:path"
-import { promisify } from "node:util"
+import {
+  GEOIP_SOURCE_REPOSITORY,
+  updateGeoIpDatabase,
+} from "@/lib/geoip-updater"
+import { describeGeoIpDatabase } from "@/lib/geoip-database"
 
-import { config } from "dotenv"
+/**
+ * 手动 / 部署时更新本地合并 IP 库。
+ *
+ * 运行中的应用也会按 GEOIP_AUTO_UPDATE=true 每周自动执行同一段逻辑，
+ * 这个入口主要给首次部署、排查和 CI 预置数据用。
+ */
+async function main() {
+  const result = await updateGeoIpDatabase({
+    log: (message) => process.stdout.write(message + "\n"),
+  })
 
-config({ path: ".env.local" })
-
-const execFileAsync = promisify(execFile)
-
-function getLicenseKey() {
-  if (process.env.MAXMIND_LICENSE_KEY) return process.env.MAXMIND_LICENSE_KEY
-  const configPath = process.env.MAXMIND_GEOIP_CONF
-  if (!configPath || !existsSync(configPath)) return null
-  const configContent = readFileSync(configPath, "utf8")
-  return configContent.match(/^\s*LicenseKey\s+(\S+)\s*$/m)?.[1] ?? null
-}
-
-async function updateGeoIpDatabase() {
-  const licenseKey = getLicenseKey()
-  if (!licenseKey)
-    throw new Error(
-      "缺少 MAXMIND_LICENSE_KEY 或 MAXMIND_GEOIP_CONF，无法更新本地 GeoLite2 数据库",
+  if (result.status === "updated") {
+    process.stdout.write("数据库位置：" + result.databasePath + "\n")
+  } else if (result.status === "up-to-date") {
+    process.stdout.write(
+      "已是最新（" +
+        (result.tag ?? result.sha256?.slice(0, 12) ?? "未知版本") +
+        "，更新于 " +
+        (result.downloadedAt ?? "未知时间") +
+        "）。\n",
     )
-
-  const updater = path.join(
-    process.cwd(),
-    "node_modules",
-    "geoip-lite",
-    "scripts",
-    "updatedb.js",
-  )
-  if (!existsSync(updater)) throw new Error("未找到 geoip-lite 更新脚本")
-
-  try {
-    const { stdout, stderr } = await execFileAsync(
-      process.execPath,
-      [updater],
-      {
-        env: { ...process.env, LICENSE_KEY: licenseKey },
-      },
-    )
-    if (stdout) process.stdout.write(stdout)
-    if (stderr) process.stderr.write(stderr)
-  } catch (error) {
-    const result = error as { stdout?: string; stderr?: string }
-    if (result.stdout) process.stdout.write(result.stdout)
-    if (result.stderr) process.stderr.write(result.stderr)
-    if (result.stdout?.includes("[451 Unavailable For Legal Reasons]"))
-      throw new Error(
-        "MaxMind 拒绝下载 GeoLite2 City 数据库（HTTP 451）。请在 MaxMind 账户中确认 City 数据库下载权限与地区合规性；现有本地 City 数据仍可继续使用。",
-      )
-    throw error
+  } else {
+    process.stdout.write("跳过本次更新：" + result.reason + "\n")
   }
+
+  const database = describeGeoIpDatabase()
+  if (!database.available) {
+    process.stderr.write(
+      "警告：更新后仍无法加载数据库，" +
+        database.path +
+        "；请检查数据源 " +
+        GEOIP_SOURCE_REPOSITORY +
+        " 是否可访问。\n",
+    )
+    process.exitCode = 1
+    return
+  }
+  process.stdout.write(
+    "数据库自检通过：" +
+      database.databaseType +
+      "，构建于 " +
+      database.buildEpoch.toISOString() +
+      "，节点数 " +
+      database.nodeCount +
+      "。\n",
+  )
 }
 
-updateGeoIpDatabase().catch((error: unknown) => {
-  console.error("GeoLite2 数据库更新失败", error)
+main().catch((error: unknown) => {
+  console.error("GeoLite2 合并库更新失败", error)
   process.exitCode = 1
 })
