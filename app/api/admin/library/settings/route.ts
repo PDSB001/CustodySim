@@ -15,7 +15,7 @@ export async function GET() {
     return failure("FORBIDDEN", "仅管理员可管理阅读积分", 403)
   const [settings] = await db.select().from(libraryScoreSettings)
   return success(
-    settings ?? { enabled: true, minutesPerPoint: 15, dailyCap: 3 },
+    settings ?? { enabled: true, minutesPerPoint: 15, dailyCap: 2 },
   )
 }
 export async function PUT(request: Request) {

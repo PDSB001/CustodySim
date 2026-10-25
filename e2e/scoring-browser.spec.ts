@@ -262,7 +262,7 @@ test("真实登录、提交审核后更正上周积分，取消的检讨在页�
         .select()
         .from(s.scoreWeekReviews)
         .where(eq(s.scoreWeekReviews.supervisedId, user)),
-    ).toMatchObject([{ totalScore: 1, result: "CLEAR" }])
+    ).toMatchObject([{ totalScore: 2, result: "CLEAR" }])
     expect(
       await db
         .select()

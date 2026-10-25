@@ -47,6 +47,8 @@ const PersonScore = z.object({
   id: z.string(),
   name: z.string(),
   currentScore: z.number(),
+  /** 按来源拆分的本周积分，含 READING_DURATION（图书馆阅读积分）。 */
+  breakdown: z.record(z.string(), z.number()),
   activeIsolation: z
     .object({
       id: z.string(),
@@ -82,8 +84,17 @@ function weekLabel(weekKey: string) {
 const scoreSourceLabels: Record<string, string> = {
   CHECKIN_DAILY: "打卡日结",
   TASK_OUTCOME: "任务结果",
-  READING_DURATION: "阅读时长",
+  READING_DURATION: "图书馆阅读",
   MANUAL: "人工调整",
+}
+
+/** 本周阅读积分：与总分同源，取 READING_DURATION 分项。 */
+function readingScoreOf(person: z.infer<typeof PersonScore>) {
+  return person.breakdown.READING_DURATION ?? 0
+}
+
+function signedPoints(value: number) {
+  return value > 0 ? `+${value}` : String(value)
 }
 
 export function ScoreboardManage({
@@ -146,7 +157,7 @@ export function ScoreboardManage({
           </Button>
         }
       />
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <Metric
           icon={Trophy}
           label="正积分人员"
@@ -162,6 +173,17 @@ export function ScoreboardManage({
             data?.people.filter((person) => person.currentScore < 0).length ?? 0
           }
           tone="warning"
+        />
+        <Metric
+          icon={BookOpenCheck}
+          label="阅读积分合计"
+          value={
+            data?.people.reduce(
+              (total, person) => total + readingScoreOf(person),
+              0,
+            ) ?? 0
+          }
+          tone="brand"
         />
         <Metric
           icon={ShieldAlert}
@@ -197,12 +219,13 @@ export function ScoreboardManage({
       </Card>
       <Card className="shadow-soft border-0">
         <CardContent className="overflow-x-auto p-0">
-          <table className="w-full min-w-[760px] text-left text-sm">
+          <table className="w-full min-w-[880px] text-left text-sm">
             <thead className="bg-muted/40 text-muted-foreground text-[11px] font-semibold tracking-[0.08em] uppercase">
               <tr>
                 <th className="px-5 py-3">排名</th>
                 <th className="px-5 py-3">人员</th>
                 <th className="px-5 py-3">周积分</th>
+                <th className="px-5 py-3">其中阅读</th>
                 <th className="px-5 py-3">周结状态</th>
                 <th className="px-5 py-3">最近计分记录</th>
                 <th className="px-5 py-3 text-right">操作</th>
@@ -218,9 +241,16 @@ export function ScoreboardManage({
                   <td
                     className={`px-5 py-4 text-lg font-semibold ${person.currentScore < 0 ? "text-destructive" : person.currentScore > 0 ? "text-success" : "text-muted-foreground"}`}
                   >
-                    {person.currentScore > 0
-                      ? `+${person.currentScore}`
-                      : person.currentScore}
+                    {signedPoints(person.currentScore)}
+                  </td>
+                  <td className="font-numeric text-muted-foreground px-5 py-4">
+                    {readingScoreOf(person) > 0 ? (
+                      <span className="text-success">
+                        +{readingScoreOf(person)}
+                      </span>
+                    ) : (
+                      "—"
+                    )}
                   </td>
                   <td className="px-5 py-4">
                     {person.activeIsolation ? (
@@ -285,7 +315,7 @@ export function ScoreboardManage({
               ))}
               {data?.people.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="p-0">
+                  <td colSpan={7} className="p-0">
                     <EmptyState
                       icon={Trophy}
                       title="暂无可计分人员"
@@ -305,19 +335,27 @@ export function ScoreboardManage({
           </DialogHeader>
           <div className="text-muted-foreground space-y-3 text-sm leading-6">
             <p>
-              <strong className="text-foreground">打卡日结：</strong>
-              有正常打卡时，5 分起算；每次补卡减 1 分、每次缺卡减 2 分，最低为 0
-              分。全天没有正常打卡为 -8 分。
+              <strong className="text-foreground">打卡日结（按时段计分）：</strong>
+              每个打卡时段独立计分——完成 +1、补卡通过 -1、缺卡
+              -2，当天合计可正可负，没有保底分；系统补卡不参与计分。
             </p>
             <p>
               <strong className="text-foreground">任务结果：</strong>
-              首次按时通过 +2；打回后在截止前通过
-              +1；截止时仍未通过、未提交或待审核 -2。评分不影响积分。
+              首次按时通过 +3；打回后在截止前通过
+              +2；截止时仍未通过、未提交或待审核 -3。评分不影响积分。
+            </p>
+            <p>
+              <strong className="text-foreground">图书馆阅读：</strong>
+              有效阅读时长自动折算积分（默认每 15 分钟 1 分、每日最多 2
+              分，可在图书馆设置中调整或关闭），按上海自然日结算后计入当周总分；
+              单次心跳超过 25 秒的间隔不计分。
             </p>
             <p>
               <strong className="text-foreground">周结禁闭：</strong>
               上一自然周于周一 00:00 截止，系统等待日结完成后于 00:10
-              起执行周结；周积分为负即进入 3 天禁闭，加强打卡并每日提交检讨。
+              起执行周结；周积分为负，且该周出勤率（完成 + 补卡通过）低于一半时，
+              才进入 3 天禁闭，加强打卡并每日提交检讨；只被任务扣分但全勤的人
+              不因此禁闭。
             </p>
             <p>
               <strong className="text-foreground">请假：</strong>
@@ -344,10 +382,18 @@ export function ScoreboardManage({
                   : "text-foreground"
               }
             >
-              {detailPerson && detailPerson.currentScore > 0 ? "+" : ""}
-              {detailPerson?.currentScore ?? 0}
+              {signedPoints(detailPerson?.currentScore ?? 0)}
             </strong>{" "}
             分
+            {detailPerson && readingScoreOf(detailPerson) > 0 ? (
+              <>
+                ，其中图书馆阅读{" "}
+                <strong className="text-foreground">
+                  +{readingScoreOf(detailPerson)}
+                </strong>{" "}
+                分
+              </>
+            ) : null}
           </div>
           <div className="max-h-[55vh] space-y-2 overflow-y-auto pr-1">
             {detailPerson?.events.map((event) => (

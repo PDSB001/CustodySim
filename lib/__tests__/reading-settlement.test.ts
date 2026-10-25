@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 const mocks = vi.hoisted(() => ({ score: vi.fn() }))
 vi.mock("@/lib/scoring", () => ({
   recordScoreEvent: mocks.score,
-  SCORE_POLICY: { taskFirstPass: 2, taskReturnedThenPass: 1 },
+  SCORE_POLICY: { taskFirstPass: 3, taskReturnedThenPass: 2 },
   getTaskOutcomeWeekKey: () => "2026-09-28",
 }))
 import { settleReadingTasks, settleReadingPoints } from "@/lib/reading-server"
@@ -58,7 +58,7 @@ describe("automatic study settlement", () => {
     expect(state.task.status).toBe("APPROVED")
     expect(mocks.score).toHaveBeenCalledWith(
       expect.objectContaining({
-        points: 2,
+        points: 3,
         source: "TASK_OUTCOME",
         sourceId: "task",
       }),

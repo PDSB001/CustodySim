@@ -12,7 +12,11 @@ import {
   scoreWeekReviews,
   users,
 } from "@/lib/db/schema"
-import { getShanghaiWeekKey, recordScoreEvent } from "@/lib/scoring"
+import {
+  getShanghaiWeekKey,
+  recordScoreEvent,
+  scoreBreakdown,
+} from "@/lib/scoring"
 import { getSessionUser } from "@/lib/session"
 import {
   getSupervisedUserIdsForActor,
@@ -140,9 +144,15 @@ export async function GET(request: NextRequest) {
         const ownEvents = events.filter(
           (event) => event.supervisedId === person.id,
         )
-        const currentScore = ownEvents
-          .filter((event) => event.weekKey === selectedWeek)
-          .reduce((total, event) => total + event.points, 0)
+        const weekEvents = ownEvents.filter(
+          (event) => event.weekKey === selectedWeek,
+        )
+        const currentScore = weekEvents.reduce(
+          (total, event) => total + event.points,
+          0,
+        )
+        // 分项与总分同源：都是这一周的流水，阅读积分只是其中一类来源。
+        const breakdown = scoreBreakdown(weekEvents)
         const activeIsolation = orders.find(
           (order) =>
             order.supervisedId === person.id &&
@@ -164,6 +174,7 @@ export async function GET(request: NextRequest) {
           ...personData,
           name: canSeeFullName ? actualName : maskName(actualName),
           currentScore,
+          breakdown,
           activeIsolation:
             (actor.role !== "SUPERVISED" || isOwn || sameRoom) &&
             activeIsolation
@@ -182,9 +193,7 @@ export async function GET(request: NextRequest) {
               }
             : null,
           events:
-            actor.role !== "SUPERVISED" || isOwn
-              ? ownEvents.filter((event) => event.weekKey === selectedWeek)
-              : [],
+            actor.role !== "SUPERVISED" || isOwn ? weekEvents : [],
           canViewDetails: actor.role !== "SUPERVISED" || isOwn,
         }
       })

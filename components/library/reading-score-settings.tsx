@@ -44,7 +44,10 @@ export function ReadingScoreSettings() {
   return (
     <section className={styles.panel}>
       <h2 className="text-base font-semibold">阅读积分</h2>
-      <p className={styles.caption}>有效阅读自动累计，两端共用每日额度。</p>
+      <p className={styles.caption}>
+        有效阅读自动累计，两端共用每日额度。阅读是补充项，默认每 15 分钟 1
+        分、每天最多 2 分；上调前请确认不会盖过打卡与任务等主项。
+      </p>
       {query.isPending && (
         <p role="status" className={styles.caption}>
           正在加载设置…
@@ -98,7 +101,7 @@ export function ReadingScoreSettings() {
             </label>
           </div>
           <p className={styles.caption}>
-            按上海日期结算。学习任务通过后，另按任务积分规则记分。
+            按上海日期结算，只补差额不重复计分。学习任务通过后另按任务积分规则记分。
           </p>
           <Button
             disabled={busy}

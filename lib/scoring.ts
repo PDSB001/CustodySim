@@ -21,16 +21,40 @@ import { ensureIsolationReportTemplate } from "@/lib/isolation-report-template"
 import { publishGroupedNotice } from "@/lib/notice-events"
 
 export const SCORE_POLICY = {
-  dailyCheckinBase: 5,
-  dailyCheckinMissedPenalty: 2,
-  dailyCheckinMakeupPenalty: 1,
-  dailyCheckinNoCheckinPenalty: -8,
-  taskFirstPass: 2,
-  taskReturnedThenPass: 1,
-  taskExpired: -2,
+  /**
+   * 完成一个打卡时段，按次累计（不再有"每天 5 分"的基线）。
+   *
+   * 业务上只有"完成 / 补卡 / 缺卡"三档：`LATE` 只是截止后被清扫前
+   * 几分钟内提交的竞态产物，与按时完成同样计分，不单独设档。
+   */
+  checkinCompleted: 1,
+  /** 补卡通过：比缺卡轻，但不再等于"花小钱买回考勤"。 */
+  checkinMakeup: -1,
+  /** 缺卡：单次扣 2 分，日结可以为负，不再被地板截断。 */
+  checkinMissing: -2,
+  taskFirstPass: 3,
+  taskReturnedThenPass: 2,
+  taskExpired: -3,
+  /**
+   * 禁闭改为双条件：总分为负 **且** 当周出勤率低于该比例。
+   * 只看总分会让"按时到场但被任务扣分"的人被禁闭，只看出勤率又会放过
+   * 长期不到场却靠加分项转正的人。
+   */
+  isolationMinAttendanceRatio: 0.5,
+  /** 触发禁闭的分数线；该周没有打卡排班时退化为纯分数线判定。 */
   isolationThreshold: 0,
   isolationDurationDays: 3,
 } as const
+
+/**
+ * 按次计分规则自该上海日期起生效。
+ *
+ * 日结 sweep 每次都会重算所有历史天，规则变更会追溯改写已入账的周积分；
+ * 因此早于该日期的日结直接跳过，保持原口径不动，避免已归档周次和
+ * score_week_reviews 的总分对不上。
+ */
+export const CHECKIN_SLOT_SCORING_START_DAY =
+  process.env.SCORE_SLOT_SCORING_START_DAY?.trim() || "2026-10-25"
 
 export const WEEKLY_REVIEW_DELAY_MINUTES = 10
 
@@ -46,21 +70,25 @@ export function getTaskOutcomeWeekKey(scheduleAt: Date) {
   return getShanghaiWeekKey(scheduleAt)
 }
 
+/**
+ * 打卡日结：按时段线性累加，不再有基线分与 0 分地板。
+ *
+ * 旧口径 `max(0, 5 - 2×缺 - 1×补)` 会让"每天只打 1 次卡"和"缺一半"几乎同分，
+ * 缺卡惩罚被地板吞掉；按次计分则缺多少扣多少，日结可正可负。
+ */
 export function getDailyCheckinScore({
-  normalCheckinCount,
+  completedCount,
   makeupCount,
   missingCount,
 }: {
-  normalCheckinCount: number
+  completedCount: number
   makeupCount: number
   missingCount: number
 }) {
-  if (normalCheckinCount === 0) return SCORE_POLICY.dailyCheckinNoCheckinPenalty
-  return Math.max(
-    0,
-    SCORE_POLICY.dailyCheckinBase -
-      missingCount * SCORE_POLICY.dailyCheckinMissedPenalty -
-      makeupCount * SCORE_POLICY.dailyCheckinMakeupPenalty,
+  return (
+    completedCount * SCORE_POLICY.checkinCompleted +
+    makeupCount * SCORE_POLICY.checkinMakeup +
+    missingCount * SCORE_POLICY.checkinMissing
   )
 }
 
@@ -76,6 +104,21 @@ export function isWeeklyReviewWindowOpen(now = new Date()) {
   return (
     now.getTime() >= weekStart.getTime() + WEEKLY_REVIEW_DELAY_MINUTES * 60_000
   )
+}
+
+/**
+ * 按来源汇总积分流水，供计分板展示分项（打卡、任务、阅读、人工）。
+ *
+ * 总分仍是全部流水直接相加，这里只做拆分，避免前端各自过滤一遍
+ * 再出现"分项之和与总分对不上"的口径差异。
+ */
+export function scoreBreakdown(
+  events: readonly { points: number; source: string }[],
+) {
+  const totals: Record<string, number> = {}
+  for (const event of events)
+    totals[event.source] = (totals[event.source] ?? 0) + event.points
+  return totals
 }
 
 export function getTaskOutcomeScoreDelta({
@@ -141,6 +184,9 @@ async function settleCheckinDailyScore(
   dayKey: string,
   now: Date,
 ) {
+  // 新口径生效前的历史日结一律不动：sweep 每次都会重算全部历史天，
+  // 若按新规则重算，会把已归档周次的总分改掉而 score_week_reviews 仍是旧值。
+  if (dayKey < CHECKIN_SLOT_SCORING_START_DAY) return null
   const { start, end } = getShanghaiDayRange(dayKey)
   const tasks = await db
     .select({ id: checkinTasks.id, status: checkinTasks.status })
@@ -154,7 +200,8 @@ async function settleCheckinDailyScore(
     )
   const scoredTasks = tasks.filter((task) => task.status !== "SYSTEM_MAKEUP")
   if (!scoredTasks.length) return null
-  const normalCheckinCount = scoredTasks.filter((task) =>
+  // 完成含 COMPLETED 与极少数 LATE（截止后被清扫前提交的竞态），都算完成。
+  const completedCount = scoredTasks.filter((task) =>
     ["COMPLETED", "LATE"].includes(task.status),
   ).length
   const makeupCount = scoredTasks.filter(
@@ -166,14 +213,11 @@ async function settleCheckinDailyScore(
     ),
   ).length
   const points = getDailyCheckinScore({
-    normalCheckinCount,
+    completedCount,
     makeupCount,
     missingCount,
   })
-  const reason =
-    normalCheckinCount === 0
-      ? `${dayKey} 全天未打卡`
-      : `${dayKey} 打卡日结：补卡 ${makeupCount} 次，缺卡 ${missingCount} 次`
+  const reason = `${dayKey} 打卡日结：完成 ${completedCount} 次，补卡 ${makeupCount} 次，缺卡 ${missingCount} 次`
   const weekKey = getShanghaiWeekKey(new Date(`${dayKey}T12:00:00+08:00`))
   const [existing] = await db
     .select()
@@ -188,7 +232,7 @@ async function settleCheckinDailyScore(
   if (
     existing &&
     existing.scheduledCount === scoredTasks.length &&
-    existing.completedCount === normalCheckinCount &&
+    existing.completedCount === completedCount &&
     existing.makeupCount === makeupCount &&
     existing.missingCount === missingCount &&
     existing.points === points
@@ -200,7 +244,7 @@ async function settleCheckinDailyScore(
           .update(checkinDailyScores)
           .set({
             scheduledCount: scoredTasks.length,
-            completedCount: normalCheckinCount,
+            completedCount,
             makeupCount,
             missingCount,
             points,
@@ -215,7 +259,7 @@ async function settleCheckinDailyScore(
             supervisedId,
             dayKey,
             scheduledCount: scoredTasks.length,
-            completedCount: normalCheckinCount,
+            completedCount,
             makeupCount,
             missingCount,
             points,
@@ -355,8 +399,12 @@ export async function reconcileTaskOutcomeScoreWeeks(now = new Date()) {
         (total, event) => total + event.points,
         0,
       )
-      const result =
-        totalScore < SCORE_POLICY.isolationThreshold ? "ISOLATION" : "CLEAR"
+      const result = await getWeeklyReviewResult(
+        affected.supervisedId,
+        affected.weekKey,
+        totalScore,
+        tx,
+      )
       if (review.totalScore === totalScore && review.result === result) continue
       await tx
         .update(scoreWeekReviews)
@@ -462,6 +510,60 @@ export async function getActiveIsolationOrder(
   return order ?? null
 }
 
+/**
+ * 当周出勤概况：已结算打卡时段数与实际出勤（完成 + 补卡通过）时段数。
+ *
+ * 用于把禁闭判定从"只看总分"改成"总分 + 出勤率"双条件：按次计分后
+ * 缺卡会直接把分数拖成负值，但只被任务扣分、人一直按时到场的不该因此禁闭。
+ */
+export async function getWeeklyAttendance(
+  supervisedId: string,
+  weekKey: string,
+  executor: Pick<typeof db, "select"> = db,
+) {
+  const weekStart = Date.parse(`${weekKey}T00:00:00Z`)
+  const days = [0, 1, 2, 3, 4, 5, 6].map((offset) =>
+    new Date(weekStart + offset * 86_400_000).toISOString().slice(0, 10),
+  )
+  const [row] = await executor
+    .select({
+      slots: sql<number>`coalesce(sum(${checkinDailyScores.scheduledCount}), 0)::int`,
+      // 出勤 = 完成 + 补卡通过：补卡已另扣 1 分，不该再算作缺席。
+      attended: sql<number>`coalesce(sum(${checkinDailyScores.completedCount} + ${checkinDailyScores.makeupCount}), 0)::int`,
+    })
+    .from(checkinDailyScores)
+    .where(
+      and(
+        eq(checkinDailyScores.supervisedId, supervisedId),
+        inArray(checkinDailyScores.dayKey, days),
+      ),
+    )
+  return { slots: row?.slots ?? 0, attended: row?.attended ?? 0 }
+}
+
+/**
+ * 周结判定：总分为负，且出勤率低于约定比例，才判禁闭。
+ *
+ * 没有打卡排班的周（例如该周只有报告任务）退回纯总分判定。
+ */
+export async function getWeeklyReviewResult(
+  supervisedId: string,
+  weekKey: string,
+  totalScore: number,
+  executor: Pick<typeof db, "select"> = db,
+): Promise<"ISOLATION" | "CLEAR"> {
+  if (totalScore >= SCORE_POLICY.isolationThreshold) return "CLEAR"
+  const { slots, attended } = await getWeeklyAttendance(
+    supervisedId,
+    weekKey,
+    executor,
+  )
+  if (slots <= 0) return "ISOLATION"
+  return attended / slots < SCORE_POLICY.isolationMinAttendanceRatio
+    ? "ISOLATION"
+    : "CLEAR"
+}
+
 export async function runWeeklyScoreReview(now = new Date()) {
   // 周一零点刚跨日时，上一自然日的日结流水可能仍在生成。周结必须等待
   // 安全窗结束，并在读取周积分前主动补跑日结，避免禁闭名单锁定旧分数。
@@ -508,7 +610,7 @@ export async function runWeeklyScoreReview(now = new Date()) {
       : events.reduce((total, event) => total + event.points, 0)
     const result =
       existing?.result ??
-      (totalScore < SCORE_POLICY.isolationThreshold ? "ISOLATION" : "CLEAR")
+      (await getWeeklyReviewResult(user.id, completedWeekKey, totalScore))
     const [createdReview] = existing
       ? []
       : await db

@@ -496,7 +496,7 @@ test("自动通过与并发扫描只产生一份审核和积分", async () => {
       .select()
       .from(s.scoreEvents)
       .where(eq(s.scoreEvents.supervisedId, user)),
-  ).toMatchObject([{ points: 2 }])
+  ).toMatchObject([{ points: 3 }])
 })
 test("重叠扫描共享数据库模型并发槽", async () => {
   await fixture()

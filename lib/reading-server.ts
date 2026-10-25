@@ -98,7 +98,7 @@ export async function settleReadingPoints(
     .select()
     .from(libraryScoreSettings)
     .where(eq(libraryScoreSettings.id, 1))
-  const policy = settings ?? { enabled: true, minutesPerPoint: 15, dailyCap: 3 }
+  const policy = settings ?? { enabled: true, minutesPerPoint: 15, dailyCap: 2 }
   if (!policy.enabled) return 0
   const start = new Date(`${getShanghaiDateKey(now)}T00:00:00+08:00`)
   const end = new Date(start.getTime() + 86400000)

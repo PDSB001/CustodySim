@@ -127,7 +127,8 @@ test("从未访问页面或打卡：后台建立点名任务，次日日结扣 8
   const scores = await events()
   expect(scores).toHaveLength(1)
   expect(scores[0]).toMatchObject({
-    points: -8,
+    // 按次计分：每个缺失时段 -2，不再有固定的"全天未打卡 -8"。
+    points: -2 * generated.length,
     source: "CHECKIN_DAILY",
     weekKey: "2026-08-24",
   })
@@ -140,7 +141,7 @@ test("从未访问页面或打卡：后台建立点名任务，次日日结扣 8
     dayKey: "2026-08-30",
     completedCount: 0,
     missingCount: generated.length,
-    points: -8,
+    points: -2 * generated.length,
   })
 })
 
@@ -238,7 +239,7 @@ test.each([false, true])(
       (await review(request({ submissionId, result: "APPROVED" }))).status,
     ).toBe(409)
     expect(await events()).toMatchObject([
-      { points: returned ? 1 : 2, weekKey: "2026-08-24", sourceId: row.id },
+      { points: returned ? 2 : 3, weekKey: "2026-08-24", sourceId: row.id },
     ])
     expect(await events()).toHaveLength(1)
   },
@@ -252,7 +253,7 @@ test("周日晚任务周一过期与缺失流水回填保持幂等", async () =>
   expect(await events()).toHaveLength(2)
   expect(
     (await events()).every(
-      (e) => e.weekKey === "2026-08-24" && e.points === -2,
+      (e) => e.weekKey === "2026-08-24" && e.points === -3,
     ),
   ).toBe(true)
   expect(
@@ -294,7 +295,8 @@ test("周结在 00:10 前不落库，边界时先补日结且重复执行不重�
     ).toHaveLength(0)
     await runWeeklyScoreReview(monday)
     await runWeeklyScoreReview(monday)
-    expect(await reviews()).toMatchObject([{ totalScore: 3, result: "CLEAR" }])
+    // 1 个按时时段 +1，另有 -2 的人工调整；出勤 1/1 不触发禁闭。
+    expect(await reviews()).toMatchObject([{ totalScore: -1, result: "CLEAR" }])
     expect(await reviews()).toHaveLength(1)
     expect(
       await db
@@ -465,7 +467,7 @@ test("周结后正确归属的审核回填会重算并撤销禁闭", async () =>
   ).toBe(201)
   await runWeeklyScoreReview(monday)
   await runWeeklyScoreReview(monday)
-  expect(await reviews()).toMatchObject([{ totalScore: 1, result: "CLEAR" }])
+  expect(await reviews()).toMatchObject([{ totalScore: 2, result: "CLEAR" }])
   expect(
     await db
       .select()
@@ -487,7 +489,7 @@ test("周结主动处理到期任务，后续重跑不重复扣分或派发检�
   await runWeeklyScoreReview(monday)
   await runWeeklyScoreReview(monday)
   expect(await reviews()).toMatchObject([
-    { totalScore: -2, result: "ISOLATION" },
+    { totalScore: -3, result: "ISOLATION" },
   ])
   expect(await events()).toHaveLength(1)
   const orders = await db
@@ -509,7 +511,7 @@ test("周结主动处理到期任务，后续重跑不重复扣分或派发检�
   ).toHaveLength(links.length)
 })
 
-test("周结后补卡更正重算到零分，撤销禁闭且日结流水不重复", async () => {
+test("周结后补卡更正重算并撤销禁闭，日结流水不重复", async () => {
   const [rule] = await db
     .insert(s.rules)
     .values({ name: `e2e_${user}` })
@@ -534,18 +536,27 @@ test("周结后补卡更正重算到零分，撤销禁闭且日结流水不重�
           deadline: sunday,
           status: "MISSED",
         },
+        {
+          ruleId: rule!.id,
+          supervisedId: user,
+          slotIndex: 2,
+          scheduleAt: new Date(sunday.getTime() - 120_000),
+          deadline: sunday,
+          status: "MISSED",
+        },
       ])
       .returning()
     await recordScoreEvent({
       supervisedId: user,
-      points: -4,
+      points: -2,
       reason: "fixture",
       source: "MANUAL",
       weekKey: "2026-08-24",
     })
     await runWeeklyScoreReview(monday)
+    // 日结：1 次按时 +1、2 次缺卡 -4，加人工 -2；出勤 1/3 低于一半 → 禁闭。
     expect(await reviews()).toMatchObject([
-      { totalScore: -1, result: "ISOLATION" },
+      { totalScore: -5, result: "ISOLATION" },
     ])
     const before = (await events()).find(
       (event) => event.source === "CHECKIN_DAILY",
@@ -555,11 +566,12 @@ test("周结后补卡更正重算到零分，撤销禁闭且日结流水不重�
       .set({ status: "MAKEUP_APPROVED" })
       .where(eq(s.checkinTasks.id, checkins[1]!.id))
     await runWeeklyScoreReview(monday)
-    expect(await reviews()).toMatchObject([{ totalScore: 0, result: "CLEAR" }])
+    // 补卡按 -1 重算：+1 -1 -2 -2 = -4；出勤 2/3 过半，撤销禁闭。
+    expect(await reviews()).toMatchObject([{ totalScore: -4, result: "CLEAR" }])
     expect(await events()).toHaveLength(2)
     expect(
       (await events()).find((event) => event.source === "CHECKIN_DAILY"),
-    ).toMatchObject({ id: before.id, points: 4, weekKey: "2026-08-24" })
+    ).toMatchObject({ id: before.id, points: -2, weekKey: "2026-08-24" })
     expect(
       await db
         .select()
