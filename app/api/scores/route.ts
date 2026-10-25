@@ -16,7 +16,11 @@ import {
   getShanghaiWeekKey,
   recordScoreEvent,
   scoreBreakdown,
+  SCORE_POLICY,
+  CHECKIN_SLOT_SCORING_START_DAY,
+  WEEKLY_REVIEW_DELAY_MINUTES,
 } from "@/lib/scoring"
+import { getReadingScorePolicy } from "@/lib/reading-server"
 import { getSessionUser } from "@/lib/session"
 import {
   getSupervisedUserIdsForActor,
@@ -62,6 +66,12 @@ export async function GET(request: NextRequest) {
             .map((user) => user.id)
         : [...(await getSupervisedUserIdsForActor(actor))]
     const now = new Date()
+    const policy = {
+      ...SCORE_POLICY,
+      effectiveDay: CHECKIN_SLOT_SCORING_START_DAY,
+      weeklyReviewDelayMinutes: WEEKLY_REVIEW_DELAY_MINUTES,
+      reading: await getReadingScorePolicy(),
+    }
     const currentWeekKey = getShanghaiWeekKey(now)
     const requestedWeek = request.nextUrl.searchParams.get("week")
     const selectedWeek =
@@ -72,6 +82,7 @@ export async function GET(request: NextRequest) {
         currentWeek: currentWeekKey,
         weeks: [currentWeekKey],
         people: [],
+        policy,
       })
     const [people, events, orders, reviews, actorProfile] = await Promise.all([
       db
@@ -192,8 +203,7 @@ export async function GET(request: NextRequest) {
                 evaluatedAt: weeklyReview.evaluatedAt,
               }
             : null,
-          events:
-            actor.role !== "SUPERVISED" || isOwn ? weekEvents : [],
+          events: actor.role !== "SUPERVISED" || isOwn ? weekEvents : [],
           canViewDetails: actor.role !== "SUPERVISED" || isOwn,
         }
       })
@@ -207,6 +217,7 @@ export async function GET(request: NextRequest) {
       currentWeek: currentWeekKey,
       weeks,
       people: ranking,
+      policy,
     })
   } catch (error) {
     console.error("[API scores GET]", error)
@@ -219,7 +230,9 @@ export async function POST(request: NextRequest) {
   if (!actor) return failure("UNAUTHORIZED", "请先登录", 401)
   if (actor.role === "SUPERVISED")
     return failure("FORBIDDEN", "仅管理人员可调整积分", 403)
-  const parsed = ManualScoreSchema.safeParse(await request.json().catch(() => null))
+  const parsed = ManualScoreSchema.safeParse(
+    await request.json().catch(() => null),
+  )
   if (!parsed.success)
     return failure("VALIDATION_ERROR", "积分调整参数不合法", 400)
   if (

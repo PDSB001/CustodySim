@@ -33,6 +33,8 @@ flowchart LR
 
 ## 私有配置
 
+Web 自由注册账号的首周考察截止前一天也会入队提醒，沿用通知总开关与站内信分类开关。新版 App 点击后打开计分板；注册入口仍只在 Web。完整规则见[注册与考察](registration.md)。
+
 Web 服务器 `.env.local`：
 
 ```dotenv

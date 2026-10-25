@@ -1,5 +1,6 @@
 import { ShieldCheck, Sparkles } from "lucide-react"
 import { redirect } from "next/navigation"
+import Link from "next/link"
 
 import { AuthShowcase } from "@/components/auth/auth-showcase"
 import { LoginForm } from "@/components/auth/login-form"
@@ -46,6 +47,11 @@ export default async function LoginPage() {
 
             <div className="mt-7">
               <LoginForm />
+              <p className="mt-4 text-center text-sm">
+                <Link href="/register" className="underline underline-offset-4">
+                  没有账号？注册被监管人账号
+                </Link>
+              </p>
             </div>
 
             <p className="text-muted-foreground/70 mt-7 text-center text-xs">

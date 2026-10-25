@@ -89,7 +89,9 @@ export function AuditTimeline() {
                       >
                         {audit.actorType === "SYSTEM_AI"
                           ? "AI 系统"
-                          : "真人用户"}
+                          : audit.actorType === "SYSTEM"
+                            ? "系统任务"
+                            : "真人用户"}
                       </Badge>
                       <p className="text-muted-foreground text-sm">
                         {audit.actorName} · {audit.actorRole}

@@ -35,6 +35,11 @@ function getContentSecurityPolicy(
   const usesLibrary = /\/(?:my\/|supervisor\/)?library(?:\/|$)/.test(
     request.nextUrl.pathname,
   )
+  const turnstileSource = ["/login", "/register"].includes(
+    request.nextUrl.pathname,
+  )
+    ? " https://challenges.cloudflare.com"
+    : ""
   return [
     "default-src 'self'",
     // Tencent Maps GL currently requires eval internally for its WebGL runtime.
@@ -43,7 +48,8 @@ function getContentSecurityPolicy(
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data: blob: https://*.qq.com https://*.gtimg.com https://*.qpic.cn",
     "font-src 'self' data:",
-    `connect-src 'self'${getRealtimeConnectSources(request)} https://*.qq.com https://*.gtimg.com https://*.qpic.cn`,
+    `connect-src 'self'${getRealtimeConnectSources(request)} https://*.qq.com https://*.gtimg.com https://*.qpic.cn${turnstileSource}`,
+    `frame-src 'self'${turnstileSource}`,
     "object-src 'none'",
     "base-uri 'self'",
     "form-action 'self'",

@@ -1,6 +1,7 @@
 import { defineConfig, devices } from "@playwright/test"
 import { existsSync, readFileSync } from "node:fs"
 import { resolve } from "node:path"
+import { pathToFileURL } from "node:url"
 import { parse } from "dotenv"
 
 function databaseIdentity(value: string) {
@@ -54,6 +55,9 @@ const e2eEnv = {
   GLM_PROVIDER: "bigmodel",
   TENCENT_SES_SECRET_ID: "",
   TENCENT_SES_SECRET_KEY: "",
+  TURNSTILE_SITE_KEY: "custodysim-e2e-turnstile-site",
+  TURNSTILE_SECRET_KEY: "custodysim-e2e-turnstile-secret",
+  NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ""} --import="${pathToFileURL(resolve("e2e/turnstile-siteverify-fixture.mjs")).href}"`,
 }
 
 const baseURL = process.env.E2E_BASE_URL ?? "http://127.0.0.1:3100"

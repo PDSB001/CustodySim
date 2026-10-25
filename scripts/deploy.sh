@@ -69,6 +69,7 @@ upgrade_database() {
     node scripts/upgrade-auto-review.mjs "--database=$database_name"
     node scripts/upgrade-notice-groups.mjs "--database=$database_name"
     node scripts/upgrade-push-delivery.mjs "--database=$database_name"
+    node scripts/upgrade-registration.mjs "--database=$database_name"
     node --env-file-if-exists=.env.local ./node_modules/tsx/dist/cli.mjs scripts/merge-notice-history.ts --apply "--database=$database_name"
   fi
 }

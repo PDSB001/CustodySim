@@ -83,6 +83,7 @@ const navSections: NavSection[] = [
     entries: [
       { href: "/orgs", label: "组织架构", icon: Building2 },
       { href: "/accounts", label: "账户管理", icon: UsersRound },
+      { href: "/registration", label: "注册与考察", icon: UsersRound },
       { href: "/ui-config", label: "标语与文案", icon: MessageSquareText },
     ],
   },

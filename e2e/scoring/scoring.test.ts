@@ -9,7 +9,7 @@ import { AUTH_COOKIE_NAME } from "@/lib/constants"
 import { POST as submit } from "@/app/api/submissions/route"
 import { POST as saveDraft } from "@/app/api/submissions/draft/route"
 import { POST as review } from "@/app/api/reviews/route"
-import { POST as adjustScore } from "@/app/api/scores/route"
+import { GET as getScores, POST as adjustScore } from "@/app/api/scores/route"
 import * as audit from "@/lib/audit"
 import { parseNoticeGroup } from "@/lib/notice-content"
 import { runReportTaskOutcomeSweep } from "@/lib/task-engine"
@@ -20,6 +20,7 @@ import {
   ensureIsolationReflectionTask,
   recordScoreEvent,
   runCheckinDailyScoreSweep,
+  SCORE_POLICY,
 } from "@/lib/scoring"
 
 // Only Next's request cookie adapter and wall clock are supplied by the harness.
@@ -244,6 +245,27 @@ test.each([false, true])(
     expect(await events()).toHaveLength(1)
   },
 )
+
+test("计分板向 App 返回当前结算规则与阅读设置", async () => {
+  await as(user, "SUPERVISED")
+  const response = await getScores(
+    new NextRequest("http://localhost/api/scores"),
+  )
+  expect(response.status).toBe(200)
+  const data = (await response.json()).data
+  for (const [key, value] of Object.entries(SCORE_POLICY))
+    expect(data.policy[key]).toBe(value)
+  expect(data.policy.effectiveDay).toMatch(/^\d{4}-\d{2}-\d{2}$/)
+  const [reading] = await db
+    .select()
+    .from(s.libraryScoreSettings)
+    .where(eq(s.libraryScoreSettings.id, 1))
+  expect(data.policy.reading.enabled).toBe(reading?.enabled ?? true)
+  expect(data.policy.reading.minutesPerPoint).toBe(
+    reading?.minutesPerPoint ?? 15,
+  )
+  expect(data.policy.reading.dailyCap).toBe(reading?.dailyCap ?? 2)
+})
 
 test("周日晚任务周一过期与缺失流水回填保持幂等", async () => {
   const expired = await task("PENDING", new Date("2026-08-31T00:01:00+08:00"))

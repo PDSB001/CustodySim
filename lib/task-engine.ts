@@ -8,6 +8,7 @@ import {
   reportTemplateFields,
   reportTemplates,
   reportTasks,
+  registrations,
   ruleGroupScopes,
   ruleScopes,
   rules,
@@ -64,11 +65,17 @@ async function loadTaskContext(userId?: string) {
       .select({ id: organizations.id, parentId: organizations.parentId })
       .from(organizations),
     db
-      .select({ id: users.id, organizationId: users.organizationId })
+      .select({
+        id: users.id,
+        organizationId: users.organizationId,
+        registeredAt: registrations.createdAt,
+      })
       .from(users)
+      .leftJoin(registrations, eq(registrations.userId, users.id))
       .where(
         and(
           eq(users.role, "SUPERVISED"),
+          eq(users.status, "active"),
           userId ? eq(users.id, userId) : undefined,
         ),
       ),
@@ -104,6 +111,9 @@ async function loadTaskContext(userId?: string) {
     pools,
     poolLinks,
     targets,
+    registrationTimes: new Map(
+      supervisedUsers.map((user) => [user.id, user.registeredAt]),
+    ),
   }
 }
 
@@ -121,6 +131,7 @@ async function ensureTasksFromContext(
   const { allRules, templates, templateFields, pools, poolLinks, targets } =
     context
   const supervisorIds = await getSupervisorIdsForSupervised(userId)
+  const registeredAt = context.registrationTimes.get(userId)
   for (const rule of allRules) {
     if (!["REPORT", "STUDY", "LABOR"].includes(rule.taskType)) continue
     if (!targets.get(rule.id)?.has(userId)) continue
@@ -138,6 +149,7 @@ async function ensureTasksFromContext(
       continue
     for (const slot of parseSlots(rule.timeSlots)) {
       const scheduleAt = dateAtSlot(now, slot)
+      if (registeredAt && scheduleAt < registeredAt) continue
       if (scheduleAt > now) continue
       const pool = rule.taskPoolId
         ? pools.find((item) => item.id === rule.taskPoolId)

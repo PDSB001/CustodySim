@@ -12,7 +12,9 @@ export function providerPayload(delivery, token, appkey, now = Date.now()) {
           ? "任务提醒"
           : delivery.kind === "COMMUNITY"
             ? "匿名社区"
-            : "CustodySim 通知"
+            : delivery.kind === "PROBATION"
+              ? "首周考察提醒"
+              : "CustodySim 通知"
   const text =
     delivery.kind === "CHAT"
       ? "发来一条消息"
@@ -22,7 +24,9 @@ export function providerPayload(delivery, token, appkey, now = Date.now()) {
           ? taskNotificationText(delivery.taskEvent)
           : delivery.kind === "COMMUNITY"
             ? "你的帖子收到新评论，点击查看"
-            : "你有一条新通知，请打开 App 查看"
+            : delivery.kind === "PROBATION"
+              ? "首周考察即将结束，考察积分须大于 0，请及时查看"
+              : "你有一条新通知，请打开 App 查看"
   return {
     appkey,
     timestamp: String(now),
@@ -144,6 +148,13 @@ export function startPushWorker(pool, io, { intervalMs = 5000 } = {}) {
                   ))
                 senderName = found.rows[0]?.name ?? ""
                 conversationId = found.rows[0]?.conversation_id ?? ""
+              } else if (row.kind === "PROBATION" && device.notices_enabled) {
+                const found = await pool.query(
+                  "SELECT trial_end FROM registrations WHERE user_id=$1 AND state='PENDING' AND trial_end>now()",
+                  [row.user_id],
+                )
+                eligible = row.entity_id === row.user_id && found.rowCount > 0
+                if (eligible) expiresAt = found.rows[0].trial_end.toISOString()
               } else if (row.kind === "COMMUNITY" && device.community_enabled) {
                 const found = await pool.query(
                   `SELECT c.post_id FROM community_comments c JOIN community_posts p ON p.id=c.post_id

@@ -9,6 +9,7 @@ import {
   checkinTasks,
   organizations,
   persons,
+  registrations,
   ruleGroupScopes,
   ruleScopes,
   rules,
@@ -240,9 +241,16 @@ export async function ensureTodayCheckinTasks(
   now = new Date(),
 ) {
   const checkinRules = await getCheckinRulesForUser(userId, now)
+  const [registration] = await db
+    .select({ createdAt: registrations.createdAt })
+    .from(registrations)
+    .where(eq(registrations.userId, userId))
+    .limit(1)
   const tasks = []
   for (const rule of checkinRules) {
-    for (const [slotIndex] of parseSlots(rule.timeSlots).entries()) {
+    for (const [slotIndex, slot] of parseSlots(rule.timeSlots).entries()) {
+      if (registration && dateAtSlot(now, slot) < registration.createdAt)
+        continue
       tasks.push(await getOrCreateCheckinTask(userId, rule, slotIndex, now))
     }
   }

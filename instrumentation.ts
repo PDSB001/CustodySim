@@ -26,6 +26,9 @@ export async function register() {
     const { startSecurityMailScheduler } =
       await import("@/lib/security-mail-server")
     startSecurityMailScheduler()
+    const { startRegistrationScheduler } =
+      await import("@/lib/registration-server")
+    startRegistrationScheduler()
     // 本地合并库（mmdb）默认热加载一次，并在 GEOIP_AUTO_UPDATE=true 时每周自查更新。
     const { describeGeoIpDatabase } = await import("@/lib/geoip-database")
     const { startGeoIpUpdateScheduler } = await import("@/lib/geoip-updater")

@@ -88,17 +88,23 @@ export async function reconcileReadingTasks(userId: string, now = new Date()) {
   })
 }
 
+export async function getReadingScorePolicy(
+  executor: Pick<typeof db, "select"> = db,
+) {
+  const [settings] = await executor
+    .select()
+    .from(libraryScoreSettings)
+    .where(eq(libraryScoreSettings.id, 1))
+  return settings ?? { enabled: true, minutesPerPoint: 15, dailyCap: 2 }
+}
+
 export async function settleReadingPoints(
   tx: Executor,
   userId: string,
   sourceId: string,
   now: Date,
 ) {
-  const [settings] = await tx
-    .select()
-    .from(libraryScoreSettings)
-    .where(eq(libraryScoreSettings.id, 1))
-  const policy = settings ?? { enabled: true, minutesPerPoint: 15, dailyCap: 2 }
+  const policy = await getReadingScorePolicy(tx)
   if (!policy.enabled) return 0
   const start = new Date(`${getShanghaiDateKey(now)}T00:00:00+08:00`)
   const end = new Date(start.getTime() + 86400000)

@@ -93,6 +93,71 @@ export const users = pgTable(
   (table) => [index("users_role_status_idx").on(table.role, table.status)],
 )
 
+export const registrationSettings = pgTable("registration_settings", {
+  id: integer("id").primaryKey().default(1),
+  enabled: boolean("enabled").notNull().default(true),
+  organizationId: uuid("organization_id").references(() => organizations.id, {
+    onDelete: "set null",
+  }),
+})
+export const registrations = pgTable(
+  "registrations",
+  {
+    userId: uuid("user_id")
+      .primaryKey()
+      .references(() => users.id, { onDelete: "cascade" }),
+    emailHash: varchar("email_hash", { length: 64 }).notNull().unique(),
+    deviceHash: varchar("device_hash", { length: 64 }),
+    networkHash: varchar("network_hash", { length: 64 }),
+    state: varchar("state", { length: 20 }).notNull().default("PENDING"),
+    trialStart: timestamp("trial_start", { withTimezone: true }).notNull(),
+    trialEnd: timestamp("trial_end", { withTimezone: true }).notNull(),
+    finalScore: integer("final_score"),
+    evaluatedAt: timestamp("evaluated_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index("registrations_state_end_idx").on(table.state, table.trialEnd),
+    index("registrations_device_created_idx").on(
+      table.deviceHash,
+      table.createdAt,
+    ),
+    index("registrations_network_evaluated_idx").on(
+      table.networkHash,
+      table.evaluatedAt,
+    ),
+  ],
+)
+export const registrationRiskBlocks = pgTable(
+  "registration_risk_blocks",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    kind: varchar("kind", { length: 16 }).notNull(),
+    valueHash: varchar("value_hash", { length: 64 }).notNull(),
+    reason: varchar("reason", { length: 300 }).notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("registration_risk_blocks_kind_hash_unique").on(
+      table.kind,
+      table.valueHash,
+    ),
+  ],
+)
+
+export const registrationEmailBlocks = pgTable("registration_email_blocks", {
+  emailHash: varchar("email_hash", { length: 64 }).primaryKey(),
+  reason: varchar("reason", { length: 300 }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+})
+
 export const persons = pgTable(
   "persons",
   {
