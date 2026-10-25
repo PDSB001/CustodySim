@@ -24,16 +24,18 @@ pnpm clean
 
 ## 数据库初始化与业务维护
 
-| 脚本                                                         | 用途                                                                 |
-| ------------------------------------------------------------ | -------------------------------------------------------------------- |
-| bootstrap-admin.ts                                           | 一次性创建初始管理员                                                 |
-| ensure-entry-registration-form.ts                            | 补齐入监登记模板                                                     |
-| reconcile-profile-record-sequence.ts                         | 核对 / 整理档案编号                                                  |
-| seed.ts / seed-scoreboard-demo.ts                            | 非生产演示数据，不能用于业务库                                       |
-| setup-e2e-database.mjs / e2e-database-target.mjs             | 固定隔离库初始化与目标校验                                           |
-| cleanup-chat.ts / cleanup-notices.ts / cleanup-audit-logs.ts | 按对应策略清理记录，可能删除数据                                     |
-| update-geoip.ts                                              | 从 GitHub 下载并校验合并 IP 库（Merged-IP.mmdb，约 96MB）      |
-| reset-mfa.mjs                                                | 开发/测试账号 MFA 状态查询与显式重置                                 |
+| 脚本                                                         | 用途                                                      |
+| ------------------------------------------------------------ | --------------------------------------------------------- |
+| bootstrap-admin.ts                                           | 一次性创建初始管理员                                      |
+| ensure-entry-registration-form.ts                            | 补齐入监登记模板                                          |
+| reconcile-profile-record-sequence.ts                         | 核对 / 整理档案编号                                       |
+| seed.ts / seed-scoreboard-demo.ts                            | 非生产演示数据，不能用于业务库                            |
+| setup-e2e-database.mjs / e2e-database-target.mjs             | 固定隔离库初始化与目标校验                                |
+| cleanup-chat.ts / cleanup-notices.ts / cleanup-audit-logs.ts | 按对应策略清理记录，可能删除数据                          |
+| update-geoip.ts                                              | 从 GitHub 下载并校验合并 IP 库（Merged-IP.mmdb，约 96MB） |
+| reset-mfa.mjs                                                | 开发/测试账号 MFA 状态查询与显式重置                      |
+
+通知合并升级使用 `upgrade-notice-groups.mjs` 准备字段，`merge-notice-history.ts` 默认只预览，添加 `--apply --database=<目标数据库>` 才整理历史。两个部署入口会自动执行；详见[通知规则](../docs/notifications.md)。
 
 MFA 工具已从根目录移入 scripts。只读查询也需要指定用户名：
 

@@ -1,3 +1,4 @@
+import { startPushWorker } from "./push-worker.mjs"
 import { createServer } from "node:http"
 
 import { jwtVerify } from "jose"
@@ -78,12 +79,13 @@ io.use(async (socket, next) => {
       { algorithms: ["HS256"] },
     )
     if (
-      payload.purpose !== "chat-realtime" ||
+      !["chat-realtime", "app-notifications"].includes(payload.purpose) ||
       typeof payload.sub !== "string" ||
       typeof payload.exp !== "number" ||
       typeof payload.tokenVersion !== "number" ||
-      !Array.isArray(payload.conversationIds) ||
-      !payload.conversationIds.every((id) => typeof id === "string")
+      (payload.purpose === "chat-realtime" &&
+        (!Array.isArray(payload.conversationIds) ||
+          !payload.conversationIds.every((id) => typeof id === "string")))
     )
       throw new Error("invalid token")
     // 复核账号状态与 tokenVersion，登出/改密/停用后旧凭证立即失效。
@@ -98,8 +100,26 @@ io.use(async (socket, next) => {
       current.token_version !== payload.tokenVersion
     )
       throw new Error("stale token")
+    if (payload.purpose === "app-notifications") {
+      if (
+        typeof payload.deviceId !== "string" ||
+        typeof payload.bindingId !== "string"
+      )
+        throw new Error("invalid device")
+      const device = await maintenancePool.query(
+        "SELECT id FROM push_devices WHERE id=$1 AND binding_id=$2 AND user_id=$3 AND token_version=$4 AND enabled",
+        [
+          payload.deviceId,
+          payload.bindingId,
+          payload.sub,
+          payload.tokenVersion,
+        ],
+      )
+      if (!device.rowCount) throw new Error("stale binding")
+      socket.data.deviceRoom = `device:${payload.deviceId}:${payload.bindingId}`
+    }
     socket.data.userId = payload.sub
-    socket.data.conversationIds = new Set(payload.conversationIds)
+    socket.data.conversationIds = new Set(payload.conversationIds ?? [])
     socket.data.expiresAt = payload.exp * 1000
     next()
   } catch {
@@ -107,7 +127,13 @@ io.use(async (socket, next) => {
   }
 })
 
+const pushWorker = startPushWorker(maintenancePool, io)
+
 io.on("connection", (socket) => {
+  if (socket.data.deviceRoom) {
+    void socket.join(socket.data.deviceRoom)
+    pushWorker.wake()
+  }
   const expiryTimer = setTimeout(
     () => socket.disconnect(true),
     Math.max(0, socket.data.expiresAt - Date.now()),
@@ -152,6 +178,10 @@ function createChatListener() {
   })
   client.on("notification", (notification) => {
     if (listener !== client || shuttingDown) return
+    if (notification.channel === "custodysim_push") {
+      pushWorker.wake()
+      return
+    }
     if (notification.channel !== "custodysim_chat" || !notification.payload)
       return
     try {
@@ -198,6 +228,7 @@ async function connectListener() {
   try {
     await client.connect()
     await client.query("LISTEN custodysim_chat")
+    await client.query("LISTEN custodysim_push")
     if (shuttingDown || listener !== client) {
       await client.end().catch(() => undefined)
       return
@@ -219,6 +250,7 @@ process.on("SIGTERM", async () => {
   listenerReady = false
   if (reconnectTimer) clearTimeout(reconnectTimer)
   if (listener) await listener.end().catch(() => undefined)
+  await pushWorker.stop()
   await maintenancePool.end().catch(() => undefined)
   io.close()
   httpServer.close(() => process.exit(0))

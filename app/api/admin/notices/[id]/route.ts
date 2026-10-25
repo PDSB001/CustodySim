@@ -1,4 +1,5 @@
-import { eq } from "drizzle-orm"
+import { enqueueNoticeNotifications } from "@/lib/push-server"
+import { and, eq, sql } from "drizzle-orm"
 import { NextRequest } from "next/server"
 import { z } from "zod"
 
@@ -23,18 +24,32 @@ export async function PATCH(
   if (!params.success || !parsed.success)
     return failure("VALIDATION_ERROR", "通知参数不合法", 400)
   try {
-    const [saved] = await db
-      .update(notices)
-      .set({
-        published: parsed.data.published,
-        // 重新发布时刷新发布时间；下架保留原发布时间，便于追溯
-        ...(parsed.data.published ? { publishedAt: new Date() } : {}),
-        // notices.updatedAt 是 defaultNow()，不会随 UPDATE 自动刷新，需要显式写
-        updatedAt: new Date(),
-      })
-      .where(eq(notices.id, params.data.id))
-      .returning()
-    if (!saved) return failure("NOT_FOUND", "通知不存在", 404)
+    const saved = await db.transaction(async (tx) => {
+      const [row] = await tx
+        .update(notices)
+        .set({
+          published: parsed.data.published,
+          // 重新发布时刷新发布时间；下架保留原发布时间，便于追溯
+          ...(parsed.data.published ? { publishedAt: new Date() } : {}),
+          // notices.updatedAt 是 defaultNow()，不会随 UPDATE 自动刷新，需要显式写
+          updatedAt: new Date(),
+        })
+        .where(
+          and(
+            eq(notices.id, params.data.id),
+            sql`${notices.metadata}->>'archivedInto' IS NULL`,
+          ),
+        )
+        .returning()
+      if (row) await enqueueNoticeNotifications(tx, row.id)
+      return row
+    })
+    if (!saved)
+      return failure(
+        "NOT_FOUND",
+        "通知不存在或已归档，请管理对应的合并公示",
+        404,
+      )
     await writeAuditLog({
       actor,
       action: "UPDATE",

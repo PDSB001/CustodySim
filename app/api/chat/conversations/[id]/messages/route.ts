@@ -1,3 +1,4 @@
+import { enqueueChatNotifications } from "@/lib/push-server"
 import { and, asc, count, desc, eq, gte, inArray, sql } from "drizzle-orm"
 import { NextRequest } from "next/server"
 import { z } from "zod"
@@ -142,7 +143,9 @@ export async function POST(
   if (!actor) return failure("UNAUTHORIZED", "请先登录", 401)
   const id = IdSchema.safeParse((await context.params).id)
   if (!id.success) return failure("VALIDATION_ERROR", "会话编号无效", 400)
-  const parsed = ChatMessageDraftSchema.safeParse(await request.json().catch(() => null))
+  const parsed = ChatMessageDraftSchema.safeParse(
+    await request.json().catch(() => null),
+  )
   if (!parsed.success)
     return failure(
       "VALIDATION_ERROR",
@@ -197,6 +200,7 @@ export async function POST(
         conversationId: conversation.id,
         messageId: created.id,
       })
+      await enqueueChatNotifications(tx, created.id, conversation.id, actor.id)
       return created
     })
     return success(

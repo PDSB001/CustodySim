@@ -51,7 +51,7 @@ it("IP 地点读取 label，旧响应不用新字段也能展示", () => {
       location: { label: "北京 · CN" },
       ip: "203.0.113.7",
     }),
-  ).toContain("北京 · CN")
+  ).toContain("北京 · 中国")
   expect(
     getCheckinLocationText({
       locationSource: "IP",
@@ -59,7 +59,7 @@ it("IP 地点读取 label，旧响应不用新字段也能展示", () => {
       ipLocation: { label: "上海 · CN" },
       ip: "203.0.113.7",
     }),
-  ).toContain("上海 · CN")
+  ).toContain("上海 · 中国")
 })
 
 it("GPS 清除后只展示保留的 IP 粗略地点，不重新暴露旧地址或坐标", () => {
@@ -69,7 +69,7 @@ it("GPS 清除后只展示保留的 IP 粗略地点，不重新暴露旧地址�
     lat: "39.9",
     lng: "116.4",
   })
-  expect(result).toContain("北京 · CN")
+  expect(result).toContain("北京 · 中国")
   expect(result).toContain("GPS 坐标已按保留策略清除")
   expect(result).not.toContain("旧的精确地址")
   expect(result).not.toContain("39.9")

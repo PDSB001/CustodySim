@@ -30,6 +30,8 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { toast } from "@/components/ui/toast"
 import { cn } from "@/lib/utils"
+import { formatIpLocationLabel } from "@/lib/checkin-location-display"
+import { IpLocationAttribution } from "@/components/checkin/ip-location-attribution"
 import { subscribeVisibleInterval } from "@/lib/visible-interval"
 
 const Checkin = z.object({
@@ -91,15 +93,14 @@ function locationLine(task: {
     return `GPS ${Number(task.recordLat).toFixed(4)}, ${Number(task.recordLng).toFixed(4)}${expiry}`
   }
   if (source === "GPS_PURGED" || (source === "GPS" && !task.recordLat)) {
-    const ipLabel = (task.recordLocation?.ip as { label?: string } | undefined)
-      ?.label
+    const ipLabel = formatIpLocationLabel(task.recordLocation?.ip)
     return ipLabel
       ? `IP 定位 ${ipLabel} · GPS 坐标已清除`
       : "GPS 坐标已清除（超 3 天）"
   }
   if (source === "IP") {
-    const label = task.recordLocation?.label
-    return `IP 定位 ${typeof label === "string" && label ? label : "（不可用）"}`
+    const label = formatIpLocationLabel(task.recordLocation)
+    return `IP 定位 ${label ?? "暂不可用"}`
   }
   return null
 }
@@ -539,13 +540,18 @@ export function CheckinCard({
               {task.remark ? ` · ${task.remark}` : ""}
             </p>
             {locationLine(task) && (
-              <p className="text-muted-foreground flex items-center gap-1.5 text-xs">
-                <MapPin className="size-3.5 shrink-0" />
-                {locationLine(task)}
+              <p className="text-muted-foreground flex items-start gap-1.5 text-xs">
+                <MapPin className="mt-0.5 size-3.5 shrink-0" aria-hidden />
+                <span className="min-w-0 break-words">
+                  {locationLine(task)}
+                </span>
               </p>
             )}
             {task.recordPhotoUrl ? (
               <ImageGallery value={task.recordPhotoUrl} label="打卡照片" />
+            ) : null}
+            {task.recordLocationSource === "IP" || task.recordLocation?.ip ? (
+              <IpLocationAttribution />
             ) : null}
           </div>
         )}

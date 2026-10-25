@@ -1,4 +1,15 @@
-import { and, desc, eq, gt, isNull, lt, or, sql } from "drizzle-orm"
+import {
+  and,
+  desc,
+  eq,
+  gt,
+  ilike,
+  inArray,
+  isNull,
+  lt,
+  or,
+  sql,
+} from "drizzle-orm"
 import { NextRequest } from "next/server"
 import { z } from "zod"
 
@@ -7,7 +18,13 @@ import { db } from "@/lib/db"
 import { noticeReads, notices } from "@/lib/db/schema"
 import { getSessionUser } from "@/lib/session"
 
-const ReadSchema = z.object({ noticeId: z.string().uuid() })
+const ReadSchema = z
+  .object({
+    noticeId: z.string().uuid().optional(),
+    noticeIds: z.array(z.string().uuid()).min(1).max(50).optional(),
+    versions: z.record(z.string().uuid(), z.string().datetime()).optional(),
+  })
+  .refine((data) => Boolean(data.noticeId) !== Boolean(data.noticeIds))
 
 const DEFAULT_PAGE_SIZE = 20
 const MAX_PAGE_SIZE = 50
@@ -41,10 +58,22 @@ export async function GET(request: NextRequest) {
     UUID_PATTERN.test(cursorId ?? "")
 
   const now = new Date()
+  const keyword = (params.get("keyword") ?? "").trim().slice(0, 100)
+  const priority = params.get("priority")
   const visible = and(
     eq(notices.published, true),
     or(eq(notices.targetRole, "ALL"), eq(notices.targetRole, actor.role)),
     or(isNull(notices.expiresAt), gt(notices.expiresAt, now)),
+    keyword
+      ? or(
+          ilike(notices.title, `%${keyword}%`),
+          ilike(notices.content, `%${keyword}%`),
+        )
+      : undefined,
+    priority && ["NORMAL", "IMPORTANT", "URGENT"].includes(priority)
+      ? eq(notices.priority, priority)
+      : undefined,
+    params.get("unread") === "1" ? isNull(noticeReads.id) : undefined,
   )
   const cursorWhere = hasCursor
     ? or(
@@ -68,6 +97,8 @@ export async function GET(request: NextRequest) {
         publishedAt: notices.publishedAt,
         expiresAt: notices.expiresAt,
         createdAt: notices.createdAt,
+        updatedAt: notices.updatedAt,
+        metadata: notices.metadata,
         readAt: noticeReads.readAt,
       })
       .from(notices)
@@ -104,23 +135,46 @@ export async function PATCH(request: NextRequest) {
   const parsed = ReadSchema.safeParse(await request.json().catch(() => null))
   if (!parsed.success) return failure("VALIDATION_ERROR", "通知参数不合法", 400)
   try {
-    const [notice] = await db
-      .select({ id: notices.id })
-      .from(notices)
-      .where(
-        and(
-          eq(notices.id, parsed.data.noticeId),
-          eq(notices.published, true),
-          or(eq(notices.targetRole, "ALL"), eq(notices.targetRole, actor.role)),
-        ),
+    const ids = [...new Set(parsed.data.noticeIds ?? [parsed.data.noticeId!])]
+    const result = await db.transaction(async (tx) => {
+      const visible = await tx
+        .select({ id: notices.id, updatedAt: notices.updatedAt })
+        .from(notices)
+        .where(
+          and(
+            inArray(notices.id, ids),
+            eq(notices.published, true),
+            or(
+              eq(notices.targetRole, "ALL"),
+              eq(notices.targetRole, actor.role),
+            ),
+            or(isNull(notices.expiresAt), gt(notices.expiresAt, new Date())),
+          ),
+        )
+        .orderBy(notices.id)
+        .for("update")
+      if (visible.length !== ids.length) return "NOT_FOUND" as const
+      if (
+        visible.some(
+          (notice) =>
+            parsed.data.versions?.[notice.id] &&
+            parsed.data.versions[notice.id] !== notice.updatedAt.toISOString(),
+        )
       )
-      .limit(1)
-    if (!notice) return failure("NOT_FOUND", "通知不存在或不可阅读", 404)
-    await db
-      .insert(noticeReads)
-      .values({ noticeId: notice.id, userId: actor.id })
-      .onConflictDoNothing()
-    return success({ id: notice.id, read: true })
+        return "CONFLICT" as const
+      await tx
+        .insert(noticeReads)
+        .values(
+          visible.map((notice) => ({ noticeId: notice.id, userId: actor.id })),
+        )
+        .onConflictDoNothing()
+      return "OK" as const
+    })
+    if (result === "NOT_FOUND")
+      return failure("NOT_FOUND", "通知不存在、已过期或不可阅读", 404)
+    if (result === "CONFLICT")
+      return failure("CONFLICT", "通知已更新，请刷新后重新阅读", 409)
+    return success({ id: ids[0], ids, read: true })
   } catch (error) {
     console.error("[API notices PATCH]", error)
     return failure("INTERNAL_ERROR", "服务器错误", 500)

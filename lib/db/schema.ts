@@ -1454,6 +1454,8 @@ export const notices = pgTable(
     id: uuid("id").defaultRandom().primaryKey(),
     title: varchar("title", { length: 200 }).notNull(),
     content: text("content").notNull(),
+    aggregationKey: varchar("aggregation_key", { length: 160 }),
+    metadata: jsonb("metadata"),
     targetRole: varchar("target_role", { length: 20 }).notNull().default("ALL"),
     priority: varchar("priority", { length: 20 }).notNull().default("NORMAL"),
     published: boolean("published").notNull().default(true),
@@ -1468,6 +1470,7 @@ export const notices = pgTable(
       .defaultNow(),
   },
   (table) => [
+    uniqueIndex("notices_aggregation_key_unique").on(table.aggregationKey),
     index("notices_published_idx").on(table.published, table.publishedAt),
     // 保留期清理按 published/createdAt 与 published/updatedAt 过滤，
     // 没有这个索引会走整表顺序扫描。
@@ -1494,6 +1497,66 @@ export const noticeReads = pgTable(
       table.userId,
     ),
     index("notice_reads_user_idx").on(table.userId, table.readAt),
+  ],
+)
+
+/** Installation credentials stay on the device; provider tokens are never returned to clients. */
+export const pushDevices = pgTable(
+  "push_devices",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    installationId: uuid("installation_id").notNull(),
+    secretHash: varchar("secret_hash", { length: 64 }).notNull(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    bindingId: uuid("binding_id").defaultRandom().notNull(),
+    tokenVersion: integer("token_version").notNull(),
+    providerToken: varchar("provider_token", { length: 256 }),
+    enabled: boolean("enabled").notNull().default(true),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("push_devices_installation_unique").on(table.installationId),
+    index("push_devices_user_idx").on(table.userId, table.enabled),
+  ],
+)
+
+export const pushDeliveries = pgTable(
+  "push_deliveries",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    deviceId: uuid("device_id")
+      .notNull()
+      .references(() => pushDevices.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    bindingId: uuid("binding_id").notNull(),
+    eventKey: varchar("event_key", { length: 180 }).notNull(),
+    kind: varchar("kind", { length: 16 }).notNull(),
+    entityId: uuid("entity_id").notNull(),
+    conversationId: uuid("conversation_id"),
+    state: varchar("state", { length: 20 }).notNull().default("PENDING"),
+    attempts: integer("attempts").notNull().default(0),
+    availableAt: timestamp("available_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    leaseUntil: timestamp("lease_until", { withTimezone: true }),
+    deliveredAt: timestamp("delivered_at", { withTimezone: true }),
+    errorCode: varchar("error_code", { length: 80 }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("push_deliveries_event_device_unique").on(
+      table.deviceId,
+      table.eventKey,
+    ),
+    index("push_deliveries_pending_idx").on(table.state, table.availableAt),
   ],
 )
 

@@ -305,8 +305,25 @@ test.describe("监管打卡日期下钻", () => {
     await expect(page.getByLabel("明细起始日期")).toBeVisible()
     await expect(page.getByText("App", { exact: true }).first()).toBeVisible()
     await expect(
-      page.getByText("北京 · CN", { exact: true }).first(),
+      page.getByText("IP 粗略定位：北京 · 中国", { exact: true }).first(),
     ).toBeVisible()
+    const locationNote = page
+      .locator("details")
+      .filter({ has: page.getByText("IP 定位说明", { exact: true }) })
+    await expect(locationNote).toHaveCount(1)
+    await expect(
+      locationNote.getByRole("link", { name: "GeoLite2 by MaxMind" }),
+    ).not.toBeVisible()
+    await locationNote.locator("summary").click()
+    await expect(
+      locationNote.getByRole("link", { name: "GeoLite2 by MaxMind" }),
+    ).toBeVisible()
+    await expect(
+      locationNote.getByRole("link", { name: "IP Geolocation by DB-IP" }),
+    ).toBeVisible()
+    await page.getByRole("dialog").screenshot({
+      path: test.info().outputPath("checkin-location.png"),
+    })
     await page
       .locator("summary")
       .filter({ hasText: "UA（已保存内容）" })

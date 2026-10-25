@@ -5,7 +5,6 @@ import { writeAuditLog } from "@/lib/audit"
 import { db } from "@/lib/db"
 import {
   autoReviewSettings,
-  notices,
   reportReviews,
   reportSubmissions,
   reportTasks,
@@ -21,6 +20,8 @@ import {
 } from "@/lib/scoring"
 import { isEffectiveSupervisorForSupervised } from "@/lib/supervision-scope"
 import { ISOLATION_REPORT_TEMPLATE_NAME } from "@/lib/isolation-report-template"
+import { publishGroupedNotice } from "@/lib/notice-events"
+import { getShanghaiDateKey } from "@/lib/shanghai-datetime"
 
 const ReviewSchema = z.object({
   submissionId: z.string().uuid(),
@@ -225,18 +226,21 @@ export async function applyTaskReview(
         })
       }
       if (isReflectionTask && parsed.data.result === "APPROVED")
-        await tx.insert(notices).values({
-          title: `禁闭检讨汇报 · ${row.supervisedName}`,
-          content: formatReflectionBroadcast(
-            row.submissionData,
-            row.submissionContent,
-          ),
-          targetRole: "ALL",
-          priority: "IMPORTANT",
-          published: true,
-          publishedAt: now,
-          createdBy: actor.id,
-        })
+        await publishGroupedNotice(
+          tx,
+          "ISOLATION_REFLECTION",
+          getShanghaiDateKey(now),
+          {
+            id: row.taskId,
+            name: row.supervisedName,
+            body: formatReflectionBroadcast(
+              row.submissionData,
+              row.submissionContent,
+            ),
+            occurredAt: now.toISOString(),
+          },
+          now,
+        )
       await writeAuditLog(
         {
           actor: automated ? SYSTEM_AI_ACTOR : actor,

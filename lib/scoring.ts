@@ -11,7 +11,6 @@ import {
   reportTasks,
   reportTemplateFields,
   reportTemplates,
-  notices,
   scoreEvents,
   scoreWeekReviews,
   users,
@@ -19,6 +18,7 @@ import {
 import { getSupervisorIdsForSupervised } from "@/lib/supervision-scope"
 import { getShanghaiDateKey } from "@/lib/shanghai-datetime"
 import { ensureIsolationReportTemplate } from "@/lib/isolation-report-template"
+import { publishGroupedNotice } from "@/lib/notice-events"
 
 export const SCORE_POLICY = {
   dailyCheckinBase: 5,
@@ -415,14 +415,30 @@ export async function reconcileTaskOutcomeScoreWeeks(now = new Date()) {
         .from(users)
         .where(eq(users.id, affected.supervisedId))
         .limit(1)
-      await tx.insert(notices).values({
-        title: "积分周结更正",
-        content: `${user?.name ?? "相关人员"} 的 ${affected.weekKey} 周积分经跨周流水校正后不再满足禁闭条件，原禁闭决定已撤销。`,
-        targetRole: "ALL",
-        priority: "IMPORTANT",
-        published: true,
-        publishedAt: now,
-      })
+      const corrected = {
+        id: order.id,
+        name: user?.name ?? "相关人员",
+        score: totalScore,
+        startAt: order.startAt.toISOString(),
+        endAt: order.endAt.toISOString(),
+        status: "CANCELLED" as const,
+        occurredAt: now.toISOString(),
+      }
+      // Lock the original bulletin before the correction bulletin in every path.
+      await publishGroupedNotice(
+        tx,
+        "ISOLATION",
+        affected.weekKey,
+        { ...corrected, score: order.triggerScore },
+        now,
+      )
+      await publishGroupedNotice(
+        tx,
+        "ISOLATION_CORRECTION",
+        affected.weekKey,
+        corrected,
+        now,
+      )
     }
     return repaired
   })
@@ -538,14 +554,21 @@ export async function runWeeklyScoreReview(now = new Date()) {
         .set({ custodyStatus: "ISOLATION", updatedAt: now })
         .where(eq(persons.userId, user.id))
       // 公示与禁闭令同事务写入，避免中断后禁闭已生效却永久缺少公示。
-      await tx.insert(notices).values({
-        title: "禁闭公示",
-        content: `${user.name} 因周度考核记分为 ${totalScore} 分，依积分规则执行禁闭。执行期限：${created.startAt.toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" })} 至 ${created.endAt.toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" })}。禁闭期间按加强点名安排报到，并按时呈报每日反思任务。`,
-        targetRole: "ALL",
-        priority: "IMPORTANT",
-        published: true,
-        publishedAt: now,
-      })
+      await publishGroupedNotice(
+        tx,
+        "ISOLATION",
+        completedWeekKey,
+        {
+          id: created.id,
+          name: user.name,
+          score: totalScore,
+          startAt: created.startAt.toISOString(),
+          endAt: created.endAt.toISOString(),
+          status: "ACTIVE",
+          occurredAt: now.toISOString(),
+        },
+        now,
+      )
       return created
     })
     // 重跑时禁闭令已存在，仍要补建每日反思任务，避免中断后永久缺失。
@@ -716,6 +739,26 @@ export async function runIsolationSweep(now = new Date()) {
         )
         .returning({ id: isolationOrders.id })
       if (!completed) return
+      const [person] = await tx
+        .select({ name: users.name })
+        .from(users)
+        .where(eq(users.id, expiredOrder.supervisedId))
+        .limit(1)
+      await publishGroupedNotice(
+        tx,
+        "ISOLATION",
+        expiredOrder.weekKey,
+        {
+          id: expiredOrder.id,
+          name: person?.name ?? "相关人员",
+          score: expiredOrder.triggerScore,
+          startAt: expiredOrder.startAt.toISOString(),
+          endAt: expiredOrder.endAt.toISOString(),
+          status: "COMPLETED",
+          occurredAt: now.toISOString(),
+        },
+        now,
+      )
       await tx
         .update(persons)
         .set({

@@ -11,6 +11,7 @@ import { POST as saveDraft } from "@/app/api/submissions/draft/route"
 import { POST as review } from "@/app/api/reviews/route"
 import { POST as adjustScore } from "@/app/api/scores/route"
 import * as audit from "@/lib/audit"
+import { parseNoticeGroup } from "@/lib/notice-content"
 import { runReportTaskOutcomeSweep } from "@/lib/task-engine"
 import { runCheckinStatusSweep } from "@/lib/checkin"
 import {
@@ -725,4 +726,40 @@ test("手动积分写入与审计日志原子提交，审计失败不能留下�
       .from(s.auditLogs)
       .where(eq(s.auditLogs.entityId, saved[0]!.id)),
   ).toHaveLength(1)
+})
+
+test("同周多名人员的禁闭决定合并公示且周结重跑不重复名单", async () => {
+  const peer = await account("SUPERVISED")
+  for (const id of [user, peer])
+    await recordScoreEvent({
+      supervisedId: id,
+      points: -3,
+      reason: "fixture",
+      source: "MANUAL",
+      weekKey: "2026-08-24",
+    })
+  await runWeeklyScoreReview(monday)
+  const [bulletin] = await db
+    .select()
+    .from(s.notices)
+    .where(eq(s.notices.aggregationKey, "ISOLATION:2026-08-24"))
+  const orders = await db
+    .select()
+    .from(s.isolationOrders)
+    .where(inArray(s.isolationOrders.supervisedId, [user, peer]))
+  expect(orders).toHaveLength(2)
+  const group = parseNoticeGroup(bulletin!.metadata)!
+  for (const order of orders)
+    expect(group.entries[order.id]).toMatchObject({
+      score: -3,
+      status: "ACTIVE",
+    })
+  expect(bulletin!.content).toContain(`e2e_${user}`)
+  expect(bulletin!.content).toContain(`e2e_${peer}`)
+  await runWeeklyScoreReview(monday)
+  const [repeated] = await db
+    .select()
+    .from(s.notices)
+    .where(eq(s.notices.id, bulletin!.id))
+  expect(repeated!.content).toBe(bulletin!.content)
 })

@@ -13,6 +13,7 @@ import { StatusPill } from "@/components/shared/status-pill"
 import { Button } from "@/components/ui/button"
 import { getCheckinClientInfo } from "@/lib/checkin-client"
 import { getCheckinLocationText } from "@/lib/checkin-location-display"
+import { IpLocationAttribution } from "@/components/checkin/ip-location-attribution"
 import { DatePicker } from "@/components/ui/date-picker"
 import {
   Dialog,
@@ -279,7 +280,7 @@ export function CheckinRecordsDialog({
                 {location ? (
                   <p className="text-muted-foreground mt-2 flex items-start gap-1.5 text-xs">
                     <MapPin className="mt-0.5 size-3.5 shrink-0" aria-hidden />
-                    <span>{location}</span>
+                    <span className="min-w-0 break-words">{location}</span>
                   </p>
                 ) : null}
                 {client.userAgent ? (
@@ -346,6 +347,13 @@ export function CheckinRecordsDialog({
               {query.isFetchingNextPage ? "加载中…" : "加载更早的记录"}
             </Button>
           </div>
+        ) : null}
+        {items.some(
+          (item) =>
+            item.locationSource !== "SYSTEM" &&
+            (item.locationSource === "IP" || item.ip || item.ipLocation),
+        ) ? (
+          <IpLocationAttribution />
         ) : null}
       </DialogContent>
     </Dialog>

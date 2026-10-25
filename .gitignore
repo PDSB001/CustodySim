@@ -60,3 +60,13 @@ yarn-error.log*
 next-env.d.ts
 
 /.app-workspace/
+
+# Private Firebase / FCM configuration and service-account credentials
+google-services*.json
+GoogleService-Info*.plist
+*firebase-adminsdk*.json
+*service-account*.json
+*serviceAccount*.json
+.firebaserc
+.firebase/
+firebase-debug*.log

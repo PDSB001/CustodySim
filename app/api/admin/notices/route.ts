@@ -1,3 +1,4 @@
+import { enqueueNoticeNotifications } from "@/lib/push-server"
 import { and, desc, eq, ilike, lt, or, sql } from "drizzle-orm"
 import { NextRequest } from "next/server"
 
@@ -62,12 +63,20 @@ export async function GET(request: NextRequest) {
     keywordWhere && cursorWhere
       ? and(keywordWhere, cursorWhere)
       : (keywordWhere ?? cursorWhere)
+  const archived = params.get("archived") === "1"
 
   try {
     const rows = await db
       .select()
       .from(notices)
-      .where(where)
+      .where(
+        and(
+          where,
+          archived
+            ? sql`${notices.metadata}->>'archivedInto' IS NOT NULL`
+            : sql`${notices.metadata}->>'archivedInto' IS NULL`,
+        ),
+      )
       .orderBy(desc(notices.createdAt), desc(notices.id))
       // 多取一条用于判断是否还有下一页，不额外发 count 查询
       .limit(limit + 1)
@@ -93,15 +102,21 @@ export async function POST(request: NextRequest) {
   const parsed = NoticeSchema.safeParse(await request.json().catch(() => null))
   if (!parsed.success) return failure("VALIDATION_ERROR", "通知参数不合法", 400)
   try {
-    const [saved] = await db
-      .insert(notices)
-      .values({
-        ...parsed.data,
-        expiresAt: parsed.data.expiresAt ? new Date(parsed.data.expiresAt) : null,
-        publishedAt: parsed.data.published ? new Date() : null,
-        createdBy: actor.id,
-      })
-      .returning()
+    const saved = await db.transaction(async (tx) => {
+      const [row] = await tx
+        .insert(notices)
+        .values({
+          ...parsed.data,
+          expiresAt: parsed.data.expiresAt
+            ? new Date(parsed.data.expiresAt)
+            : null,
+          publishedAt: parsed.data.published ? new Date() : null,
+          createdBy: actor.id,
+        })
+        .returning()
+      if (row) await enqueueNoticeNotifications(tx, row.id)
+      return row
+    })
     if (!saved) return failure("INTERNAL_ERROR", "发布通知失败", 500)
     await writeAuditLog({
       actor,

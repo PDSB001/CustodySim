@@ -46,6 +46,8 @@ fi
 # Production schema changes must remain interactive so destructive statements
 # cannot be accepted silently during an incremental deployment.
 pnpm exec drizzle-kit push --config=drizzle.config.ts --strict
+NOTICE_DATABASE_NAME="$(node --env-file-if-exists=.env.local --input-type=module -e 'if(!process.env.DATABASE_URL)throw Error("DATABASE_URL missing"); process.stdout.write(decodeURIComponent(new URL(process.env.DATABASE_URL).pathname.slice(1)))')"
+node --env-file-if-exists=.env.local ./node_modules/tsx/dist/cli.mjs scripts/merge-notice-history.ts --apply "--database=$NOTICE_DATABASE_NAME"
 
 mkdir -p .logs
 pm2 startOrReload ecosystem.config.cjs --only custodysim --update-env
