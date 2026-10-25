@@ -329,9 +329,11 @@ export async function enqueueTaskNotifications(now = new Date()) {
     cross join lateral (select case
       -- 审核结果：窗口放宽到 24 小时，事件键带 updated_at，同一版本只发一次
       when t.status in ('RETURNED','APPROVED') and t.updated_at>${now}::timestamptz-interval '24 hours' then t.status
-      -- 截止提醒：提前量随时长缩放（20%，至少 30 分钟），短任务也算得出来
+      -- 截止提醒：提前量随时长缩放并夹在 30 分钟～2 小时之间。
+      -- 下限保证短任务也有提醒，上限避免 15 小时任务的"截止带"长达 3 小时。
       when t.status in ('PENDING','RETURNED')
-        and t.deadline-${now}::timestamptz<=greatest(interval '30 minutes',(t.deadline-t.schedule_at)*0.2) then 'CLOSING'
+        and t.deadline-${now}::timestamptz<=greatest(interval '30 minutes',
+          least(interval '2 hours',(t.deadline-t.schedule_at)*0.2)) then 'CLOSING'
       -- 新任务：24 小时内进入过时段就补发一次；只发第一条，已发过截止提醒的不再回头补
       when t.status='PENDING'
         and greatest(t.created_at,t.schedule_at)>${now}::timestamptz-interval '24 hours'
