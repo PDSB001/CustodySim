@@ -61,7 +61,18 @@ custodysim.umengMessageSecret=<Umeng Message Secret>
 5. 登录 App，在首页“通知”里选择“开启 App 消息通知”，同意友盟用途说明并授予系统通知权限。先从另一个测试账号发消息，验证前台提示、当前正在看的会话不额外提示。
 6. 开启 `UMENG_PUSH_ENABLED=true` 并用现有 PM2 流程重新加载实时进程的环境。退后台测试离线通知，再验证点击进入会话、退出账号后忽略旧通知。
 7. App 已安装 Firebase Messaging 和友盟 FCM 适配器。本地 `app/google-services.json` 必须包含正式包名，友盟控制台需配置 FCM HTTP V1 服务账号。服务账号私钥不放 App、不提交源码；客户端配置也保持忽略提交。启用通知、友盟注册成功、Google Play 服务可用后才注册 FCM。
-8. 华为、小米、OPPO、vivo、荣耀等其他厂商通道需要各自控制台参数和 SDK。当前通用通道和 FCM 的集成不能据此保证被系统强制停止后仍可送达。
+8. 华为通道已集成到 App：发布构建需注入 `custodysim.huaweiAppId`（或构建环境变量 `CUSTODYSIM_HUAWEI_APP_ID`），且包名必须匹配 `com.custodysim.app`。在华为开发者联盟/AppGallery Connect 创建并启用 Push Kit，登记发布签名证书 SHA-256；在友盟 U-Push 的华为厂商配置中填写 Huawei App ID、Client Secret。Client Secret 只填友盟控制台，不进 App、服务器环境变量或 GitHub。按友盟文档在华为后台配置回执 `https://ack.upush.umeng.com/hw/`。U-Push 请求现带 `channel_activity`，华为离线通知点击后会回到 App 并经过本地账号绑定校验。仍需华为真机验证令牌注册、普通后台、划掉任务、点击跳转与回执；编译通过不代表已送达。
+9. 华为通知若未申请自分类权益，可能按资讯营销类限频；若要让聊天、任务、打卡等服务通知稳定使用对应类别，需要在华为后台申请自分类消息权益，并根据获批类别配置 U-Push 消息分类。官方说明未申请权益时按资讯营销类处理，单设备每日可能仅 2 或 5 条。[华为消息分类说明](https://developer.huawei.com/consumer/cn/doc/harmonyos-guides/push-config-setting)。其他小米、OPPO、vivo、荣耀通道仍需各自后台参数和 SDK。通用通道不能保证 App 被系统强制停止后仍可送达。
+
+### 仅打开 App 才收到通知
+
+这通常表示通用连接重连后取到了积压消息，不能据此判定离线通道可用。服务端发送 U-Push 请求时必须携带 `channel_properties: { channel_fcm: "1" }`；仅安装 Firebase SDK 或在友盟后台启用 FCM，不会自动补上这项请求参数。当前 worker 已默认启用该参数，部署后由实时进程加载。
+
+App 的“通知设置”提供推送连接状态，分别显示友盟注册与 FCM 检查结果。友盟注册失败不再被静默吞掉，前台后续连接会节流重试；“已取得 FCM 令牌”仅证明客户端注册成功，仍需后台服务账号配置正确、Google 服务可用，并做真实后台收信验收。状态页不会显示密钥、令牌或消息正文。
+
+没有小米厂商账号的设备可以继续使用已配置的 FCM；不要把 Google 服务不可用时的离线送达作为保证。也不要通过后台常驻前台服务或反复自启代替系统推送。测试时分别记录普通退后台与系统强制停止，二者不等价。
+
+如果 Google 接收日志已有 `Received`，随后却是 `No response to broadcast`，应继续检查系统是否允许该 App 后台启动，而不是继续修改服务端超时。小米设备可从应用信息检查“自启动”，并核对省电策略；App 通知设置提供“系统设置”入口，由用户决定这些权限。划掉最近任务在部分系统上会记录成 `FORCE STOP / SwipeUpClean`，也需要与普通返回桌面分开测试。参见[小米后台自启动说明](https://www.mi.com/global/support/faq/details/KA-507611/)。
 
 查看队列，仅查询状态，不打印设备 token：
 

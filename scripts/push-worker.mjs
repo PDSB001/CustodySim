@@ -33,6 +33,14 @@ export function providerPayload(delivery, token, appkey, now = Date.now()) {
     type: "unicast",
     device_tokens: token,
     production_mode: "true",
+    // FCM is opt-in for each U-Push request, even when the Android adapter is registered.
+    // https://devs.umeng.com/docs/67966/detail/68343
+    channel_properties: {
+      channel_fcm: "1",
+      channel_activity:
+        "com.custodysim.app.notifications.ProviderNotificationClickActivity",
+      huawei_channel_importance: "NORMAL",
+    },
     payload: {
       display_type: "notification",
       body: { title, text, ticker: `${title}：${text}`, after_open: "go_app" },

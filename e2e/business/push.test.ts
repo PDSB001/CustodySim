@@ -251,6 +251,12 @@ test("provider payload is generic and signed; disabled provider cannot send", as
   const body = providerPayload(delivery, "fake-token", "fake-key")
   expect(body.payload.body.text).toBe("发来一条消息")
   expect(body.payload.body.title).toBe("甲")
+  expect(body.channel_properties).toEqual({
+    channel_fcm: "1",
+    channel_activity:
+      "com.custodysim.app.notifications.ProviderNotificationClickActivity",
+    huawei_channel_importance: "NORMAL",
+  })
   const requests: string[] = []
   await sendUmeng(
     delivery,
@@ -261,8 +267,14 @@ test("provider payload is generic and signed; disabled provider cannot send", as
       UMENG_APP_KEY: "test",
       UMENG_APP_MASTER_SECRET: "test",
     },
-    async (url) => {
+    async (url, options) => {
       requests.push(String(url))
+      expect(JSON.parse(String(options?.body)).channel_properties).toEqual({
+        channel_fcm: "1",
+        channel_activity:
+          "com.custodysim.app.notifications.ProviderNotificationClickActivity",
+        huawei_channel_importance: "NORMAL",
+      })
       return Response.json({ ret: "SUCCESS" })
     },
   )
