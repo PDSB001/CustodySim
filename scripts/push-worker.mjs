@@ -104,6 +104,19 @@ export async function sendUmeng(
     )
 }
 
+/*
+ * 队列里最多压多久：通知类没有业务时限，给一天；打卡/任务有截止时间，
+ * 各自在 eligibility 里按 deadline 再判一次，这里保持一小时。
+ */
+const QUEUE_TTL_MS = {
+  NOTICE: 24 * 3600_000,
+  CHAT: 24 * 3600_000,
+  COMMUNITY: 24 * 3600_000,
+  PROBATION: 24 * 3600_000,
+}
+// 重试上限：通知类容忍供应商抖动（20 次 ≈ 10 分钟），提醒类维持 5 次。
+const MAX_ATTEMPTS = { NOTICE: 20, CHAT: 20, COMMUNITY: 20, PROBATION: 10 }
+
 export function startPushWorker(pool, io, { intervalMs = 5000 } = {}) {
   let running = false,
     stopped = false
@@ -134,9 +147,10 @@ export function startPushWorker(pool, io, { intervalMs = 5000 } = {}) {
               expiresAt = "",
               taskEvent = ""
             let postId = ""
+            const queueTtl = QUEUE_TTL_MS[row.kind] ?? 3600_000
             if (
               device &&
-              Date.now() - new Date(row.created_at).getTime() < 3600_000
+              Date.now() - new Date(row.created_at).getTime() < queueTtl
             ) {
               if (row.kind === "CHAT" && device.chat_enabled) {
                 const found = await pool.query(
@@ -219,6 +233,9 @@ export function startPushWorker(pool, io, { intervalMs = 5000 } = {}) {
                 )
                 eligible = found.rowCount > 0
               }
+            } else if (device) {
+              // 设备还在，只是排队太久：留个痕迹，别再静默丢掉。
+              errorCode = "EXPIRED_IN_QUEUE"
             }
             if (eligible) {
               const payload = {
@@ -257,7 +274,10 @@ export function startPushWorker(pool, io, { intervalMs = 5000 } = {}) {
             errorCode = /^(UMENG_\d+|PROVIDER_DISABLED)$/.test(error.message)
               ? error.message
               : "DELIVERY_FAILED"
-            state = row.attempts < 5 ? "PENDING" : "FAILED"
+            state =
+              row.attempts < (MAX_ATTEMPTS[row.kind] ?? 5)
+                ? "PENDING"
+                : "FAILED"
           }
           await pool.query(
             `UPDATE push_deliveries SET state=$2,error_code=$3,lease_until=NULL,

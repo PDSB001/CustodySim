@@ -310,7 +310,13 @@ export async function enqueueNoticeNotifications(tx: Tx, noticeId: string) {
   await tx.execute(sql`select pg_notify('custodysim_push', 'ready')`)
 }
 
-/** Runs after task generation, leave auto-approval and expiry reconciliation. */
+/**
+ * Runs after task generation, leave auto-approval and expiry reconciliation.
+ *
+ * 和打卡提醒同一套口径：判定依据是"这条 event_key 还没排过队"，而不是
+ * "现在是否还在某个窄时间窗内"——巡检漏掉一轮、进程重启、部署期间都能在
+ * 下一轮补上，不会静默丢失。
+ */
 export async function enqueueTaskNotifications(now = new Date()) {
   await db.execute(sql`
     insert into push_deliveries (device_id,user_id,binding_id,event_key,kind,entity_id)
@@ -321,15 +327,25 @@ export async function enqueueTaskNotifications(now = new Date()) {
     join users u on u.id=t.supervised_id and u.status='active' and u.role='SUPERVISED'
     join push_devices d on d.user_id=u.id and d.enabled and d.tasks_enabled and d.token_version=u.token_version
     cross join lateral (select case
-      when t.status in ('RETURNED','APPROVED') and t.updated_at>${now}::timestamptz-interval '10 minutes' then t.status
-      when t.status='PENDING' and greatest(t.created_at,t.schedule_at)>${now}::timestamptz-interval '10 minutes' then 'OPEN'
-      when t.status in ('PENDING','RETURNED') and t.deadline<=${now}::timestamptz+interval '30 minutes' and t.schedule_at<=${now}::timestamptz-interval '1 hour' then 'CLOSING'
+      -- 审核结果：窗口放宽到 24 小时，事件键带 updated_at，同一版本只发一次
+      when t.status in ('RETURNED','APPROVED') and t.updated_at>${now}::timestamptz-interval '24 hours' then t.status
+      -- 截止提醒：提前量随时长缩放（20%，至少 30 分钟），短任务也算得出来
+      when t.status in ('PENDING','RETURNED')
+        and t.deadline-${now}::timestamptz<=greatest(interval '30 minutes',(t.deadline-t.schedule_at)*0.2) then 'CLOSING'
+      -- 新任务：24 小时内进入过时段就补发一次；只发第一条，已发过截止提醒的不再回头补
+      when t.status='PENDING'
+        and greatest(t.created_at,t.schedule_at)>${now}::timestamptz-interval '24 hours'
+        and not exists (select 1 from push_deliveries pd0
+          where pd0.device_id=d.id and pd0.kind='TASK' and pd0.entity_id=t.id) then 'OPEN'
     end as stage) event
     where event.stage is not null and t.schedule_at<=${now}::timestamptz
       and (t.status='APPROVED' or t.deadline>${now}::timestamptz)
       and (t.rule_id is null or exists (select 1 from rules r where r.id=t.rule_id and r.enabled))
       and not exists (select 1 from persons p where p.user_id=u.id and p.custody_status='ON_LEAVE'
         and t.template_snapshot->>'completionMode' is distinct from 'READING')
+      and not exists (select 1 from push_deliveries pd
+        where pd.device_id=d.id and pd.kind='TASK' and pd.entity_id=t.id
+          and pd.event_key='TASK:'||t.id||':'||event.stage||case when event.stage in ('RETURNED','APPROVED') then ':'||to_char(t.updated_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') else '' end)
     on conflict (device_id,event_key) do nothing
   `)
 }
@@ -389,18 +405,18 @@ export async function enqueueCheckinReminders(
     const closingWindow = Math.max(5 * 60_000, window * 0.2)
     const openSent = queued.has(`CHECKIN:${task.id}:OPEN`)
     const closingSent = queued.has(`CHECKIN:${task.id}:CLOSING`)
-    // 第一次提醒：已经进入截止区间就直接发 CLOSING，否则发 OPEN，
-    // 避免短时段一上来就同时收到两条。
-    const stage =
-      !openSent && !closingSent
-        ? remaining <= closingWindow
-          ? "CLOSING"
+    /*
+     * 每个时段最多两条：先 OPEN 再 CLOSING，或直接在截止带里发 CLOSING。
+     * CLOSING 一旦发过就不再回头补 OPEN——否则迟到的时段会先收"开始提醒"，
+     * 再收"截止提醒"，两条都没有意义。
+     */
+    const stage = closingSent
+      ? null
+      : remaining <= closingWindow
+        ? "CLOSING"
+        : openSent
+          ? null
           : "OPEN"
-        : !openSent
-          ? "OPEN"
-          : !closingSent && remaining <= closingWindow
-            ? "CLOSING"
-            : null
     return stage
       ? devices.map((device) => ({
           deviceId: device.id,
