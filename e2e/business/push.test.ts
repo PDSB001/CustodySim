@@ -13,6 +13,8 @@ import {
   chatMessages,
   chatMessageReads,
   chatNotificationPreferences,
+  organizations,
+  persons,
 } from "@/lib/db/schema"
 import {
   registerPushDevice,
@@ -29,6 +31,8 @@ import {
 const ids = [randomUUID(), randomUUID()]
 vi.mock("@/lib/session", () => ({ getSessionUser: vi.fn() }))
 const conversationId = randomUUID()
+const roomConversationId = randomUUID()
+const roomOrganizationId = randomUUID()
 const secret = "ab".repeat(32)
 const installationId = randomUUID()
 let device: { id: string; bindingId: string }
@@ -45,9 +49,29 @@ beforeAll(async () => {
       role: "SUPERVISED",
     })),
   )
+  await db.insert(organizations).values({
+    id: roomOrganizationId,
+    name: `e2e_push_room_${roomOrganizationId}`,
+  })
+  await db.insert(persons).values(
+    ids.map((userId, i) => ({
+      name: `群成员${i}`,
+      userId,
+      organizationId: roomOrganizationId,
+      personType: "SUPERVISED",
+      status: "active",
+    })),
+  )
   await db
     .insert(chatConversations)
-    .values({ id: conversationId, type: "DIRECT" })
+    .values([
+      { id: conversationId, type: "DIRECT" },
+      {
+        id: roomConversationId,
+        type: "ROOM",
+        roomOrganizationId,
+      },
+    ])
   await db
     .insert(chatConversationMembers)
     .values(ids.map((userId) => ({ userId, conversationId })))
@@ -60,7 +84,9 @@ beforeAll(async () => {
 afterAll(async () => {
   await db
     .delete(chatConversations)
-    .where(eq(chatConversations.id, conversationId))
+    .where(inArray(chatConversations.id, [conversationId, roomConversationId]))
+  await db.delete(persons).where(inArray(persons.userId, ids))
+  await db.delete(organizations).where(eq(organizations.id, roomOrganizationId))
   await db.delete(users).where(inArray(users.id, ids))
 })
 
@@ -177,6 +203,59 @@ test("online ACK uses direct delivery; read, recalled, stale-binding messages ar
     expect(delivered).toHaveLength(1)
     expect(JSON.stringify(delivered)).not.toContain("机密正文")
     expect(delivered[0]?.senderName).toBe("发送者")
+  } finally {
+    await worker.stop()
+    await pool.end()
+  }
+})
+
+test("room chat notifications resolve active occupants without stored members", async () => {
+  const messageId = randomUUID()
+  await db.transaction(async (tx) => {
+    await tx.insert(chatMessages).values({
+      id: messageId,
+      conversationId: roomConversationId,
+      senderId: ids[0]!,
+      content: "群聊正文不会发送给推送服务",
+    })
+    await enqueueChatNotifications(tx, messageId, roomConversationId, ids[0]!)
+  })
+
+  const queued = await db
+    .select()
+    .from(pushDeliveries)
+    .where(eq(pushDeliveries.entityId, messageId))
+  expect(queued).toHaveLength(1)
+  expect(queued[0]?.userId).toBe(ids[1])
+
+  const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL })
+  const room = `device:${device.id}:${device.bindingId}`
+  const worker = startPushWorker(
+    pool,
+    {
+      sockets: { adapter: { rooms: new Map([[room, new Set(["native"])]]) } },
+      to: () => ({
+        timeout: () => ({
+          emitWithAck: async () => [{ ok: true }],
+        }),
+      }),
+    },
+    { intervalMs: 50 },
+  )
+  try {
+    worker.wake()
+    await expect
+      .poll(
+        async () =>
+          (
+            await db
+              .select()
+              .from(pushDeliveries)
+              .where(eq(pushDeliveries.id, queued[0]!.id))
+          )[0]?.state,
+        { timeout: 5000 },
+      )
+      .toBe("DIRECT")
   } finally {
     await worker.stop()
     await pool.end()

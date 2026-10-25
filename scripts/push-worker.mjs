@@ -141,9 +141,15 @@ export function startPushWorker(pool, io, { intervalMs = 5000 } = {}) {
               if (row.kind === "CHAT" && device.chat_enabled) {
                 const found = await pool.query(
                   `SELECT coalesce(u.name,'联系人') AS name,m.conversation_id FROM chat_messages m
-                LEFT JOIN users u ON u.id=m.sender_id JOIN chat_conversation_members cm ON cm.conversation_id=m.conversation_id AND cm.user_id=$2 AND cm.left_at IS NULL
+                LEFT JOIN users u ON u.id=m.sender_id
                 JOIN chat_conversations c ON c.id=m.conversation_id AND c.status='ACTIVE'
+                JOIN users recipient ON recipient.id=$2 AND recipient.status='active'
                 WHERE m.id=$1 AND m.recalled_at IS NULL AND NOT EXISTS (SELECT 1 FROM chat_message_reads r WHERE r.message_id=m.id AND r.user_id=$2)
+                AND ((c.type='ROOM' AND EXISTS (
+                      SELECT 1 FROM persons p WHERE p.user_id=$2 AND p.organization_id=c.room_organization_id AND p.person_type='SUPERVISED' AND p.status='active'
+                    )) OR (c.type<>'ROOM' AND EXISTS (
+                      SELECT 1 FROM chat_conversation_members cm WHERE cm.conversation_id=m.conversation_id AND cm.user_id=$2 AND cm.left_at IS NULL
+                    )))
                 AND NOT EXISTS (SELECT 1 FROM chat_notification_preferences p WHERE p.user_id=$2 AND p.conversation_id=m.conversation_id AND p.muted)`,
                   [row.entity_id, row.user_id],
                 )

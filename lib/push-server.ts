@@ -4,11 +4,13 @@ import { SignJWT } from "jose"
 
 import { db } from "@/lib/db"
 import {
+  chatConversations,
   chatConversationMembers,
   checkinTasks,
   communityComments,
   communityPosts,
   notices,
+  persons,
   pushDeliveries,
   pushDevices,
   users,
@@ -159,26 +161,51 @@ export async function enqueueChatNotifications(
   conversationId: string,
   senderId: string,
 ) {
-  const members = await tx
-    .select({ id: chatConversationMembers.userId })
-    .from(chatConversationMembers)
-    .where(
-      and(
-        eq(chatConversationMembers.conversationId, conversationId),
-        isNull(chatConversationMembers.leftAt),
-        ne(chatConversationMembers.userId, senderId),
-      ),
-    )
-  if (!members.length) return
+  const [conversation] = await tx
+    .select({
+      type: chatConversations.type,
+      roomOrganizationId: chatConversations.roomOrganizationId,
+    })
+    .from(chatConversations)
+    .where(eq(chatConversations.id, conversationId))
+    .limit(1)
+  if (!conversation) return
+
+  let memberIds: string[]
+  if (conversation.type === "ROOM" && conversation.roomOrganizationId) {
+    const roomMembers = await tx
+      .select({ id: users.id })
+      .from(persons)
+      .innerJoin(users, eq(users.id, persons.userId))
+      .where(
+        and(
+          eq(persons.organizationId, conversation.roomOrganizationId),
+          eq(persons.personType, "SUPERVISED"),
+          eq(persons.status, "active"),
+          eq(users.status, "active"),
+        ),
+      )
+    memberIds = roomMembers.map((member) => member.id)
+  } else {
+    const members = await tx
+      .select({ id: chatConversationMembers.userId })
+      .from(chatConversationMembers)
+      .where(
+        and(
+          eq(chatConversationMembers.conversationId, conversationId),
+          isNull(chatConversationMembers.leftAt),
+        ),
+      )
+    memberIds = members.map((member) => member.id)
+  }
+  const recipientIds = memberIds.filter((id) => id !== senderId)
+  if (!recipientIds.length) return
   const devices = await tx
     .select()
     .from(pushDevices)
     .where(
       and(
-        inArray(
-          pushDevices.userId,
-          members.map((m) => m.id),
-        ),
+        inArray(pushDevices.userId, recipientIds),
         eq(pushDevices.enabled, true),
         eq(pushDevices.chatEnabled, true),
         sql`not exists (select 1 from chat_notification_preferences p where p.user_id=${pushDevices.userId} and p.conversation_id=${conversationId}::uuid and p.muted)`,
