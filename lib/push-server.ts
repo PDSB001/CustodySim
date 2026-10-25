@@ -356,16 +356,51 @@ export async function enqueueCheckinReminders(
         eq(pushDevices.checkinRemindersEnabled, true),
       ),
     )
+  if (!devices.length) return
+  /*
+   * 以"这条提醒发过没有"为准，而不是"现在是否还在某个时间窗内"。
+   *
+   * 旧口径要求 OPEN 必须在时段开始后 10 分钟内被抓到：轮询一旦错过（重启、
+   * 慢查询、事件循环阻塞），该时段就永远没有提醒，也不会补发。
+   */
+  const queued = new Set(
+    (
+      await db
+        .select({ eventKey: pushDeliveries.eventKey })
+        .from(pushDeliveries)
+        .where(
+          and(
+            inArray(
+              pushDeliveries.deviceId,
+              devices.map((device) => device.id),
+            ),
+            inArray(
+              pushDeliveries.entityId,
+              due.map((task) => task.id),
+            ),
+          ),
+        )
+    ).map((row) => row.eventKey),
+  )
   const values = due.flatMap((task) => {
-    const elapsed = now.getTime() - task.scheduleAt.getTime()
+    const window = task.deadline.getTime() - task.scheduleAt.getTime()
     const remaining = task.deadline.getTime() - now.getTime()
-    // Short windows get one reminder; long windows also get a closing reminder.
+    // 截止提醒的提前量随时段长度缩放：短时段 5 分钟，长时段 20%。
+    const closingWindow = Math.max(5 * 60_000, window * 0.2)
+    const openSent = queued.has(`CHECKIN:${task.id}:OPEN`)
+    const closingSent = queued.has(`CHECKIN:${task.id}:CLOSING`)
+    // 第一次提醒：已经进入截止区间就直接发 CLOSING，否则发 OPEN，
+    // 避免短时段一上来就同时收到两条。
     const stage =
-      elapsed < 10 * 60_000
-        ? "OPEN"
-        : remaining <= 10 * 60_000 && elapsed >= 20 * 60_000
+      !openSent && !closingSent
+        ? remaining <= closingWindow
           ? "CLOSING"
-          : null
+          : "OPEN"
+        : !openSent
+          ? "OPEN"
+          : !closingSent && remaining <= closingWindow
+            ? "CLOSING"
+            : null
     return stage
       ? devices.map((device) => ({
           deviceId: device.id,

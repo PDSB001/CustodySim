@@ -453,7 +453,8 @@ export function startCheckinStatusScheduler() {
       console.error("[checkin] scheduled status sweep failed", error),
     )
   run()
-  const timer = setInterval(run, 5 * 60 * 1000)
+  // 2 分钟一轮：提醒迟到上限从 5 分钟压到 2 分钟，配合"未发过就发"不会漏。
+  const timer = setInterval(run, 2 * 60 * 1000)
   timer.unref?.()
   runtime[checkinStatusSchedulerKey] = timer
 }

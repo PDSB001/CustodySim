@@ -134,7 +134,9 @@ test("check-in reminders require opt-in, deduplicate stages and recheck completi
       .filter((row) => row.userId === userId)
       .map((row) => row.entityId)
       .sort(),
-  ).toEqual([open.id, closing.id].sort())
+    // open 还在早期 → OPEN；closing 已进入最后 12 分钟（60 分钟窗口的 20%）→ CLOSING；
+    // short（20 分钟窗口）剩余 8 分钟，尚未进入 5 分钟截止带 → OPEN。
+  ).toEqual([open.id, closing.id, short.id].sort())
   await db
     .update(checkinTasks)
     .set({ status: "NORMAL" })
