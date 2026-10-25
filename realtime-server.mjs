@@ -1,4 +1,4 @@
-import { startPushWorker } from "./push-worker.mjs"
+import { startPushWorker } from "./scripts/push-worker.mjs"
 import { createServer } from "node:http"
 
 import { jwtVerify } from "jose"

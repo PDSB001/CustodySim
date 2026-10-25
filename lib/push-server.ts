@@ -5,6 +5,9 @@ import { SignJWT } from "jose"
 import { db } from "@/lib/db"
 import {
   chatConversationMembers,
+  checkinTasks,
+  communityComments,
+  communityPosts,
   notices,
   pushDeliveries,
   pushDevices,
@@ -28,6 +31,11 @@ export async function registerPushDevice(
     secret: string
     providerToken?: string | null
     enabled: boolean
+    noticesEnabled?: boolean
+    tasksEnabled?: boolean
+    chatEnabled?: boolean
+    communityEnabled?: boolean
+    checkinRemindersEnabled?: boolean
   },
 ) {
   return db.transaction(async (tx) => {
@@ -76,6 +84,15 @@ export async function registerPushDevice(
       tokenVersion: account.version,
       providerToken: token,
       enabled: input.enabled,
+      noticesEnabled: input.noticesEnabled ?? existing?.noticesEnabled ?? true,
+      tasksEnabled: input.tasksEnabled ?? existing?.tasksEnabled ?? true,
+      chatEnabled: input.chatEnabled ?? existing?.chatEnabled ?? true,
+      communityEnabled:
+        input.communityEnabled ?? existing?.communityEnabled ?? true,
+      checkinRemindersEnabled:
+        input.checkinRemindersEnabled ??
+        existing?.checkinRemindersEnabled ??
+        false,
       bindingId: changed ? randomUUID() : existing.bindingId,
       updatedAt: new Date(),
     }
@@ -163,6 +180,8 @@ export async function enqueueChatNotifications(
           members.map((m) => m.id),
         ),
         eq(pushDevices.enabled, true),
+        eq(pushDevices.chatEnabled, true),
+        sql`not exists (select 1 from chat_notification_preferences p where p.user_id=${pushDevices.userId} and p.conversation_id=${conversationId}::uuid and p.muted)`,
       ),
     )
   if (!devices.length) return
@@ -177,6 +196,45 @@ export async function enqueueChatNotifications(
         kind: "CHAT",
         entityId: messageId,
         conversationId,
+      })),
+    )
+    .onConflictDoNothing()
+  await tx.execute(sql`select pg_notify('custodysim_push', 'ready')`)
+}
+
+/** Only the post owner receives replies; no commenter identity enters the queue. */
+export async function enqueueCommunityComment(tx: Tx, commentId: string) {
+  const [entry] = await tx
+    .select({
+      ownerId: communityPosts.authorId,
+      commenterId: communityComments.authorId,
+    })
+    .from(communityComments)
+    .innerJoin(communityPosts, eq(communityPosts.id, communityComments.postId))
+    .where(eq(communityComments.id, commentId))
+    .limit(1)
+  if (!entry || entry.ownerId === entry.commenterId) return
+  const devices = await tx
+    .select()
+    .from(pushDevices)
+    .where(
+      and(
+        eq(pushDevices.userId, entry.ownerId),
+        eq(pushDevices.enabled, true),
+        eq(pushDevices.communityEnabled, true),
+      ),
+    )
+  if (!devices.length) return
+  await tx
+    .insert(pushDeliveries)
+    .values(
+      devices.map((device) => ({
+        deviceId: device.id,
+        userId: device.userId,
+        bindingId: device.bindingId,
+        kind: "COMMUNITY",
+        entityId: commentId,
+        eventKey: `COMMUNITY:${commentId}`,
       })),
     )
     .onConflictDoNothing()
@@ -202,6 +260,7 @@ export async function enqueueNoticeNotifications(tx: Tx, noticeId: string) {
       and(
         eq(pushDevices.enabled, true),
         eq(users.status, "active"),
+        eq(pushDevices.noticesEnabled, true),
         notice.targetRole === "ALL"
           ? undefined
           : eq(users.role, notice.targetRole as typeof users.$inferSelect.role),
@@ -222,4 +281,78 @@ export async function enqueueNoticeNotifications(tx: Tx, noticeId: string) {
     )
     .onConflictDoNothing()
   await tx.execute(sql`select pg_notify('custodysim_push', 'ready')`)
+}
+
+/** Runs after task generation, leave auto-approval and expiry reconciliation. */
+export async function enqueueTaskNotifications(now = new Date()) {
+  await db.execute(sql`
+    insert into push_deliveries (device_id,user_id,binding_id,event_key,kind,entity_id)
+    select d.id,t.supervised_id,d.binding_id,
+      'TASK:'||t.id||':'||event.stage||case when event.stage in ('RETURNED','APPROVED') then ':'||to_char(t.updated_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') else '' end,
+      'TASK',t.id
+    from report_tasks t
+    join users u on u.id=t.supervised_id and u.status='active' and u.role='SUPERVISED'
+    join push_devices d on d.user_id=u.id and d.enabled and d.tasks_enabled and d.token_version=u.token_version
+    cross join lateral (select case
+      when t.status in ('RETURNED','APPROVED') and t.updated_at>${now}::timestamptz-interval '10 minutes' then t.status
+      when t.status='PENDING' and greatest(t.created_at,t.schedule_at)>${now}::timestamptz-interval '10 minutes' then 'OPEN'
+      when t.status in ('PENDING','RETURNED') and t.deadline<=${now}::timestamptz+interval '30 minutes' and t.schedule_at<=${now}::timestamptz-interval '1 hour' then 'CLOSING'
+    end as stage) event
+    where event.stage is not null and t.schedule_at<=${now}::timestamptz
+      and (t.status='APPROVED' or t.deadline>${now}::timestamptz)
+      and (t.rule_id is null or exists (select 1 from rules r where r.id=t.rule_id and r.enabled))
+      and not exists (select 1 from persons p where p.user_id=u.id and p.custody_status='ON_LEAVE'
+        and t.template_snapshot->>'completionMode' is distinct from 'READING')
+    on conflict (device_id,event_key) do nothing
+  `)
+}
+
+/** Called with one user's tasks, filtered through current rule scopes by the scheduler. */
+export async function enqueueCheckinReminders(
+  tasks: (typeof checkinTasks.$inferSelect)[],
+  now: Date,
+) {
+  const due = tasks.filter(
+    (task) =>
+      task.status === "PENDING" &&
+      task.scheduleAt <= now &&
+      task.deadline > now,
+  )
+  if (!due.length) return
+  const devices = await db
+    .select()
+    .from(pushDevices)
+    .where(
+      and(
+        eq(pushDevices.userId, due[0]!.supervisedId),
+        eq(pushDevices.enabled, true),
+        eq(pushDevices.checkinRemindersEnabled, true),
+      ),
+    )
+  const values = due.flatMap((task) => {
+    const elapsed = now.getTime() - task.scheduleAt.getTime()
+    const remaining = task.deadline.getTime() - now.getTime()
+    // Short windows get one reminder; long windows also get a closing reminder.
+    const stage =
+      elapsed < 10 * 60_000
+        ? "OPEN"
+        : remaining <= 10 * 60_000 && elapsed >= 20 * 60_000
+          ? "CLOSING"
+          : null
+    return stage
+      ? devices.map((device) => ({
+          deviceId: device.id,
+          userId: device.userId,
+          bindingId: device.bindingId,
+          eventKey: `CHECKIN:${task.id}:${stage}`,
+          kind: "CHECKIN",
+          entityId: task.id,
+        }))
+      : []
+  })
+  if (values.length)
+    await db.transaction(async (tx) => {
+      await tx.insert(pushDeliveries).values(values).onConflictDoNothing()
+      await tx.execute(sql`select pg_notify('custodysim_push', 'ready')`)
+    })
 }

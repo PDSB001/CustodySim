@@ -5,7 +5,9 @@ import {
   communityPosts,
   communityImages,
   communityComments,
+  communityCommentReads,
 } from "@/lib/db/schema"
+import { enqueueCommunityComment } from "@/lib/push-server"
 import { failure, success } from "@/lib/api-response"
 import { getSessionUser, type SessionUser } from "@/lib/session"
 import { communityAuthorLabel } from "@/lib/community-privacy"
@@ -129,9 +131,15 @@ export function communityFeed(request: Request) {
   return requireActor(async (actor) => {
     const page = pageOf(request)
     if (page === null) return failure("VALIDATION_ERROR", "页码不合法", 400)
+    const mine = new URL(request.url).searchParams.get("mine")
+    if (mine !== null && mine !== "true" && mine !== "false")
+      return failure("VALIDATION_ERROR", "筛选参数不合法", 400)
     const rows = await db
       .select(columns)
       .from(communityPosts)
+      .where(
+        mine === "true" ? eq(communityPosts.authorId, actor.id) : undefined,
+      )
       .orderBy(desc(communityPosts.createdAt), desc(communityPosts.id))
       .offset(page * 20)
       .limit(21)
@@ -248,15 +256,58 @@ export function addCommunityComment(request: Request, id: string) {
       .where(eq(communityPosts.id, id))
       .limit(1)
     if (!post) return failure("NOT_FOUND", "帖子不存在", 404)
-    const [comment] = await db
-      .insert(communityComments)
-      .values({
-        postId: id,
-        authorId: actor.id,
-        content: parsed.data.content,
-      })
-      .returning({ id: communityComments.id })
+    const comment = await db.transaction(async (tx) => {
+      const [created] = await tx
+        .insert(communityComments)
+        .values({
+          postId: id,
+          authorId: actor.id,
+          content: parsed.data.content,
+        })
+        .returning({ id: communityComments.id })
+      await enqueueCommunityComment(tx, created.id)
+      return created
+    })
     return success(comment, { status: 201 })
+  })
+}
+export function readCommunityComments(request: Request, id: string) {
+  return requireActor(async (actor) => {
+    if (!Id.safeParse(id).success)
+      return failure("NOT_FOUND", "帖子不存在", 404)
+    const input = z
+      .object({ commentIds: z.array(Id).max(30) })
+      .safeParse(await readBody(request, 4000).catch(() => null))
+    if (!input.success)
+      return failure("VALIDATION_ERROR", "评论参数不合法", 400)
+    const [post] = await db
+      .select({ id: communityPosts.id })
+      .from(communityPosts)
+      .where(
+        and(eq(communityPosts.id, id), eq(communityPosts.authorId, actor.id)),
+      )
+      .limit(1)
+    if (!post) return failure("NOT_FOUND", "帖子不存在", 404)
+    if (input.data.commentIds.length)
+      await db
+        .insert(communityCommentReads)
+        .select(
+          db
+            .select({
+              id: sql`gen_random_uuid()`.as("id"),
+              commentId: communityComments.id,
+              userId: sql`${actor.id}::uuid`.as("user_id"),
+            })
+            .from(communityComments)
+            .where(
+              and(
+                eq(communityComments.postId, id),
+                inArray(communityComments.id, input.data.commentIds),
+              ),
+            ),
+        )
+        .onConflictDoNothing()
+    return success({ read: true })
   })
 }
 export function deleteCommunityPost(id: string) {

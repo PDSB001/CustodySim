@@ -1,6 +1,7 @@
 import { and, eq, inArray, isNull, lt, lte, sql } from "drizzle-orm"
 
 import { db } from "@/lib/db"
+import { enqueueTaskNotifications } from "@/lib/push-server"
 import {
   organizations,
   persons,
@@ -313,6 +314,7 @@ export function startReportTaskScheduler() {
       await ensureScheduledTasks()
       await runLeaveTaskAutoApprovalSweep()
       await runReportTaskOutcomeSweep()
+      await enqueueTaskNotifications()
     })().catch((error: unknown) =>
       console.error("[task scheduler] scheduled task generation failed", error),
     )

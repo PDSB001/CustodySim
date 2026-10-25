@@ -7,7 +7,7 @@ import {
   useQueryClient,
 } from "@tanstack/react-query"
 import { ArrowLeft, MessageCircle, Plus, Send, Trash2 } from "lucide-react"
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { z } from "zod"
 import { requestApi, formatDate } from "@/components/shared/api-client"
 import {
@@ -60,6 +60,7 @@ function PostBody({ post }: { post: CommunityPost }) {
 export function CommunityWorkspace() {
   const client = useQueryClient()
   const [selected, setSelected] = useState<string | null>(null)
+  const [mine, setMine] = useState(false)
   const [commentPage, setCommentPage] = useState(0)
   const [compose, setCompose] = useState(false)
   const [title, setTitle] = useState("")
@@ -68,9 +69,12 @@ export function CommunityWorkspace() {
   const [imagesProcessing, setImagesProcessing] = useState(false)
   const [comment, setComment] = useState("")
   const feed = useInfiniteQuery({
-    queryKey: ["community-feed"],
+    queryKey: ["community-feed", mine],
     queryFn: ({ pageParam }) =>
-      requestApi(`/api/community/posts?page=${pageParam}`, CommunityFeedSchema),
+      requestApi(
+        `/api/community/posts?page=${pageParam}&mine=${mine}`,
+        CommunityFeedSchema,
+      ),
     initialPageParam: 0,
     getNextPageParam: (last, pages) =>
       last.hasMore ? pages.length : undefined,
@@ -84,6 +88,22 @@ export function CommunityWorkspace() {
       ),
     enabled: selected !== null,
   })
+  useEffect(() => {
+    const data = detail.data
+    if (!data?.post.isOwn || !data.comments.length) return
+    void requestApi(
+      `/api/community/posts/${data.post.id}/read`,
+      z.object({ read: z.boolean() }),
+      {
+        method: "POST",
+        body: JSON.stringify({
+          commentIds: data.comments.map((item) => item.id),
+        }),
+      },
+    ).catch(() => {
+      /* Reading can be retried on the next detail refresh. */
+    })
+  }, [detail.data])
   const refresh = async () => {
     await Promise.all([
       client.invalidateQueries({ queryKey: ["community-feed"] }),
@@ -183,7 +203,30 @@ export function CommunityWorkspace() {
         description="分享日常、交流经验。匿名编号仅在同一帖子内固定；请勿在正文或图片中透露身份。"
       />
       <div className="flex items-center justify-between">
-        <p className="text-muted-foreground text-sm">最新帖子 · 登录用户可见</p>
+        <div className="flex gap-2">
+          <Button
+            variant={mine ? "outline" : "default"}
+            disabled={navigationPending}
+            onClick={() => {
+              setMine(false)
+              setSelected(null)
+              setCompose(false)
+            }}
+          >
+            全部帖子
+          </Button>
+          <Button
+            variant={mine ? "default" : "outline"}
+            disabled={navigationPending}
+            onClick={() => {
+              setMine(true)
+              setSelected(null)
+              setCompose(false)
+            }}
+          >
+            我的帖子
+          </Button>
+        </div>
         <Button
           disabled={navigationPending}
           onClick={() => {
@@ -426,7 +469,9 @@ export function CommunityWorkspace() {
             ))}
           {feed.data && !feed.data.pages[0].posts.length ? (
             <div className="text-muted-foreground rounded-2xl border border-dashed p-10 text-center">
-              社区还没有帖子，分享你的第一篇吧。
+              {mine
+                ? "你还没有发布帖子。"
+                : "社区还没有帖子，分享你的第一篇吧。"}
             </div>
           ) : null}
           {feed.hasNextPage ? (

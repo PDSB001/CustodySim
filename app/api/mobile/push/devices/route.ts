@@ -17,6 +17,11 @@ const Registration = Credentials.extend({
     .nullable()
     .optional(),
   enabled: z.boolean(),
+  noticesEnabled: z.boolean().optional(),
+  tasksEnabled: z.boolean().optional(),
+  chatEnabled: z.boolean().optional(),
+  communityEnabled: z.boolean().optional(),
+  checkinRemindersEnabled: z.boolean().optional(),
 })
 
 export async function POST(request: Request) {

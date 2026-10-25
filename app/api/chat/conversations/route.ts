@@ -18,6 +18,7 @@ import {
 import { db } from "@/lib/db"
 import {
   chatConversationMembers,
+  chatNotificationPreferences,
   chatConversations,
   chatDirectRequests,
   chatMessageReads,
@@ -128,6 +129,18 @@ async function serializeConversations(
   const unreadCounts = new Map(
     unreadRows.map((row) => [row.conversationId, row.count]),
   )
+  const preferences = await db
+    .select()
+    .from(chatNotificationPreferences)
+    .where(
+      and(
+        eq(chatNotificationPreferences.userId, actor.id),
+        inArray(chatNotificationPreferences.conversationId, conversationIds),
+      ),
+    )
+  const mutedConversations = new Set(
+    preferences.filter((row) => row.muted).map((row) => row.conversationId),
+  )
   return conversations.map((conversation) => {
     const members = membersByConversation.get(conversation.id) ?? []
     const otherMembers = members.filter((member) => member.id !== actor.id)
@@ -155,6 +168,7 @@ async function serializeConversations(
           }
         : null,
       unreadCount: unreadCounts.get(conversation.id) ?? 0,
+      muted: mutedConversations.has(conversation.id),
     }
   })
 }
@@ -236,7 +250,9 @@ export async function POST(request: NextRequest) {
   if (!actor) return failure("UNAUTHORIZED", "请先登录", 401)
   if (actor.role !== "SUPERVISED")
     return failure("FORBIDDEN", "仅被监管人可发起聊天", 403)
-  const parsed = ChatCreateConversationSchema.safeParse(await request.json().catch(() => null))
+  const parsed = ChatCreateConversationSchema.safeParse(
+    await request.json().catch(() => null),
+  )
   if (!parsed.success) return failure("VALIDATION_ERROR", "会话参数不合法", 400)
   try {
     const actorRoomId = await getSupervisedRoom(actor.id)

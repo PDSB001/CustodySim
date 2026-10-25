@@ -22,6 +22,21 @@ try {
  id uuid PRIMARY KEY DEFAULT gen_random_uuid(), installation_id uuid NOT NULL, secret_hash varchar(64) NOT NULL,
  user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE, binding_id uuid NOT NULL DEFAULT gen_random_uuid(),
  token_version integer NOT NULL, provider_token varchar(256), enabled boolean NOT NULL DEFAULT true, updated_at timestamptz NOT NULL DEFAULT now());
+ALTER TABLE public.push_devices ADD COLUMN IF NOT EXISTS notices_enabled boolean NOT NULL DEFAULT true;
+ALTER TABLE public.push_devices ADD COLUMN IF NOT EXISTS tasks_enabled boolean NOT NULL DEFAULT true;
+ALTER TABLE public.push_devices ADD COLUMN IF NOT EXISTS chat_enabled boolean NOT NULL DEFAULT true;
+ALTER TABLE public.push_devices ADD COLUMN IF NOT EXISTS community_enabled boolean NOT NULL DEFAULT true;
+CREATE INDEX IF NOT EXISTS community_posts_author_created_idx ON public.community_posts(author_id,created_at,id);
+CREATE TABLE IF NOT EXISTS public.community_comment_reads (
+ id uuid PRIMARY KEY DEFAULT gen_random_uuid(), comment_id uuid NOT NULL REFERENCES community_comments(id) ON DELETE CASCADE,
+ user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE);
+CREATE UNIQUE INDEX IF NOT EXISTS community_comment_reads_comment_user_unique ON public.community_comment_reads(comment_id,user_id);
+ALTER TABLE public.push_devices ADD COLUMN IF NOT EXISTS checkin_reminders_enabled boolean NOT NULL DEFAULT false;
+CREATE TABLE IF NOT EXISTS public.chat_notification_preferences (
+ id uuid PRIMARY KEY DEFAULT gen_random_uuid(), user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+ conversation_id uuid NOT NULL REFERENCES chat_conversations(id) ON DELETE CASCADE, muted boolean NOT NULL DEFAULT false);
+CREATE UNIQUE INDEX IF NOT EXISTS chat_notification_preferences_user_conversation_unique
+ ON public.chat_notification_preferences(user_id,conversation_id);
 CREATE UNIQUE INDEX IF NOT EXISTS push_devices_installation_unique ON push_devices(installation_id);
 CREATE INDEX IF NOT EXISTS push_devices_user_idx ON push_devices(user_id,enabled);
 CREATE TABLE IF NOT EXISTS public.push_deliveries (

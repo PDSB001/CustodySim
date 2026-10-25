@@ -48,8 +48,9 @@ export const libraryBooks = pgTable("library_books", {
 export const libraryScoreSettings = pgTable("library_score_settings", {
   id: integer("id").primaryKey().default(1),
   enabled: boolean("enabled").notNull().default(true),
+  // 阅读是补充项：默认 15 分钟 1 分、每天最多 2 分，低于打卡与任务的权重。
   minutesPerPoint: integer("minutes_per_point").notNull().default(15),
-  dailyCap: integer("daily_cap").notNull().default(3),
+  dailyCap: integer("daily_cap").notNull().default(2),
 })
 
 export const organizations = pgTable("organizations", {
@@ -1317,6 +1318,11 @@ export const communityPosts = pgTable(
   },
   (table) => [
     index("community_posts_created_idx").on(table.createdAt, table.id),
+    index("community_posts_author_created_idx").on(
+      table.authorId,
+      table.createdAt,
+      table.id,
+    ),
     uniqueIndex("community_posts_record_unique").on(table.sourceRecordId),
   ],
 )
@@ -1354,6 +1360,25 @@ export const communityComments = pgTable(
       table.postId,
       table.createdAt,
       table.id,
+    ),
+  ],
+)
+
+export const communityCommentReads = pgTable(
+  "community_comment_reads",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    commentId: uuid("comment_id")
+      .notNull()
+      .references(() => communityComments.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+  },
+  (table) => [
+    uniqueIndex("community_comment_reads_comment_user_unique").on(
+      table.commentId,
+      table.userId,
     ),
   ],
 )
@@ -1514,6 +1539,13 @@ export const pushDevices = pgTable(
     tokenVersion: integer("token_version").notNull(),
     providerToken: varchar("provider_token", { length: 256 }),
     enabled: boolean("enabled").notNull().default(true),
+    noticesEnabled: boolean("notices_enabled").notNull().default(true),
+    tasksEnabled: boolean("tasks_enabled").notNull().default(true),
+    chatEnabled: boolean("chat_enabled").notNull().default(true),
+    communityEnabled: boolean("community_enabled").notNull().default(true),
+    checkinRemindersEnabled: boolean("checkin_reminders_enabled")
+      .notNull()
+      .default(false),
     updatedAt: timestamp("updated_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -1642,6 +1674,26 @@ export const chatConversationMembers = pgTable(
       table.userId,
     ),
     index("chat_conversation_members_user_idx").on(table.userId, table.leftAt),
+  ],
+)
+
+export const chatNotificationPreferences = pgTable(
+  "chat_notification_preferences",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    conversationId: uuid("conversation_id")
+      .notNull()
+      .references(() => chatConversations.id, { onDelete: "cascade" }),
+    muted: boolean("muted").notNull().default(false),
+  },
+  (table) => [
+    uniqueIndex("chat_notification_preferences_user_conversation_unique").on(
+      table.userId,
+      table.conversationId,
+    ),
   ],
 )
 

@@ -3,6 +3,8 @@ import { afterAll, beforeAll, expect, test, vi } from "vitest"
 import { eq, inArray, sql } from "drizzle-orm"
 import pg from "pg"
 import { db } from "@/lib/db"
+import { getSessionUser } from "@/lib/session"
+import { POST as updateChatNotifications } from "@/app/api/chat/conversations/[id]/notifications/route"
 import {
   users,
   pushDeliveries,
@@ -10,6 +12,7 @@ import {
   chatConversationMembers,
   chatMessages,
   chatMessageReads,
+  chatNotificationPreferences,
 } from "@/lib/db/schema"
 import {
   registerPushDevice,
@@ -21,9 +24,10 @@ import {
   startPushWorker,
   sendUmeng,
   providerPayload,
-} from "../../push-worker.mjs"
+} from "../../scripts/push-worker.mjs"
 
 const ids = [randomUUID(), randomUUID()]
+vi.mock("@/lib/session", () => ({ getSessionUser: vi.fn() }))
 const conversationId = randomUUID()
 const secret = "ab".repeat(32)
 const installationId = randomUUID()
@@ -275,4 +279,129 @@ test("provider payload is generic and signed; disabled provider cannot send", as
       },
     ),
   ).rejects.toThrow("PROVIDER_DISABLED")
+})
+
+test("chat DND blocks enqueue and skips messages already queued before muting", async () => {
+  const pending = await message()
+  await db
+    .insert(chatNotificationPreferences)
+    .values({ userId: ids[1]!, conversationId, muted: true })
+  const mutedMessage = randomUUID()
+  await db.transaction(async (tx) => {
+    await tx.insert(chatMessages).values({
+      id: mutedMessage,
+      conversationId,
+      senderId: ids[0],
+      content: "静音消息",
+    })
+    await enqueueChatNotifications(tx, mutedMessage, conversationId, ids[0]!)
+  })
+  expect(
+    await db
+      .select()
+      .from(pushDeliveries)
+      .where(eq(pushDeliveries.entityId, mutedMessage)),
+  ).toHaveLength(0)
+  const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL })
+  const worker = startPushWorker(
+    pool,
+    { sockets: { adapter: { rooms: new Map() } } },
+    { intervalMs: 30 },
+  )
+  try {
+    worker.wake()
+    await expect
+      .poll(
+        async () =>
+          (
+            await db
+              .select()
+              .from(pushDeliveries)
+              .where(eq(pushDeliveries.id, pending.id))
+          )[0]?.state,
+        { timeout: 5000 },
+      )
+      .toBe("SKIPPED")
+  } finally {
+    await worker.stop()
+    await pool.end()
+  }
+  await db
+    .delete(chatNotificationPreferences)
+    .where(eq(chatNotificationPreferences.userId, ids[1]!))
+  await registerPushDevice(ids[1]!, {
+    installationId,
+    secret,
+    enabled: true,
+    chatEnabled: false,
+  })
+  await db.transaction((tx) =>
+    enqueueChatNotifications(tx, mutedMessage, conversationId, ids[0]!),
+  )
+  expect(
+    await db
+      .select()
+      .from(pushDeliveries)
+      .where(eq(pushDeliveries.entityId, mutedMessage)),
+  ).toHaveLength(0)
+  await registerPushDevice(ids[1]!, {
+    installationId,
+    secret,
+    enabled: true,
+    chatEnabled: true,
+  })
+  await db.transaction((tx) =>
+    enqueueChatNotifications(tx, mutedMessage, conversationId, ids[0]!),
+  )
+  expect(
+    await db
+      .select()
+      .from(pushDeliveries)
+      .where(eq(pushDeliveries.entityId, mutedMessage)),
+  ).toHaveLength(1)
+})
+
+test("conversation notification preferences require access and only update the signed-in user's setting", async () => {
+  const call = (id: string, body: object) =>
+    updateChatNotifications(
+      new Request("http://localhost/api/chat/conversations/notifications", {
+        method: "POST",
+        body: JSON.stringify(body),
+        headers: { "content-type": "application/json" },
+      }),
+      { params: Promise.resolve({ id }) },
+    )
+  vi.mocked(getSessionUser).mockResolvedValue(null)
+  expect((await call(conversationId, { muted: true })).status).toBe(401)
+  vi.mocked(getSessionUser).mockResolvedValue({
+    id: ids[1]!,
+    username: "recipient",
+    name: "收件人",
+    role: "SUPERVISED",
+    organizationId: null,
+    mustChangePassword: false,
+  })
+  expect((await call(randomUUID(), { muted: true })).status).toBe(404)
+  const foreignConversation = randomUUID()
+  await db
+    .insert(chatConversations)
+    .values({ id: foreignConversation, type: "DIRECT" })
+  try {
+    expect((await call(foreignConversation, { muted: true })).status).toBe(404)
+  } finally {
+    await db
+      .delete(chatConversations)
+      .where(eq(chatConversations.id, foreignConversation))
+  }
+  expect((await call(conversationId, { muted: "yes" })).status).toBe(400)
+  expect(
+    (await call(conversationId, { muted: true, userId: ids[0] })).status,
+  ).toBe(200)
+  const stored = await db
+    .select()
+    .from(chatNotificationPreferences)
+    .where(eq(chatNotificationPreferences.conversationId, conversationId))
+  expect(stored).toHaveLength(1)
+  expect(stored[0]!.userId).toBe(ids[1])
+  expect(stored[0]!.muted).toBe(true)
 })

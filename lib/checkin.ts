@@ -1,6 +1,7 @@
 import { and, desc, eq, gte, inArray, lt, notInArray } from "drizzle-orm"
 
 import { db } from "@/lib/db"
+import { enqueueCheckinReminders } from "@/lib/push-server"
 import { writeAuditLog } from "@/lib/audit"
 import {
   checkinMakeups,
@@ -392,8 +393,10 @@ export async function runCheckinStatusSweep(now = new Date()) {
         inArray(persons.custodyStatus, ["IN_CUSTODY", "ISOLATION"]),
       ),
     )
-  for (const { userId } of scheduledUsers)
-    await ensureTodayCheckinTasks(userId, now)
+  for (const { userId } of scheduledUsers) {
+    const tasks = await ensureTodayCheckinTasks(userId, now)
+    await enqueueCheckinReminders(tasks, now)
+  }
   const absenceProfiles = await db
     .select({ userId: persons.userId })
     .from(persons)

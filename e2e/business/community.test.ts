@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto"
 import { afterAll, beforeAll, expect, test, vi } from "vitest"
 import { eq, inArray, sql } from "drizzle-orm"
 import { NextRequest } from "next/server"
+import pg from "pg"
 import { signToken } from "@/lib/auth"
 import { db } from "@/lib/db"
 import * as s from "@/lib/db/schema"
@@ -13,7 +14,10 @@ import {
   communityImage,
   deleteCommunityPost,
   deleteCommunityComment,
+  readCommunityComments,
 } from "@/lib/community-server"
+import { registerPushDevice } from "@/lib/push-server"
+import { startPushWorker, providerPayload } from "../../scripts/push-worker.mjs"
 import { POST as saveProfile } from "@/app/api/profile-records/route"
 import { POST as submitProfile } from "@/app/api/profile-records/submit/route"
 
@@ -44,16 +48,14 @@ function request(body?: unknown) {
 async function account(role: "SUPERVISED" | "ADMIN") {
   const id = randomUUID()
   users.push(id)
-  await db
-    .insert(s.users)
-    .values({
-      id,
-      role,
-      username: `test_${id}`,
-      name: `private_${id}`,
-      passwordHash: "unused",
-      mustChangePassword: false,
-    })
+  await db.insert(s.users).values({
+    id,
+    role,
+    username: `test_${id}`,
+    name: `private_${id}`,
+    passwordHash: "unused",
+    mustChangePassword: false,
+  })
   return id
 }
 async function as(id: string, role: "SUPERVISED" | "ADMIN" = "SUPERVISED") {
@@ -166,6 +168,163 @@ test("anonymous feed, stable participants, independent images and deletion permi
   expect((await deleteCommunityPost(postId)).status).toBe(200)
   expect((await communityImage(imageId)).status).toBe(404)
   expect((await communityDetail(request(), postId)).status).toBe(404)
+})
+
+test("my posts are scoped on the server, paginated and keep anonymous serialization", async () => {
+  await db
+    .insert(s.communityPosts)
+    .values(
+      Array.from({ length: 22 }, (_, i) => ({
+        authorId: i === 21 ? bob : alice,
+        title: `我的帖子 ${i}`,
+        content: "筛选测试",
+      })),
+    )
+  await as(alice)
+  const feed = async (page: number) =>
+    (
+      await (
+        await communityFeed(
+          new Request(
+            `http://localhost/api/community/posts?mine=true&page=${page}&authorId=${bob}`,
+          ),
+        )
+      ).json()
+    ).data
+  const first = await feed(0),
+    second = await feed(1)
+  expect(first.posts).toHaveLength(20)
+  expect(first.hasMore).toBe(true)
+  expect(second.posts).toHaveLength(1)
+  expect(second.hasMore).toBe(false)
+  expect(
+    [...first.posts, ...second.posts].every(
+      (post: { isOwn: boolean }) => post.isOwn,
+    ),
+  ).toBe(true)
+  for (const value of [alice, bob, "authorId", `private_${alice}`])
+    expect(JSON.stringify(first)).not.toContain(value)
+  await as(bob)
+  const own = (
+    await (
+      await communityFeed(
+        new Request("http://localhost/api/community/posts?mine=true"),
+      )
+    ).json()
+  ).data
+  expect(own.posts).toHaveLength(1)
+})
+
+test("community replies notify only the post owner; self, read and deleted replies do not notify", async () => {
+  const owner = (await registerPushDevice(alice, {
+    installationId: randomUUID(),
+    secret: "fa".repeat(32),
+    enabled: true,
+  }))!
+  await registerPushDevice(bob, {
+    installationId: randomUUID(),
+    secret: "fb".repeat(32),
+    enabled: true,
+  })
+  const [post] = await db
+    .insert(s.communityPosts)
+    .values({ authorId: alice, title: "私有标题", content: "公开内容" })
+    .returning()
+  const reply = async (userId: string) => {
+    await as(userId)
+    return (
+      await (
+        await addCommunityComment(
+          request({ content: "评论内容不进入推送" }),
+          post.id,
+        )
+      ).json()
+    ).data.id as string
+  }
+  const self = await reply(alice),
+    active = await reply(bob),
+    read = await reply(bob),
+    deleted = await reply(bob)
+  expect(
+    await db
+      .select()
+      .from(s.pushDeliveries)
+      .where(eq(s.pushDeliveries.entityId, self)),
+  ).toHaveLength(0)
+  const queued = await db
+    .select()
+    .from(s.pushDeliveries)
+    .where(inArray(s.pushDeliveries.entityId, [active, read, deleted]))
+  expect(queued).toHaveLength(3)
+  expect(queued.every((row) => row.userId === alice)).toBe(true)
+  expect(
+    (await readCommunityComments(request({ commentIds: [read] }), post.id))
+      .status,
+  ).toBe(404)
+  await as(alice)
+  expect(
+    (await readCommunityComments(request({ commentIds: [read] }), post.id))
+      .status,
+  ).toBe(200)
+  await db
+    .delete(s.communityComments)
+    .where(eq(s.communityComments.id, deleted))
+  const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL })
+  const delivered: Record<string, string>[] = []
+  const worker = startPushWorker(
+    pool,
+    {
+      sockets: {
+        adapter: {
+          rooms: new Map([
+            [`device:${owner.id}:${owner.bindingId}`, new Set(["app"])],
+          ]),
+        },
+      },
+      to: () => ({
+        timeout: () => ({
+          emitWithAck: async (
+            _event: string,
+            payload: Record<string, string>,
+          ) => {
+            delivered.push(payload)
+            return [{ ok: true }]
+          },
+        }),
+      }),
+    },
+    { intervalMs: 30 },
+  )
+  try {
+    worker.wake()
+    await expect
+      .poll(
+        async () =>
+          (
+            await db
+              .select()
+              .from(s.pushDeliveries)
+              .where(eq(s.pushDeliveries.entityId, deleted))
+          )[0]?.state,
+        { timeout: 5000 },
+      )
+      .toBe("SKIPPED")
+    expect(delivered).toHaveLength(1)
+    expect(delivered[0]!.postId).toBe(post.id)
+    expect(delivered[0]!.kind).toBe("COMMUNITY")
+    const provider = providerPayload(delivered[0], "fake-token", "fake-key")
+    expect(provider.payload.body.text).toBe("你的帖子收到新评论，点击查看")
+    for (const value of [
+      bob,
+      "私有标题",
+      "评论内容不进入推送",
+      `private_${bob}`,
+    ])
+      expect(JSON.stringify(provider)).not.toContain(value)
+  } finally {
+    await worker.stop()
+    await pool.end()
+  }
 })
 
 test("profile consent is persisted without publishing until submission, then publishes only selected fields", async () => {

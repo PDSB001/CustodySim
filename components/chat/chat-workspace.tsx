@@ -51,6 +51,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
+import { Switch } from "@/components/ui/switch"
 import { toast } from "@/components/ui/toast"
 import type { SessionUser } from "@/lib/session"
 import { compressTaskImage } from "@/lib/task-image-client"
@@ -75,6 +76,7 @@ const ConversationSchema = z.object({
     })
     .nullable(),
   unreadCount: z.number(),
+  muted: z.boolean().default(false),
 })
 const ConversationsSchema = z.array(ConversationSchema)
 
@@ -442,6 +444,27 @@ export function ChatWorkspace({ user }: { user: SessionUser }) {
   })
   const selected =
     conversations.data?.find((item) => item.id === selectedId) ?? null
+  const mute = useMutation({
+    mutationFn: ({ id, muted }: { id: string; muted: boolean }) =>
+      requestApi(
+        `/api/chat/conversations/${id}/notifications`,
+        z.object({ muted: z.boolean() }),
+        { method: "POST", body: JSON.stringify({ muted }) },
+      ),
+    onSuccess: (_result, input) => {
+      client.setQueryData<z.infer<typeof ConversationsSchema>>(
+        ["chat-conversations"],
+        (prior) =>
+          prior?.map((item) =>
+            item.id === input.id ? { ...item, muted: input.muted } : item,
+          ),
+      )
+      toast.success(
+        input.muted ? "该会话已开启免打扰，App 同步生效" : "已恢复该会话通知",
+      )
+    },
+    onError: (error) => toast.error(error.message),
+  })
   /** 历史页：打开会话取最新 50 条，上拉再按 `before` 往前逐页取。 */
   const messages = useInfiniteQuery({
     queryKey: ["chat-messages", selectedId],
@@ -691,9 +714,25 @@ export function ChatWorkspace({ user }: { user: SessionUser }) {
                       {selected.type === "ROOM" ? "监室群聊" : "私聊"}
                     </p>
                   </div>
-                  <Badge variant="outline">
-                    {user.role === "SUPERVISED" ? "14天可见" : "28天监管留存"}
-                  </Badge>
+                  <div className="flex flex-wrap items-center justify-end gap-3">
+                    <Label
+                      htmlFor="chat-mute"
+                      className="flex items-center gap-2 text-sm"
+                    >
+                      消息免打扰
+                      <Switch
+                        id="chat-mute"
+                        checked={selected.muted}
+                        disabled={mute.isPending}
+                        onCheckedChange={(muted) =>
+                          mute.mutate({ id: selected.id, muted })
+                        }
+                      />
+                    </Label>
+                    <Badge variant="outline">
+                      {user.role === "SUPERVISED" ? "14天可见" : "28天监管留存"}
+                    </Badge>
+                  </div>
                 </header>
                 <div className="bg-muted/10 flex-1 space-y-4 overflow-y-auto p-4 md:max-h-[26rem]">
                   {messages.hasNextPage ? (
