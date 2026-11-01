@@ -46,9 +46,30 @@ export async function getLoginRetryAfterSeconds(
   now = new Date(),
   namespace = "login",
 ) {
+  return getRetryAfterSeconds(
+    getLoginRateLimitKeys(username, ip, namespace),
+    now,
+  )
+}
+
+/** Network abuse is checked before bcrypt; account limits only gate failed passwords. */
+export async function getLoginNetworkRetryAfterSeconds(
+  ip?: string | null,
+  now = new Date(),
+  namespace = "login",
+) {
+  return ip?.trim()
+    ? getRetryAfterSeconds(
+        [buildRateLimitKey("network", ip.trim(), namespace)],
+        now,
+      )
+    : 0
+}
+
+async function getRetryAfterSeconds(keys: string[], now: Date) {
   return db.transaction(async (tx) => {
     let retryAfterSeconds = 0
-    for (const key of getLoginRateLimitKeys(username, ip, namespace)) {
+    for (const key of keys) {
       await lockRateLimitKey(tx, key)
       const [entry] = await tx
         .select({ blockedUntil: loginRateLimits.blockedUntil })

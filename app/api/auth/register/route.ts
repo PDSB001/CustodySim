@@ -88,7 +88,16 @@ export async function POST(request: NextRequest) {
     if (!registrationCaptchaConfig().ready)
       return failure("INTERNAL_ERROR", "注册人机验证尚未配置，请稍后再试", 503)
     const ip = getRequestIp(request.headers)
-    const retry = await consumeRegistrationAttempt(ip)
+    const risk = registrationRisk(
+      request.cookies.get(REGISTRATION_BROWSER_COOKIE)?.value,
+      ip,
+    )
+    if (!risk) return failure("FORBIDDEN", "请刷新注册页后完成人机验证", 403)
+    const retry = await consumeRegistrationAttempt(
+      ip,
+      new Date(),
+      risk.deviceHash,
+    )
     if (retry) {
       const response = failure(
         "RATE_LIMITED",
@@ -102,17 +111,12 @@ export async function POST(request: NextRequest) {
     if (!input.success)
       return failure(
         "VALIDATION_ERROR",
-        "请检查注册信息、密码确认及考察规则确认",
+        "请检查注册信息、考察规则及当前版本的协议确认；如页面已过期请刷新",
         400,
       )
     const password = validatePassword(input.data.password)
     if (!password.valid)
       return failure("VALIDATION_ERROR", password.errors.join("；"), 400)
-    const risk = registrationRisk(
-      request.cookies.get(REGISTRATION_BROWSER_COOKIE)?.value,
-      ip,
-    )
-    if (!risk) return failure("FORBIDDEN", "请刷新注册页后完成人机验证", 403)
     await assertRegistrationRisk(risk)
     const verification = await verifyRegistrationCaptcha({
       token: input.data.captchaToken,

@@ -11,7 +11,7 @@ import { SessionUserSchema } from "@/lib/auth-schemas"
 
 export function MfaLoginForm() {
   const [code, setCode] = useState("")
-  const [trustDevice, setTrustDevice] = useState(true)
+  const [trustDevice, setTrustDevice] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const pending = useRef(false)
@@ -85,14 +85,17 @@ export function MfaLoginForm() {
           className="h-11 rounded-xl"
         />
       </div>
-      <label className="text-muted-foreground flex cursor-pointer items-center gap-2.5 text-sm">
+      <div className="text-muted-foreground flex items-center gap-2.5 text-sm">
         <Checkbox
+          id="mfa-trust-device"
           checked={trustDevice}
           onCheckedChange={(checked) => setTrustDevice(checked === true)}
           disabled={submitting}
         />
-        在此设备保持登录 30 天
-      </label>
+        <label htmlFor="mfa-trust-device" className="cursor-pointer">
+          在此设备信任登录验证 30 天（仅限私人设备）
+        </label>
+      </div>
       {error ? (
         <p
           role="alert"

@@ -58,6 +58,7 @@ upgrade_database() {
     process.stdout.write(name);
   ')"
   node scripts/upgrade-web-performance.mjs "$1" "--database=$database_name"
+  node scripts/upgrade-audit-indexes.mjs "$1" "--database=$database_name"
   if [[ "$1" == "--apply" ]]; then
     node scripts/upgrade-chat-caption.mjs "--database=$database_name"
     # 批阅快照列：缺了它 /api/reviews 与批阅写入都会 500（幂等，可重复执行）。

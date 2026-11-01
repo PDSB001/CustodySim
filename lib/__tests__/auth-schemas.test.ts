@@ -1,6 +1,24 @@
 import { describe, expect, it } from "vitest"
 
-import { ChangePasswordSchema, MfaSetupSchema } from "@/lib/auth-schemas"
+import {
+  ChangePasswordSchema,
+  MfaSetupSchema,
+  MfaVerificationSchema,
+} from "@/lib/auth-schemas"
+
+it("受信任设备必须明确选择，缺省及显式 false 都不信任", () => {
+  expect(MfaVerificationSchema.parse({ code: "123456" }).trustDevice).toBe(
+    false,
+  )
+  expect(
+    MfaVerificationSchema.parse({ code: "123456", trustDevice: false })
+      .trustDevice,
+  ).toBe(false)
+  expect(
+    MfaVerificationSchema.parse({ code: "123456", trustDevice: true })
+      .trustDevice,
+  ).toBe(true)
+})
 
 describe("ChangePasswordSchema", () => {
   const valid = {

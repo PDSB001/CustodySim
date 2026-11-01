@@ -27,11 +27,7 @@ export async function POST(request: Request) {
     )
   try {
     return success(
-      await beginEmailBinding(
-        user,
-        parsed.data,
-        getRequestIp(request.headers) ?? "unknown",
-      ),
+      await beginEmailBinding(user, parsed.data, getRequestIp(request.headers)),
     )
   } catch (error) {
     if (error instanceof EmailSecurityError)

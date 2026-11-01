@@ -109,6 +109,7 @@ const scoreSourceLabels: Record<string, string> = {
   TASK_OUTCOME: "任务结果",
   READING_DURATION: "图书馆阅读",
   MANUAL: "人工调整",
+  SCORE_RESET: "排行榜归零",
 }
 
 /** 本周阅读积分：与总分同源，取 READING_DURATION 分项。 */
@@ -378,8 +379,10 @@ export function ScoreboardManage({
                 <strong className="text-foreground">任务结果：</strong>
                 首次按时通过 {signedPoints(data.policy.taskFirstPass)}
                 ；打回后在截止前通过{" "}
-                {signedPoints(data.policy.taskReturnedThenPass)}；截止仍未通过{" "}
-                {signedPoints(data.policy.taskExpired)}。评分不影响积分。
+                {signedPoints(
+                  data.policy.taskReturnedThenPass,
+                )}；截止仍未通过 {signedPoints(data.policy.taskExpired)}
+                。评分不影响积分。
                 {data.policy.isolationTaskExpired === 0 &&
                   "禁闭反思仍需提交和审核，但过期不再扣常规积分。"}
               </p>

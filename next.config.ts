@@ -20,6 +20,8 @@ const fallbackSecurityHeaders = [
 ]
 
 const nextConfig: NextConfig = {
+  // Isolated browser regressions must not share the running development server's cache.
+  distDir: process.env.CUSTODYSIM_E2E_BUILD === "true" ? ".next-e2e" : ".next",
   output: "standalone",
   poweredByHeader: false,
   experimental: { proxyClientMaxBodySize: "26mb" },

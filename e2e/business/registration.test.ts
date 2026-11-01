@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto"
+import { TERMS_VERSION, PRIVACY_VERSION } from "@/lib/legal-version"
 import { afterAll, beforeAll, expect, test, vi } from "vitest"
 import { eq, inArray, sql } from "drizzle-orm"
 import { NextRequest } from "next/server"
@@ -66,6 +67,8 @@ function input() {
     password: "Password123",
     confirmPassword: "Password123",
     acceptTrial: true,
+    termsVersion: TERMS_VERSION,
+    privacyVersion: PRIVACY_VERSION,
   })
   hashes.push(registrationEmailHash(value.email))
   return value
@@ -144,17 +147,15 @@ test("Web 注册固定权限、密码确认与同源边界，邮箱只存摘要"
   )
   const cookie = config.headers.get("set-cookie")!.split(";")[0]
   const cdata = (await config.json()).data.captcha.cData
-  const fetcher = vi
-    .fn<typeof fetch>()
-    .mockResolvedValue(
-      Response.json({
-        success: true,
-        hostname: "localhost",
-        action: "register",
-        cdata,
-        challenge_ts: new Date().toISOString(),
-      }),
-    )
+  const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
+    Response.json({
+      success: true,
+      hostname: "localhost",
+      action: "register",
+      cdata,
+      challenge_ts: new Date().toISOString(),
+    }),
+  )
   vi.stubGlobal("fetch", fetcher)
   const value = input()
   expect(
@@ -165,7 +166,9 @@ test("Web 注册固定权限、密码确认与同源边界，邮箱只存摘要"
     (await signup(request(value, { "x-custodysim-client": "android-app/2" })))
       .status,
   ).toBe(403)
-  expect((await signup(request({ ...value, role: "ADMIN" }))).status).toBe(400)
+  expect(
+    (await signup(request({ ...value, role: "ADMIN" }, { cookie }))).status,
+  ).toBe(400)
   expect((await signup(request(value))).status).toBe(403)
   const response = await signup(
     request({ ...value, captchaToken: "test-token" }, { cookie }),

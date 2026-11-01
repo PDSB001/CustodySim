@@ -5,13 +5,13 @@ import {
   libraryBooks,
   readingProgress,
   readingTicks,
-  libraryScoreSettings,
   scoreEvents,
   reportTasks,
 } from "@/lib/db/schema"
 import { getSessionUser } from "@/lib/session"
 import { getShanghaiDateKey } from "@/lib/shanghai-datetime"
 import { ensureUserTasks } from "@/lib/task-engine"
+import { getReadingScorePolicy } from "@/lib/reading-server"
 
 export async function GET() {
   const actor = await getSessionUser()
@@ -54,10 +54,7 @@ export async function GET() {
     })
     .from(readingTicks)
     .where(eq(readingTicks.userId, actor.id))
-  const [policy] = await db
-    .select()
-    .from(libraryScoreSettings)
-    .where(eq(libraryScoreSettings.id, 1))
+  const policy = await getReadingScorePolicy()
   const [[todayDuration], [todayScore], readingTasks] = await Promise.all([
     db
       .select({
@@ -121,6 +118,6 @@ export async function GET() {
     todaySeconds: todayDuration?.seconds ?? 0,
     todayPoints: todayScore?.points ?? 0,
     readingTasks,
-    scorePolicy: policy ?? { enabled: true, minutesPerPoint: 15, dailyCap: 3 },
+    scorePolicy: policy,
   })
 }

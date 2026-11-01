@@ -84,7 +84,7 @@ async function reserveLimit(
 
 async function reserveEmailAttempts(
   userId: string,
-  ip: string,
+  ip: string | null,
   kind: "send" | "verify",
   email?: string,
 ) {
@@ -132,7 +132,7 @@ export async function queueSecurityNotice(
 export async function beginEmailBinding(
   actor: SessionUser,
   input: { email: string; password: string; code?: string },
-  ip: string,
+  ip: string | null,
 ) {
   const policy = await getSecurityMailPolicy()
   if (!policy.bindingEnabled || !policy.configured)
@@ -232,7 +232,7 @@ export async function confirmEmailBinding(
   actor: SessionUser,
   id: string,
   code: string,
-  ip: string,
+  ip: string | null,
 ) {
   await reserveEmailAttempts(actor.id, ip, "verify")
   const result = await db.transaction(async (tx) => {

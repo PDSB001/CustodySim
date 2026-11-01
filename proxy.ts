@@ -80,11 +80,11 @@ function applySecurityHeaders(
       "Strict-Transport-Security",
       "max-age=63072000; includeSubDomains",
     )
-  // API 响应默认禁止缓存。唯一的例外是聊天图片端点：它由路由自己声明强缓存
-  // （内容按消息 ID 不可变），不豁免的话每次渲染都要重新下载整张图（单张约 1.4 MB）。
+  // API 响应默认禁止缓存。聊天图片自行声明缓存；APK 自行声明 ETag/重新验证，支持续传。
   if (
     request.nextUrl.pathname.startsWith("/api/") &&
-    !isChatImagePath(request.nextUrl.pathname)
+    !isChatImagePath(request.nextUrl.pathname) &&
+    request.nextUrl.pathname !== "/api/app-download/apk"
   )
     response.headers.set("Cache-Control", "private, no-store")
   return response
@@ -122,4 +122,5 @@ export function proxy(request: NextRequest) {
   )
 }
 
-export const config = { matcher: ["/:path*"] }
+// Large APK uploads stream to disk. This endpoint enforces its own role and origin checks.
+export const config = { matcher: ["/((?!api/admin/app-release$).*)"] }

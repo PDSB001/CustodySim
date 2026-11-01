@@ -52,6 +52,15 @@ export default async function LoginPage() {
                   没有账号？注册被监管人账号
                 </Link>
               </p>
+              <p className="mt-3 text-center text-sm">
+                <Link href="/terms" className="underline">
+                  用户协议
+                </Link>{" "}
+                ·{" "}
+                <Link href="/privacy" className="underline">
+                  隐私政策与账号请求
+                </Link>
+              </p>
             </div>
 
             <p className="text-muted-foreground/70 mt-7 text-center text-xs">

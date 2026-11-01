@@ -90,14 +90,12 @@ async function factor() {
 }
 async function loginChallenge() {
   const value = { challengeId: randomUUID(), userId: actor.id, tokenVersion: 0 }
-  await db
-    .insert(s.mfaLoginChallenges)
-    .values({
-      id: value.challengeId,
-      userId: actor.id,
-      tokenVersion: 0,
-      expiresAt: new Date(Date.now() + 300000),
-    })
+  await db.insert(s.mfaLoginChallenges).values({
+    id: value.challengeId,
+    userId: actor.id,
+    tokenVersion: 0,
+    expiresAt: new Date(Date.now() + 300000),
+  })
   return value
 }
 beforeAll(async () => {
@@ -148,20 +146,16 @@ afterAll(async () => {
 })
 
 test("邮箱验证码绑定、原子消费、撤销会话与设备；通知进入加密队列", async () => {
-  await db
-    .insert(s.securityEmails)
-    .values({
-      userId: actor.id,
-      emailEncrypted: encryptMfaSecret("old@example.com"),
-    })
-  await db
-    .insert(s.mfaTrustedDevices)
-    .values({
-      userId: actor.id,
-      tokenHash: "a".repeat(64),
-      label: "test",
-      expiresAt: new Date(Date.now() + 86400000),
-    })
+  await db.insert(s.securityEmails).values({
+    userId: actor.id,
+    emailEncrypted: encryptMfaSecret("old@example.com"),
+  })
+  await db.insert(s.mfaTrustedDevices).values({
+    userId: actor.id,
+    tokenHash: "a".repeat(64),
+    label: "test",
+    expiresAt: new Date(Date.now() + 86400000),
+  })
   await loginChallenge()
   const row = await bind()
   const [stored] = await db
@@ -298,16 +292,18 @@ test("发送前必须验证当前密码和已有 MFA，同一步 TOTP 不能重�
   await expect(bind()).rejects.toThrow("验证器")
   expect(sendSecurityMail).not.toHaveBeenCalled()
   await db.delete(s.securityMailLimits)
+  // Reuse the exact code: recomputing it can cross a 30-second TOTP boundary.
+  const reusedCode = currentCode()
   await beginEmailBinding(
     actor,
-    { email: "member@example.com", password, code: currentCode() },
+    { email: "member@example.com", password, code: reusedCode },
     actor.id,
   )
   await db.delete(s.securityMailLimits)
   await expect(
     beginEmailBinding(
       actor,
-      { email: "member@example.com", password, code: currentCode() },
+      { email: "member@example.com", password, code: reusedCode },
       actor.id,
     ),
   ).rejects.toThrow("验证器")
@@ -342,14 +338,12 @@ test("一次性登录挑战和 TOTP 防重放跨并发请求生效", async () =>
 
 test("恢复码不能重用已消费挑战，过期、撤销、耗尽挑战均拒绝", async () => {
   const item = await factor()
-  await db
-    .insert(s.mfaRecoveryCodes)
-    .values(
-      ["ABCD-EFGH-IJKL", "MNOP-QRST-UVWX"].map((code) => ({
-        factorId: item.id,
-        codeHash: hashRecoveryCode(code),
-      })),
-    )
+  await db.insert(s.mfaRecoveryCodes).values(
+    ["ABCD-EFGH-IJKL", "MNOP-QRST-UVWX"].map((code) => ({
+      factorId: item.id,
+      codeHash: hashRecoveryCode(code),
+    })),
+  )
   const challenge = await loginChallenge()
   expect(
     await consumeMfaLogin(challenge, "ABCD-EFGH-IJKL", false, actor.id),

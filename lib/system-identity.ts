@@ -1,8 +1,8 @@
 /**
- * 操作者身份类型：真人用户与系统级 AI 审核。
+ * 操作者身份类型：真人用户、系统级 AI 审核和系统任务。
  * 审计、审核、积分等记录据此区分操作来源，避免 AI 动作被记到监管者账号名下。
  */
-export const ACTOR_TYPES = ["USER", "SYSTEM_AI"] as const
+export const ACTOR_TYPES = ["USER", "SYSTEM_AI", "SYSTEM"] as const
 
 export type ActorType = (typeof ACTOR_TYPES)[number]
 

@@ -15,6 +15,8 @@ import {
   varchar,
 } from "drizzle-orm/pg-core"
 import { sql } from "drizzle-orm"
+import { DEFAULT_READING_SCORE_POLICY } from "@/lib/reading-policy"
+import { auditSearchText } from "@/lib/audit-search"
 
 const bookBytes = customType<{ data: Buffer; driverData: Buffer }>({
   dataType: () => "bytea",
@@ -50,7 +52,9 @@ export const libraryScoreSettings = pgTable("library_score_settings", {
   enabled: boolean("enabled").notNull().default(true),
   // 阅读是补充项：默认 15 分钟 1 分、每天最多 2 分，低于打卡与任务的权重。
   minutesPerPoint: integer("minutes_per_point").notNull().default(15),
-  dailyCap: integer("daily_cap").notNull().default(2),
+  dailyCap: integer("daily_cap")
+    .notNull()
+    .default(DEFAULT_READING_SCORE_POLICY.dailyCap),
 })
 
 export const organizations = pgTable("organizations", {
@@ -352,6 +356,14 @@ export const auditLogs = pgTable(
   (table) => [
     index("audit_logs_entity_idx").on(table.entityType, table.entityId),
     index("audit_logs_created_at_idx").on(table.createdAt),
+    index("audit_logs_created_id_idx").on(
+      table.createdAt.desc(),
+      table.id.desc(),
+    ),
+    index("audit_logs_search_trgm_idx").using(
+      "gin",
+      sql`${auditSearchText(table)} gin_trgm_ops`,
+    ),
   ],
 )
 

@@ -29,13 +29,13 @@
 
 已核对入口：
 
-| 入口 | 当前缺口 |
-| --- | --- |
-| `lib/checkin.ts` → `getCheckinReviewQueue` | 按状态返回整个可见补卡队列，历史 ALL 可能越来越大。 |
-| `app/api/makeups/route.ts` | 被监管人补卡历史无分页。 |
-| `app/api/admin/persons/route.ts` | 传分页参数时有分页，不传参数仍返回全部。 |
-| `app/api/admin/prisoner-numbers/route.ts` | 人员/编号列表全量返回。 |
-| `app/api/chat/conversations/route.ts` | 部分分支全量读取 ACTIVE 会话，再以其 ID 执行后续查询。 |
+| 入口                                       | 当前缺口                                               |
+| ------------------------------------------ | ------------------------------------------------------ |
+| `lib/checkin.ts` → `getCheckinReviewQueue` | 按状态返回整个可见补卡队列，历史 ALL 可能越来越大。    |
+| `app/api/makeups/route.ts`                 | 被监管人补卡历史无分页。                               |
+| `app/api/admin/persons/route.ts`           | 传分页参数时有分页，不传参数仍返回全部。               |
+| `app/api/admin/prisoner-numbers/route.ts`  | 人员/编号列表全量返回。                                |
+| `app/api/chat/conversations/route.ts`      | 部分分支全量读取 ACTIVE 会话，再以其 ID 执行后续查询。 |
 
 建议：盘点 Web、独立 Android 和已发布客户端的调用协议，设计分页与兼容方式，逐步迁移调用方。
 
@@ -120,7 +120,7 @@
 ## 三、不应重新当作未修 bug 的条目
 
 - H1/H2/H4/H5/H6、M2/M5/M8/M9/M10/M11/M12、M15 并发管理员问题等，当前工作区已有补丁和回归；先读 diff 再判断。
-- M1 的 unknown 邮件限流共享桶已去掉；可信代理仍需明确配置，不能自动信任公网请求头。
+- M1 在 2026-11-01 复核时发现邮件路由仍将缺失 IP 转为 unknown，原“已去掉”结论不准确。本轮改为传递 null：邮件仅跳过网络桶，保留账号/收件人桶；注册则回退至已签名的浏览器标识。可信代理仍需明确配置，不能自动信任公网请求头。
 - M4 的生产 Host 注入结论不成立；生产 CSP 已加 strict-dynamic。开发环境必须兼容浏览器实际主机名，不能改用监听地址 0.0.0.0 而阻断 WebSocket。
 - M14：business 是业务场景测试，不是应写生产业务库；两个 E2E 测试集都必须继续使用 custodysim_e2e。公共配置已拆分。
 - L3 的切书初值问题在当前调用方式不成立：BookReader 按书籍 id 设置 key。

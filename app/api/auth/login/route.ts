@@ -21,6 +21,7 @@ import { mfaFactors, mfaLoginChallenges, users } from "@/lib/db/schema"
 import { writeLoginLog } from "@/lib/login-log-server"
 import {
   clearLoginFailures,
+  getLoginNetworkRetryAfterSeconds,
   getLoginRetryAfterSeconds,
   recordLoginFailure,
 } from "@/lib/login-rate-limit"
@@ -46,10 +47,7 @@ export async function POST(request: NextRequest) {
       )
 
     const ip = getRequestIp(request.headers)
-    const retryAfterSeconds = await getLoginRetryAfterSeconds(
-      parsed.data.username,
-      ip,
-    )
+    const retryAfterSeconds = await getLoginNetworkRetryAfterSeconds(ip)
     if (retryAfterSeconds > 0) {
       const response = failure(
         "RATE_LIMITED",
@@ -71,6 +69,19 @@ export async function POST(request: NextRequest) {
       user?.passwordHash ?? (await getDummyPasswordHash()),
     )
     if (!user || user.status !== "active" || !passwordMatches) {
+      const accountRetry = await getLoginRetryAfterSeconds(
+        parsed.data.username,
+        ip,
+      )
+      if (accountRetry > 0) {
+        const response = failure(
+          "RATE_LIMITED",
+          `登录尝试过于频繁，请在 ${accountRetry} 秒后重试`,
+          429,
+        )
+        response.headers.set("Retry-After", String(accountRetry))
+        return response
+      }
       await recordLoginFailure(parsed.data.username, ip)
       await writeLoginLog({
         username: parsed.data.username,

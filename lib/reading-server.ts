@@ -14,6 +14,7 @@ import {
 } from "@/lib/scoring"
 import { getShanghaiDateKey } from "@/lib/shanghai-datetime"
 import { readingPoints } from "@/lib/library"
+import { DEFAULT_READING_SCORE_POLICY } from "@/lib/reading-policy"
 
 type Executor = Parameters<Parameters<typeof db.transaction>[0]>[0]
 
@@ -95,7 +96,7 @@ export async function getReadingScorePolicy(
     .select()
     .from(libraryScoreSettings)
     .where(eq(libraryScoreSettings.id, 1))
-  return settings ?? { enabled: true, minutesPerPoint: 15, dailyCap: 2 }
+  return settings ?? DEFAULT_READING_SCORE_POLICY
 }
 
 export async function settleReadingPoints(

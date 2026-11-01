@@ -7,7 +7,8 @@ import {
   LogOut,
   ShieldCheck,
 } from "lucide-react"
-import { useState } from "react"
+import { useRef, useState } from "react"
+import { toast } from "sonner"
 import { AvatarEditor } from "@/components/layout/avatar-editor"
 import Link from "next/link"
 
@@ -35,6 +36,21 @@ export function AccountMenu({
   disabled?: boolean
 }) {
   const [editing, setEditing] = useState(false)
+  const pending = useRef(false)
+  const [loggingOut, setLoggingOut] = useState(false)
+  async function logout() {
+    if (pending.current) return
+    pending.current = true
+    setLoggingOut(true)
+    try {
+      await onLogout()
+    } catch {
+      toast.error("退出登录未完成，请检查网络后重试")
+    } finally {
+      pending.current = false
+      setLoggingOut(false)
+    }
+  }
   const [override, setOverride] = useState<string | null | undefined>(undefined)
   const avatar = override === undefined ? (user.avatar ?? null) : override
   return (
@@ -43,7 +59,7 @@ export function AccountMenu({
         <DropdownMenuTrigger asChild>
           <Button
             aria-label="打开账号菜单"
-            disabled={disabled}
+            disabled={disabled || loggingOut}
             variant="ghost"
             className="border-border/70 bg-card text-foreground hover:border-border hover:bg-muted h-9 gap-1.5 rounded-lg border px-1.5 pr-2 transition-colors"
           >
@@ -88,7 +104,8 @@ export function AccountMenu({
           </DropdownMenuItem>
           <DropdownMenuItem
             variant="destructive"
-            onSelect={() => void onLogout()}
+            disabled={loggingOut}
+            onSelect={() => void logout()}
           >
             <LogOut />
             退出登录

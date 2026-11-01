@@ -26,7 +26,7 @@ export async function POST(request: Request) {
       user,
       parsed.data.challengeId,
       parsed.data.code,
-      getRequestIp(request.headers) ?? "unknown",
+      getRequestIp(request.headers),
     )
     const response = success({ verified: true, requiresLogin: true })
     clearAuthCookie(response)

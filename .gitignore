@@ -41,6 +41,7 @@
 
 # local IP geolocation database (downloaded, ~96MB)
 /data/geoip/
+/data/app-release/
 
 # debug
 npm-debug.log*

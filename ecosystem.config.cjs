@@ -35,6 +35,7 @@ function loadEnvLocal() {
   return vars
 }
 
+const localEnv = loadEnvLocal()
 module.exports = {
   apps: [
     {
@@ -48,7 +49,10 @@ module.exports = {
       env: {
         // 本地 IP 库默认落在仓库根目录；.env.local 里的 GEOIP_DATA_DIR 可覆盖。
         GEOIP_DATA_DIR: path.join(__dirname, "data", "geoip"),
-        ...loadEnvLocal(),
+        ...localEnv,
+        APP_RELEASE_DIR:
+          localEnv.APP_RELEASE_DIR ||
+          path.join(__dirname, "data", "app-release"),
         NODE_ENV: "production",
         TZ: "Asia/Shanghai",
         PORT: 3000,
@@ -72,7 +76,7 @@ module.exports = {
       instances: 1,
       exec_mode: "fork",
       env: {
-        ...loadEnvLocal(),
+        ...localEnv,
         NODE_ENV: "production",
         TZ: "Asia/Shanghai",
         REALTIME_PORT: 3001,

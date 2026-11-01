@@ -20,7 +20,7 @@ import {
   X,
 } from "lucide-react"
 import Image from "next/image"
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { io } from "socket.io-client"
 import { z } from "zod"
 
@@ -436,7 +436,19 @@ export function ChatWorkspace({ user }: { user: SessionUser }) {
   const [pendingImage, setPendingImage] = useState<string | null>(null)
   const [imageBusy, setImageBusy] = useState(false)
   const [now, setNow] = useState(() => Date.now())
-  const messagesEndRef = useRef<HTMLDivElement | null>(null)
+  const messagesViewport = useRef<HTMLDivElement | null>(null)
+  const followLatest = useRef(true)
+  const positionedConversation = useRef<string | null>(null)
+  const prependAnchor = useRef<{
+    conversationId: string
+    element: HTMLElement | null
+    offset: number
+    height: number
+    top: number
+  } | null>(null)
+  const lastRead = useRef(new Map<string, string>())
+  const [atBottom, setAtBottom] = useState(true)
+  const [visible, setVisible] = useState(true)
   const conversations = useQuery({
     queryKey: ["chat-conversations"],
     queryFn: () => requestApi("/api/chat/conversations", ConversationsSchema),
@@ -525,18 +537,75 @@ export function ChatWorkspace({ user }: { user: SessionUser }) {
   }, [conversations.data, selectedId])
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
-    if (!selectedId || !latestMessageId) return
-    requestApi(
-      `/api/chat/conversations/${selectedId}/read`,
-      z.object({ messageId: z.string() }),
-      { method: "POST", body: JSON.stringify({ messageId: latestMessageId }) },
+    const update = () => setVisible(document.visibilityState === "visible")
+    update()
+    document.addEventListener("visibilitychange", update)
+    return () => document.removeEventListener("visibilitychange", update)
+  }, [])
+
+  useLayoutEffect(() => {
+    const viewport = messagesViewport.current
+    if (!viewport || !selectedId || !latestMessageId) return
+    if (positionedConversation.current !== selectedId) {
+      positionedConversation.current = selectedId
+      prependAnchor.current = null
+      followLatest.current = true
+      viewport.scrollTop = viewport.scrollHeight
+      setAtBottom(true)
+    } else if (prependAnchor.current?.conversationId === selectedId) {
+      const anchor = prependAnchor.current
+      if (!messages.isFetchingNextPage) {
+        viewport.scrollTop = anchor.element?.isConnected
+          ? viewport.scrollTop +
+            anchor.element.getBoundingClientRect().top -
+            anchor.offset
+          : anchor.top + viewport.scrollHeight - anchor.height
+        prependAnchor.current = null
+      }
+    } else if (followLatest.current) {
+      viewport.scrollTop = viewport.scrollHeight
+    }
+  }, [
+    selectedId,
+    latestMessageId,
+    historyMessages.length,
+    messages.isFetchingNextPage,
+  ])
+
+  useEffect(() => {
+    if (
+      !selectedId ||
+      !latestMessageId ||
+      !atBottom ||
+      !visible ||
+      lastRead.current.get(selectedId) === latestMessageId
     )
-      .then(() =>
-        client.invalidateQueries({ queryKey: ["chat-conversations"] }),
+      return
+    const controller = new AbortController()
+    const timer = window.setTimeout(() => {
+      if (!followLatest.current || document.visibilityState !== "visible")
+        return
+      void requestApi(
+        `/api/chat/conversations/${selectedId}/read`,
+        z.object({ messageId: z.string() }),
+        {
+          method: "POST",
+          body: JSON.stringify({ messageId: latestMessageId }),
+          signal: controller.signal,
+        },
       )
-      .catch(() => undefined)
-  }, [client, latestMessageId, selectedId])
+        .then(() => {
+          if (controller.signal.aborted) return
+          lastRead.current.set(selectedId, latestMessageId)
+          void client.invalidateQueries({ queryKey: ["chat-conversations"] })
+        })
+        .catch(() => undefined)
+    }, 300)
+    return () => {
+      window.clearTimeout(timer)
+      controller.abort()
+    }
+  }, [client, latestMessageId, selectedId, atBottom, visible])
 
   const ensureRoom = useMutation({
     mutationFn: () =>
@@ -734,14 +803,54 @@ export function ChatWorkspace({ user }: { user: SessionUser }) {
                     </Badge>
                   </div>
                 </header>
-                <div className="bg-muted/10 flex-1 space-y-4 overflow-y-auto p-4 md:max-h-[26rem]">
+                <div
+                  ref={messagesViewport}
+                  role="log"
+                  aria-label="聊天消息"
+                  onScroll={(event) => {
+                    const element = event.currentTarget
+                    const bottom =
+                      element.scrollHeight -
+                        element.scrollTop -
+                        element.clientHeight <
+                      64
+                    followLatest.current = bottom
+                    setAtBottom(bottom)
+                  }}
+                  className="bg-muted/10 max-h-[60dvh] min-h-0 flex-1 space-y-4 overflow-y-auto p-4 md:max-h-[26rem]"
+                  style={{ overflowAnchor: "none" }}
+                >
                   {messages.hasNextPage ? (
                     <div className="text-center">
                       <Button
                         size="sm"
                         variant="ghost"
                         disabled={messages.isFetchingNextPage}
-                        onClick={() => messages.fetchNextPage()}
+                        onClick={() => {
+                          const viewport = messagesViewport.current
+                          if (viewport && selectedId) {
+                            followLatest.current = false
+                            setAtBottom(false)
+                            const top = viewport.getBoundingClientRect().top
+                            const element =
+                              Array.from(
+                                viewport.querySelectorAll<HTMLElement>(
+                                  "[data-chat-message]",
+                                ),
+                              ).find(
+                                (row) =>
+                                  row.getBoundingClientRect().bottom > top,
+                              ) ?? null
+                            prependAnchor.current = {
+                              conversationId: selectedId,
+                              element,
+                              offset: element?.getBoundingClientRect().top ?? 0,
+                              height: viewport.scrollHeight,
+                              top: viewport.scrollTop,
+                            }
+                          }
+                          void messages.fetchNextPage()
+                        }}
                       >
                         {messages.isFetchingNextPage
                           ? "加载中…"
@@ -760,6 +869,7 @@ export function ChatWorkspace({ user }: { user: SessionUser }) {
                     return (
                       <div
                         key={message.id}
+                        data-chat-message={message.id}
                         className={`flex gap-2 ${mine ? "flex-row-reverse" : ""}`}
                       >
                         <Avatar className="size-8 shrink-0">
@@ -857,7 +967,7 @@ export function ChatWorkspace({ user }: { user: SessionUser }) {
                       description="发送第一条消息开始交流。"
                     />
                   ) : null}
-                  <div ref={messagesEndRef} />
+                  <div aria-hidden />
                 </div>
                 <form
                   className="border-border space-y-2 border-t p-3"

@@ -1,4 +1,5 @@
 import { expect, test } from "vitest"
+import { TERMS_VERSION, PRIVACY_VERSION } from "@/lib/legal-version"
 import {
   passesProbation,
   probationPeriod,
@@ -24,6 +25,8 @@ test("邮箱摘要规范化且注册表单拒绝自行指定权限", () => {
     password: "Password123",
     confirmPassword: "Password123",
     acceptTrial: true,
+    termsVersion: TERMS_VERSION,
+    privacyVersion: PRIVACY_VERSION,
   }
   expect(RegistrationSchema.safeParse(input).success).toBe(true)
   expect(
@@ -31,5 +34,11 @@ test("邮箱摘要规范化且注册表单拒绝自行指定权限", () => {
   ).toBe(false)
   expect(
     RegistrationSchema.safeParse({ ...input, acceptTrial: false }).success,
+  ).toBe(false)
+  expect(
+    RegistrationSchema.safeParse({ ...input, termsVersion: "old" }).success,
+  ).toBe(false)
+  expect(
+    RegistrationSchema.safeParse({ ...input, privacyVersion: null }).success,
   ).toBe(false)
 })

@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto"
 import { z } from "zod"
 import { getShanghaiDateKey } from "@/lib/shanghai-datetime"
+import { TERMS_VERSION, PRIVACY_VERSION } from "@/lib/legal-version"
 
 export const REGISTRATION_GRACE_MS = 10 * 60_000
 export const REGISTRATION_WINDOW_MS = 60 * 60_000
@@ -31,6 +32,8 @@ export const RegistrationSchema = z
     password: z.string().min(8).max(128),
     confirmPassword: z.string().max(128),
     acceptTrial: z.literal(true),
+    termsVersion: z.literal(TERMS_VERSION),
+    privacyVersion: z.literal(PRIVACY_VERSION),
     captchaToken: z.string().max(2048).optional(),
   })
   .strict()

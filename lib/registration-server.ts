@@ -71,9 +71,19 @@ export async function getRegistrationSettings() {
 export async function consumeRegistrationAttempt(
   ip: string | null,
   now = new Date(),
+  deviceHash?: string,
 ) {
+  const network = registrationNetwork(ip)
+  // A missing trusted address must never put unrelated visitors in one bucket.
+  // The fallback is the server-signed registration browser identity, not a request header.
+  const identity = network
+    ? `network:${network}`
+    : deviceHash
+      ? `device:${deviceHash}`
+      : null
+  if (!identity) return 0
   const key = createHash("sha256")
-    .update(`registration:network:${registrationNetwork(ip) ?? "unknown"}`)
+    .update(`registration:${identity}`)
     .digest("hex")
   return db.transaction(async (tx) => {
     await tx.execute(
@@ -225,6 +235,9 @@ export async function createRegistration(
       detail: {
         trialStart: period.start.toISOString(),
         trialEnd: period.end.toISOString(),
+        termsVersion: input.termsVersion,
+        privacyVersion: input.privacyVersion,
+        acceptedAt: now.toISOString(),
       },
     })
     return { ...user, trialStart: period.start, trialEnd: period.end }

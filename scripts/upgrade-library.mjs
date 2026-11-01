@@ -37,6 +37,7 @@ try {
     "20261004-library-reading.up.sql",
     "20261004-library-management.up.sql",
     "20261011-library-cache.up.sql",
+    "20261101-library-policy.up.sql",
   ]
   for (const filename of migrationFiles) {
     const path = fileURLToPath(

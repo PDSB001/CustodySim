@@ -24,6 +24,7 @@ import { requestApi } from "@/components/shared/api-client"
 import { EmptyState } from "@/components/shared/empty-state"
 import { MetricCell } from "@/components/shared/metric-cell"
 import { PageHeader } from "@/components/shared/page-header"
+import { DownloadAppLink } from "@/components/shared/download-app-link"
 import {
   ErrorState,
   LoadingBlock,
@@ -481,7 +482,10 @@ export function RoleWorkspaceHome({
         description={homeSubtitle}
         alignActionWithTitle
         action={
-          <StatusPill tone={content.tone}>{content.toneLabel}</StatusPill>
+          <div className="flex flex-wrap items-center gap-2">
+            <DownloadAppLink />
+            <StatusPill tone={content.tone}>{content.toneLabel}</StatusPill>
+          </div>
         }
       />
 

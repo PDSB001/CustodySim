@@ -26,6 +26,7 @@ import { z } from "zod"
 import { requestApi } from "@/components/shared/api-client"
 import { MetricCell } from "@/components/shared/metric-cell"
 import { PageHeader } from "@/components/shared/page-header"
+import { DownloadAppLink } from "@/components/shared/download-app-link"
 import { LoadingBlock } from "@/components/shared/query-state-view"
 import { StatusPill } from "@/components/shared/status-pill"
 import { Button } from "@/components/ui/button"
@@ -119,7 +120,10 @@ function PendingStatusStrip({
           任务审核
           <span className="status-strip__count">{pendingTasks}</span>
         </Link>
-        <Link href="/supervision/tasks?tab=makeups" className="status-strip__item">
+        <Link
+          href="/supervision/tasks?tab=makeups"
+          className="status-strip__item"
+        >
           补卡审核
           <span className="status-strip__count">{pendingMakeups}</span>
         </Link>
@@ -424,7 +428,12 @@ export function DashboardHome({ user }: Readonly<{ user: SessionUser }>) {
         }
         description="先处理呈报与补卡，再核对点名、纪律和在押档案。"
         alignActionWithTitle
-        action={<StatusPill tone="neutral">监所管理</StatusPill>}
+        action={
+          <div className="flex flex-wrap items-center gap-2">
+            <DownloadAppLink />
+            <StatusPill tone="neutral">监所管理</StatusPill>
+          </div>
+        }
       />
 
       {/* 提示条依赖待办数量，加载完成后再渲染，避免先用占位数字误报 */}

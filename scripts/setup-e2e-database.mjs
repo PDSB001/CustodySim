@@ -42,6 +42,7 @@ try {
   const result = await targetClient.query("select current_database() as name")
   if (result.rows[0]?.name !== databaseName)
     throw new Error("E2E 数据库连接验证失败，拒绝初始化")
+  await targetClient.query("CREATE EXTENSION IF NOT EXISTS pg_trgm")
 } finally {
   await targetClient.end()
 }
@@ -59,12 +60,17 @@ function run(tool, args) {
   // pnpm.cmd/PATH and shell quoting must not prevent refreshing the test schema.
   const manifestPath = resolve("node_modules", tool, "package.json")
   const manifest = JSON.parse(readFileSync(manifestPath, "utf8"))
-  const bin = typeof manifest.bin === "string" ? manifest.bin : manifest.bin[tool]
-  const result = spawnSync(process.execPath, [resolve(dirname(manifestPath), bin), ...args], {
-    cwd: process.cwd(),
-    env: childEnv,
-    stdio: "inherit",
-  })
+  const bin =
+    typeof manifest.bin === "string" ? manifest.bin : manifest.bin[tool]
+  const result = spawnSync(
+    process.execPath,
+    [resolve(dirname(manifestPath), bin), ...args],
+    {
+      cwd: process.cwd(),
+      env: childEnv,
+      stdio: "inherit",
+    },
+  )
   if (result.error) throw result.error
   if (result.status !== 0)
     throw new Error(`命令执行失败：${tool} ${args.join(" ")}`)

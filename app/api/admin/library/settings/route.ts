@@ -4,6 +4,7 @@ import { libraryScoreSettings } from "@/lib/db/schema"
 import { getAdminUser } from "@/lib/admin-api"
 import { writeAuditLog } from "@/lib/audit"
 import { failure, success } from "@/lib/api-response"
+import { getReadingScorePolicy } from "@/lib/reading-server"
 
 const Settings = z.object({
   enabled: z.boolean(),
@@ -13,10 +14,7 @@ const Settings = z.object({
 export async function GET() {
   if (!(await getAdminUser()))
     return failure("FORBIDDEN", "仅管理员可管理阅读积分", 403)
-  const [settings] = await db.select().from(libraryScoreSettings)
-  return success(
-    settings ?? { enabled: true, minutesPerPoint: 15, dailyCap: 2 },
-  )
+  return success(await getReadingScorePolicy())
 }
 export async function PUT(request: Request) {
   const actor = await getAdminUser()

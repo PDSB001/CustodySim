@@ -74,6 +74,7 @@ export default defineConfig({
     "**/business/**/*.test.ts",
     "**/scoring-browser.spec.ts",
     "**/security-browser.spec.ts",
+    "**/hardening-browser.spec.ts",
     "**/production-csp.spec.ts",
   ],
   timeout: 30_000,

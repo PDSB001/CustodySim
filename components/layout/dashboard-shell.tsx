@@ -28,10 +28,12 @@ import { usePathname } from "next/navigation"
 import { useEffect, useState } from "react"
 
 import { AccountMenu } from "@/components/layout/account-menu"
+import { GettingStarted } from "@/components/layout/getting-started"
 import { Button } from "@/components/ui/button"
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
 import { ThemeToggle } from "@/components/layout/theme-toggle"
 import type { SessionUser } from "@/lib/session"
+import { logoutAndRedirect } from "@/lib/logout-client"
 
 type NavIcon = typeof LayoutDashboard
 type NavEntry = { href: string; label: string; icon: NavIcon }
@@ -84,6 +86,7 @@ const navSections: NavSection[] = [
       { href: "/orgs", label: "组织架构", icon: Building2 },
       { href: "/accounts", label: "账户管理", icon: UsersRound },
       { href: "/registration", label: "注册与考察", icon: UsersRound },
+      { href: "/app-release", label: "App 安装包", icon: Settings2 },
       { href: "/ui-config", label: "标语与文案", icon: MessageSquareText },
     ],
   },
@@ -252,8 +255,7 @@ export function DashboardShell({
   useEffect(() => setInteractive(true), [])
   const logout = async () => {
     setMobileNavOpen(false)
-    await fetch("/api/auth/logout", { method: "POST" })
-    window.location.replace("/login")
+    await logoutAndRedirect()
   }
   const title = currentPageTitle(pathname)
 
@@ -298,6 +300,7 @@ export function DashboardShell({
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-1.5">
+            <GettingStarted key={`${user.id}:${user.role}`} user={user} />
             <ThemeToggle />
             <AccountMenu
               user={user}

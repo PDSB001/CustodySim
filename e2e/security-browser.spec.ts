@@ -39,16 +39,14 @@ test("真实 MFA 启用、恢复码登录与挑战重放拦截；邮件配置页
   const password = "SecurityBrowser12345"
   const other = await playwright.request.newContext({ baseURL })
   try {
-    await db
-      .insert(s.users)
-      .values({
-        id,
-        username: `e2e_${id}`,
-        name: "安全功能验证",
-        role: "ADMIN",
-        mustChangePassword: false,
-        passwordHash: await hashPassword(password),
-      })
+    await db.insert(s.users).values({
+      id,
+      username: `e2e_${id}`,
+      name: "安全功能验证",
+      role: "ADMIN",
+      mustChangePassword: false,
+      passwordHash: await hashPassword(password),
+    })
     await page.goto("/login")
     await page.getByLabel("账号").fill(`e2e_${id}`)
     await page.getByLabel("密码").fill(password)
@@ -87,7 +85,7 @@ test("真实 MFA 启用、恢复码登录与挑战重放拦截；邮件配置页
     await page.getByLabel("一次性验证码或恢复码").fill(recoveryCodes[0])
     // 「信任设备」默认不再勾选，此处显式勾选以覆盖信任设备写入路径。
     await page
-      .getByRole("checkbox", { name: "在此设备保持登录 30 天" })
+      .getByRole("checkbox", { name: /在此设备信任登录验证 30 天/ })
       .check()
     await page.getByRole("button", { name: "验证并继续" }).click()
     await expect(page).toHaveURL(`${baseURL}/`)
@@ -121,16 +119,14 @@ test("邮箱绑定界面显示验证码、倒计时和重新登录提示（邮�
   const id = randomUUID()
   const password = "EmailBrowser12345"
   try {
-    await db
-      .insert(s.users)
-      .values({
-        id,
-        username: `e2e_${id}`,
-        name: "邮箱页面验证",
-        role: "ADMIN",
-        mustChangePassword: false,
-        passwordHash: await hashPassword(password),
-      })
+    await db.insert(s.users).values({
+      id,
+      username: `e2e_${id}`,
+      name: "邮箱页面验证",
+      role: "ADMIN",
+      mustChangePassword: false,
+      passwordHash: await hashPassword(password),
+    })
     expect(
       (
         await page.request.post("/api/auth/login", {

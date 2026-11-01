@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { RegistrationChallenge } from "./registration-challenge"
+import { TERMS_VERSION, PRIVACY_VERSION } from "@/lib/legal-version"
 
 export function RegisterForm({ nonce }: { nonce?: string }) {
   const [captchaToken, setCaptchaToken] = useState("")
@@ -30,6 +31,9 @@ export function RegisterForm({ nonce }: { nonce?: string }) {
           password: form.get("password"),
           confirmPassword: form.get("confirmPassword"),
           acceptTrial: form.get("acceptTrial") === "on",
+          termsVersion: form.get("acceptLegal") === "on" ? TERMS_VERSION : null,
+          privacyVersion:
+            form.get("acceptLegal") === "on" ? PRIVACY_VERSION : null,
           captchaToken,
         }),
       })
@@ -91,9 +95,9 @@ export function RegisterForm({ nonce }: { nonce?: string }) {
           maxLength: 128,
           minLength: 8,
         },
-      ].map((field) => (
+      ].map(({ label, ...field }) => (
         <div key={field.name} className="space-y-2">
-          <Label htmlFor={`register-${field.name}`}>{field.label}</Label>
+          <Label htmlFor={`register-${field.name}`}>{label}</Label>
           <Input
             {...field}
             id={`register-${field.name}`}
@@ -119,6 +123,30 @@ export function RegisterForm({ nonce }: { nonce?: string }) {
         />
         我已了解：自动开通被监管人账号；自注册次日起考察七个完整上海自然日，结算后积分须大于
         0。未达标账号自动停用，注册邮箱摘要进入黑名单。
+      </label>
+      <label
+        className="flex items-start gap-2 text-sm leading-6"
+        htmlFor="register-legal"
+      >
+        <input
+          id="register-legal"
+          name="acceptLegal"
+          type="checkbox"
+          required
+          disabled={busy}
+          className="mt-1.5"
+        />
+        <span>
+          我已阅读并同意
+          <Link href="/terms" target="_blank" className="underline">
+            用户协议
+          </Link>
+          和
+          <Link href="/privacy" target="_blank" className="underline">
+            隐私政策
+          </Link>
+          。
+        </span>
       </label>
       <RegistrationChallenge
         nonce={nonce}

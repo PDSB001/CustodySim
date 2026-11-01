@@ -23,7 +23,7 @@ export const MfaVerificationSchema = z.object({
     .trim()
     .min(6, "请输入验证器代码或恢复码")
     .max(32, "验证代码格式不正确"),
-  trustDevice: z.boolean().optional().default(true),
+  trustDevice: z.boolean().optional().default(false),
   /** 原生客户端在响应体里收到的 MFA 挑战令牌（浏览器改用 httpOnly cookie）。 */
   mfaToken: z.string().optional(),
 })

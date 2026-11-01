@@ -22,12 +22,14 @@ import { useEffect, useState } from "react"
 import { z } from "zod"
 
 import { AccountMenu } from "@/components/layout/account-menu"
+import { GettingStarted } from "@/components/layout/getting-started"
 import { ThemeToggle } from "@/components/layout/theme-toggle"
 import { MarqueeBanner } from "@/components/shared/marquee-banner"
 import { requestApi } from "@/components/shared/api-client"
 import { Button } from "@/components/ui/button"
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
 import type { SessionUser } from "@/lib/session"
+import { logoutAndRedirect } from "@/lib/logout-client"
 
 type WorkspaceKind = "SUPERVISOR" | "SUPERVISED"
 
@@ -57,7 +59,11 @@ const workspaceConfig = {
       { href: "/supervisor/scores", label: "考核记分", icon: Trophy },
       { href: "/supervisor/notices", label: "监所公示", icon: BellRing },
       { href: "/supervisor/chat", label: "通信监管", icon: MessageCircle },
-      { href: "/supervisor/community", label: "匿名社区", icon: MessagesSquare },
+      {
+        href: "/supervisor/community",
+        label: "匿名社区",
+        icon: MessagesSquare,
+      },
       {
         href: "/supervisor/applications",
         label: "申请审查",
@@ -243,8 +249,7 @@ export function RoleShell({
     config.title
   const logout = async () => {
     setMobileNavOpen(false)
-    await fetch("/api/auth/logout", { method: "POST" })
-    window.location.replace("/login")
+    await logoutAndRedirect()
   }
 
   const uiConfig = useQuery({
@@ -300,6 +305,7 @@ export function RoleShell({
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-1.5">
+            <GettingStarted key={`${user.id}:${user.role}`} user={user} />
             <ThemeToggle />
             <AccountMenu
               user={user}
