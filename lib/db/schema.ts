@@ -357,8 +357,8 @@ export const auditLogs = pgTable(
     index("audit_logs_entity_idx").on(table.entityType, table.entityId),
     index("audit_logs_created_at_idx").on(table.createdAt),
     index("audit_logs_created_id_idx").on(
-      table.createdAt.desc(),
-      table.id.desc(),
+      table.createdAt.desc().nullsFirst(),
+      table.id.desc().nullsFirst(),
     ),
     index("audit_logs_search_trgm_idx").using(
       "gin",

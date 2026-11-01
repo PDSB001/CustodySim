@@ -35,9 +35,7 @@ export async function inspectAuditIndexes(client) {
         ? actual.method === "btree" &&
           actual.first_key === "created_at" &&
           actual.second_key === "id" &&
-          actual.options
-            .split(" ")
-            .every((option) => (Number(option) & 1) === 1)
+          actual.options.split(" ").every((option) => Number(option) === 3)
         : actual.method === "gin" &&
           actual.definition.includes("gin_trgm_ops") &&
           normalize(actual.expression ?? "") === normalize(searchExpression))

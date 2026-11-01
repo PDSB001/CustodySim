@@ -34,7 +34,7 @@
 
 ## 技术形态
 
-- **Web 进程**：Next.js 16.4.2（App Router）+ React 19.3.1 + Tailwind CSS v4，`output: "standalone"` 由 PM2 运行在 3000。
+- **Web 进程**：Next.js 16.4.3（App Router）+ React 19.3.1 + Tailwind CSS v4，`output: "standalone"` 由 PM2 运行在 3000。
 - **实时进程**：独立的 `realtime-server.mjs`（Socket.IO 4.8）运行在 3001，同时承担推送队列 worker。两个进程都直连 PostgreSQL，各自持有连接。
 - **数据库**：PostgreSQL + Drizzle ORM。开发库用 `drizzle-kit push`；生产结构变更先备份，再走 `drizzle-kit push --strict`（首次）或 `scripts/upgrade-*.mjs` 增量升级，不手工改业务库。
 - **文件存放**：图书原文件与封面存 PostgreSQL `bytea`；IP 库放 `data/geoip/`；Android 安装包放 `APP_RELEASE_DIR`（默认 `data/app-release/`）。三者都已被 Git 忽略。

@@ -86,9 +86,11 @@ beforeAll(async () => {
 
 test("审计游标和元数据搜索均有可用索引", async () => {
   await db.transaction(async (tx) => {
-    // Small fixtures favor seq scans; disable them only to verify index eligibility.
+    // Check index eligibility, not the cost-based choice for a tiny fixture.
     await tx.execute(sql`set local enable_seqscan = off`)
     await tx.execute(sql`set local enable_bitmapscan = off`)
+    await tx.execute(sql`set local enable_sort = off`)
+    await tx.execute(sql`set local enable_incremental_sort = off`)
     const cursorPlan = await tx.execute(
       sql`explain select id, created_at from ${auditLogs} where (created_at,id) < ('2026-11-02'::timestamptz, 'ffffffff-ffff-ffff-ffff-ffffffffffff'::uuid) order by created_at desc,id desc limit 51`,
     )
