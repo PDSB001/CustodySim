@@ -200,6 +200,7 @@ export async function getOrCreateCheckinTask(
   slotIndex: number,
   now = new Date(),
   executor: Pick<typeof db, "insert" | "select"> = db,
+  assignedSupervisorId?: string | null,
 ) {
   const slot = parseSlots(rule.timeSlots)[slotIndex]
   if (!slot) throw new CheckinError("打卡时段不存在")
@@ -207,13 +208,16 @@ export async function getOrCreateCheckinTask(
     (item) => item.time === slot,
   )
   const scheduleAt = dateAtSlot(now, slot)
-  const supervisorIds = await getSupervisorIdsForSupervised(userId)
+  const supervisorId =
+    assignedSupervisorId === undefined
+      ? ([...(await getSupervisorIdsForSupervised(userId))][0] ?? null)
+      : assignedSupervisorId
   await executor
     .insert(checkinTasks)
     .values({
       ruleId: rule.id,
       supervisedId: userId,
-      supervisorId: [...supervisorIds][0] ?? null,
+      supervisorId,
       slotIndex,
       scheduleAt,
       deadline: computeDeadline(
@@ -241,15 +245,38 @@ export async function ensureTodayCheckinTasks(
   userId: string,
   now = new Date(),
 ) {
+  // Resolve services before reserving a transaction connection; they use the shared pool.
+  const checkinRules = await getCheckinRulesForUser(userId, now)
+  const [registration] = await db
+    .select({ createdAt: registrations.createdAt })
+    .from(registrations)
+    .where(eq(registrations.userId, userId))
+    .limit(1)
+  const supervisorId =
+    [...(await getSupervisorIdsForSupervised(userId))][0] ?? null
   return db.transaction(async (tx) => {
     await tx.execute(
       sql`select pg_advisory_xact_lock(hashtext(${`checkin-plan:${userId}`}))`,
     )
-    const checkinRules = await getCheckinRulesForUser(userId, now)
     const { start, end } = getDayRange(now)
     const presetIds = checkinRules
       .filter((rule) => rule.custodyLevel)
       .map((rule) => rule.id)
+    // The plan may have changed while this call waited for another generator.
+    if (presetIds.length) {
+      const [profile] = await tx
+        .select({ level: persons.custodyLevel, status: persons.custodyStatus })
+        .from(persons)
+        .where(eq(persons.userId, userId))
+        .limit(1)
+      const activeOrder = await getActiveIsolationOrder(userId, now, tx)
+      const expected =
+        profile?.status === "ISOLATION" || activeOrder
+          ? "ISOLATION"
+          : profile?.level
+      if (!checkinRules.some((rule) => rule.custodyLevel === expected))
+        throw new CheckinError("打卡方案已更新，请重试", 409)
+    }
     const previousPresets = await tx
       .select({ ruleId: checkinTasks.ruleId })
       .from(checkinTasks)
@@ -281,11 +308,6 @@ export async function ensureTodayCheckinTasks(
           ),
         )
     }
-    const [registration] = await db
-      .select({ createdAt: registrations.createdAt })
-      .from(registrations)
-      .where(eq(registrations.userId, userId))
-      .limit(1)
     const tasks = []
     for (const rule of checkinRules) {
       for (const [slotIndex, slot] of parseSlots(rule.timeSlots).entries()) {
@@ -295,7 +317,14 @@ export async function ensureTodayCheckinTasks(
         if (registration && dateAtSlot(now, slot) < registration.createdAt)
           continue
         tasks.push(
-          await getOrCreateCheckinTask(userId, rule, slotIndex, now, tx),
+          await getOrCreateCheckinTask(
+            userId,
+            rule,
+            slotIndex,
+            now,
+            tx,
+            supervisorId,
+          ),
         )
       }
     }

@@ -479,8 +479,9 @@ export async function reconcileTaskOutcomeScoreWeeks(now = new Date()) {
 export async function getActiveIsolationOrder(
   supervisedId: string,
   now = new Date(),
+  executor: Pick<typeof db, "select"> = db,
 ) {
-  const [order] = await db
+  const [order] = await executor
     .select()
     .from(isolationOrders)
     .where(
