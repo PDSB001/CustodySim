@@ -170,4 +170,6 @@ APK 上传接口为流式写入而跳过 Proxy 请求体缓冲，路由独立执
 
 部署时可显式传入 `APP_RELEASE_NGINX_SITE=/etc/nginx/sites-enabled/<站点名> bash scripts/deploy.sh`。脚本将备份并合并 APK location，沿用现有主 location 的上游与真实 IP 转发头，运行 `nginx -t` 后重载；失败时恢复原配置。需要 `sudo -n` 能运行 Python、Nginx 检查和重载，未指定站点时不改动 Nginx。
 
+部署脚本仅为构建进程设置默认 2048 MiB Node 堆上限，可通过 `BUILD_NODE_HEAP_MB` 调整；保留独立 tsc 和 Next 构建类型检查，不改变 PM2 运行时内存上限。小内存主机需留有交换空间。APK 运行时文件目录不会参与 standalone 打包，部署不会覆盖管理员已上传的安装包。
+
 此页不提供源码下载；Android 发行仍需按仓库许可证通过适当渠道提供准确对应源码，保留许可证和版权说明。

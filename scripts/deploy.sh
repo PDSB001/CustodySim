@@ -95,7 +95,14 @@ check_env
 node --import tsx --env-file=.env.local scripts/check-edgeone-media-config.ts
 
 echo "==> 3/7 构建"
-pnpm build
+# Next's type-check worker can exceed Node's ~1 GiB default on this 2 GiB host.
+# Keep both type checks enabled; this applies to build processes only, not PM2.
+build_heap_mb="${BUILD_NODE_HEAP_MB:-2048}"
+if [[ ! "$build_heap_mb" =~ ^[1-9][0-9]{2,4}$ ]]; then
+  echo "BUILD_NODE_HEAP_MB 必须是以 MiB 为单位的正整数。" >&2
+  exit 1
+fi
+NODE_OPTIONS="${NODE_OPTIONS:-} --max-old-space-size=$build_heap_mb" pnpm build
 
 echo "==> 4/7 复制 standalone 静态资源（public + .next/static）"
 mkdir -p .next/standalone/public .next/standalone/.next .logs

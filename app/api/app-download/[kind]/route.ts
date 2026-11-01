@@ -18,7 +18,7 @@ async function download(request: Request, { params }: Context, head: boolean) {
   if ((await params).kind !== "apk") return new Response(null, { status: 404 })
   let file
   try {
-    file = await open(appDownloadPath("apk"), "r")
+    file = await open(/* turbopackIgnore: true */ appDownloadPath("apk"), "r")
   } catch {
     return new Response(head ? null : "下载文件暂不可用", { status: 404 })
   }

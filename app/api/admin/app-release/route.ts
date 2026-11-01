@@ -34,7 +34,7 @@ async function getStatus() {
   if (!(await getAdminUser()))
     return failure("FORBIDDEN", "仅管理员可管理安装包", 403)
   try {
-    const file = await stat(appDownloadPath("apk"))
+    const file = await stat(/* turbopackIgnore: true */ appDownloadPath("apk"))
     return success({
       available: file.isFile(),
       size: file.size,
