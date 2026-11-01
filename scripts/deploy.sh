@@ -105,6 +105,13 @@ cp -r .next/static/. .next/standalone/.next/static/
 echo "==> 5/7 数据库升级（性能索引、聊天图片说明、批阅快照、社区、图书馆、自动审核）"
 upgrade_database --apply
 
+# Optional site update, performed only for the explicitly named Nginx site.
+# The installer retains the live upstream and trusted CDN forwarding headers.
+if [[ -n "${APP_RELEASE_NGINX_SITE:-}" ]]; then
+  sudo -n python3 scripts/configure-app-release-nginx.py \
+    --site "$APP_RELEASE_NGINX_SITE" --template deploy/nginx/app-release.conf --apply
+fi
+
 echo "==> 6/7 重启 pm2"
 pm2 restart ecosystem.config.cjs --update-env
 pm2 list
