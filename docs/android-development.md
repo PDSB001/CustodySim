@@ -25,4 +25,4 @@
 
 仅 debug、debugR8、production、release；EPUB/DOCX 使用 Episteme，TXT/PDF 使用各自原生引擎，无 WebView 回退。production/release/debugR8 均开启 R8；正式 APK 由维护者本机签名，并生成同一版本对应源码。构建不等于真实设备验收。
 
-当前版本 1.6.1-test、versionCode 4；版本、SDK、依赖与输出路径以独立仓库构建文件为准。本文仅作为跨仓入口，避免复制完整构建流程造成两份说明漂移。
+App 源码版本 1.7.0、versionCode 5，安装包与 App Release 后续发布；版本、SDK、依赖与输出路径以独立仓库构建文件为准。本文仅作为跨仓入口，避免复制完整构建流程造成两份说明漂移。

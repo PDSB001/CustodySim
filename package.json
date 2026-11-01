@@ -1,6 +1,6 @@
 {
   "name": "custodysim",
-  "version": "1.5.2-test",
+  "version": "1.7.0",
   "private": true,
   "engines": {
     "node": ">=26.0.0"

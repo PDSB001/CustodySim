@@ -22,7 +22,7 @@
   "success": true,
   "data": {
     "product": "CustodySim",
-    "version": "1.5.2-test",
+    "version": "1.7.0",
     "nativeProtocol": { "min": 1, "max": 1 },
     "realtimePath": "/socket.io/"
   }
