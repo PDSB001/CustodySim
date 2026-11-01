@@ -1,5 +1,5 @@
 import { createHmac, randomUUID } from "node:crypto"
-import { test, expect } from "@playwright/test"
+import { test, expect } from "./fixtures"
 import { eq, sql } from "drizzle-orm"
 import { drizzle } from "drizzle-orm/node-postgres"
 import { Pool } from "pg"

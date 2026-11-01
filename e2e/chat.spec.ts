@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto"
 
-import { expect, request, test, type APIRequestContext } from "@playwright/test"
+import { expect, request, test, type APIRequestContext } from "./fixtures"
 import { io, type Socket } from "socket.io-client"
 import { subscribeChatRealtimeSession } from "../lib/chat-realtime-session"
 
@@ -458,18 +458,33 @@ test("聊天图片消息：类型、体积校验与会话摘要", async ({}, tes
 })
 
 test("空会话能实时显示对端发来的第一条消息", async ({ page }, testInfo) => {
-  test.skip(testInfo.project.name !== "desktop-chrome", "实时首条消息只需验证一次")
-  const [liu, zhou] = await Promise.all([loginApi("rank_101_liu"), loginApi("rank_101_zhou")])
+  test.skip(
+    testInfo.project.name !== "desktop-chrome",
+    "实时首条消息只需验证一次",
+  )
+  const [liu, zhou] = await Promise.all([
+    loginApi("rank_101_liu"),
+    loginApi("rank_101_zhou"),
+  ])
   try {
-    const room = await call<{ id: string }>(liu, "post", "/api/chat/conversations", { kind: "ROOM" })
+    const room = await call<{ id: string }>(
+      liu,
+      "post",
+      "/api/chat/conversations",
+      { kind: "ROOM" },
+    )
     let received = false
     let emptyRequests = 0
     // Present an empty initial history without deleting shared E2E chat fixtures.
-    await page.route(`**/api/chat/conversations/${room.data.id}/messages*`, async (route) => {
-      if (route.request().method() !== "GET" || received) return route.continue()
-      emptyRequests++
-      await route.fulfill({ json: { success: true, data: [] } })
-    })
+    await page.route(
+      `**/api/chat/conversations/${room.data.id}/messages*`,
+      async (route) => {
+        if (route.request().method() !== "GET" || received)
+          return route.continue()
+        emptyRequests++
+        await route.fulfill({ json: { success: true, data: [] } })
+      },
+    )
     await page.goto("/login")
     await page.getByLabel("账号").fill("rank_101_liu")
     await page.getByLabel("密码").fill("Demo12345")
@@ -481,9 +496,16 @@ test("空会话能实时显示对端发来的第一条消息", async ({ page }, 
     await expect.poll(() => emptyRequests).toBeGreaterThanOrEqual(2)
     received = true
     const text = `首条实时消息-${randomUUID()}`
-    await call(zhou, "post", `/api/chat/conversations/${room.data.id}/messages`, { content: text })
+    await call(
+      zhou,
+      "post",
+      `/api/chat/conversations/${room.data.id}/messages`,
+      { content: text },
+    )
     // The conversation preview also contains the text; assert the message bubble itself.
-    await expect(page.locator("span.whitespace-pre-wrap").filter({ hasText: text })).toBeVisible()
+    await expect(
+      page.locator("span.whitespace-pre-wrap").filter({ hasText: text }),
+    ).toBeVisible()
   } finally {
     await Promise.all([liu.dispose(), zhou.dispose()])
   }

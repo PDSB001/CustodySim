@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test"
+import { expect, test } from "./fixtures"
 
 test("补卡待审提示转人工原因，人工通过后历史保留 AI 原因及审核人", async ({
   page,

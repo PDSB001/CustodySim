@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test"
+import { expect, test } from "./fixtures"
 
 test("人员列表按页加载，搜索回到第一页并可清除", async ({ page }) => {
   const items = Array.from({ length: 26 }, (_, index) => ({

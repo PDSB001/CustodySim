@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test"
+import { expect, test } from "./fixtures"
 
 test("通知中心紧凑展示合并名单，可筛选、展开并批量确认已阅", async ({
   page,

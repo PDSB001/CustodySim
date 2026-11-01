@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto"
-import { expect, test } from "@playwright/test"
+import { expect, test } from "./fixtures"
 import { eq, inArray, sql } from "drizzle-orm"
 import * as s from "../lib/db/schema"
 import { hashPassword } from "../lib/auth"

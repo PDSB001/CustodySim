@@ -16,7 +16,11 @@ process.env.AUTH_SECRET = "custodysim-hardening-browser-test-only-secret"
 
 export default defineConfig({
   ...base,
-  testMatch: "hardening-browser.spec.ts",
+  testMatch: [
+    "hardening-browser.spec.ts",
+    "getting-started.spec.ts",
+    "person-list.spec.ts",
+  ],
   testIgnore: [],
   workers: 1,
   timeout: 90_000,

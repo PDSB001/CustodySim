@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto"
-import { test, expect } from "@playwright/test"
+import { test, expect, installGettingStartedHandler } from "./fixtures"
 import { config } from "dotenv"
 import bcrypt from "bcryptjs"
 import pg from "pg"
@@ -130,6 +130,7 @@ test("Web 自由注册自动登录，首页展示考察，管理员能看到注�
     })
     expect(login.ok()).toBe(true)
     const admin = await context.newPage()
+    await installGettingStartedHandler(admin)
     await admin.goto("/registration")
     await expect(
       admin.getByRole("heading", { name: "注册与首周考察" }),
