@@ -1,0 +1,56 @@
+{
+  "FormatVersion": "1.0",
+  "Rules": [
+    {
+      "RuleName": "CustodySim APK 版本缓存",
+      "Branches": [
+        {
+          "Condition": "${http.request.host} in ['www.jxydev.top'] and ${http.request.uri.path} in ['/api/app-download/apk']",
+          "Actions": [
+            {
+              "Name": "Cache",
+              "CacheParameters": {
+                "FollowOrigin": {
+                  "Switch": "on",
+                  "DefaultCache": "off",
+                  "DefaultCacheStrategy": "off",
+                  "DefaultCacheTime": 0
+                }
+              }
+            },
+            {
+              "Name": "CacheKey",
+              "CacheKeyParameters": {
+                "FullURLCache": "on",
+                "QueryString": { "Switch": "off" },
+                "IgnoreCase": "off"
+              }
+            },
+            {
+              "Name": "OfflineCache",
+              "OfflineCacheParameters": { "Switch": "off" }
+            },
+            {
+              "Name": "StatusCodeCache",
+              "StatusCodeCacheParameters": {
+                "StatusCodeCacheParams": [
+                  { "StatusCode": 400, "CacheTime": 0 },
+                  { "StatusCode": 401, "CacheTime": 0 },
+                  { "StatusCode": 403, "CacheTime": 0 },
+                  { "StatusCode": 404, "CacheTime": 0 },
+                  { "StatusCode": 500, "CacheTime": 0 },
+                  { "StatusCode": 502, "CacheTime": 0 },
+                  { "StatusCode": 503, "CacheTime": 0 },
+                  { "StatusCode": 504, "CacheTime": 0 }
+                ]
+              }
+            }
+          ]
+        }
+      ],
+      "Description": [
+        "仅公开 APK；按 v 区分版本，遵循源站缓存头，错误响应不缓存。"
+      ]
+    }
+  ]
+}

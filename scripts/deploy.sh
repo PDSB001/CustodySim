@@ -169,4 +169,5 @@ check_http http://127.0.0.1:3000/window.svg 200
 check_http http://127.0.0.1:3000/api/me 401
 check_http http://127.0.0.1:3001/health 200
 check_public_realtime
+pm2 save
 echo "完成。异常时看日志：pm2 logs custodysim --lines 50 --nostream"

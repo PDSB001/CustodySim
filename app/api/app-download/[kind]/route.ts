@@ -21,14 +21,20 @@ async function download(request: Request, { params }: Context, head: boolean) {
   try {
     file = await open(/* turbopackIgnore: true */ appDownloadPath("apk"), "r")
   } catch {
-    return new Response(head ? null : "下载文件暂不可用", { status: 404 })
+    return new Response(head ? null : "下载文件暂不可用", {
+      status: 404,
+      headers: { "Cache-Control": "no-store" },
+    })
   }
   try {
     // Metadata and bytes refer to the same opened inode, even during replacement.
     const info = await file.stat({ bigint: true })
     if (!info.isFile()) {
       await file.close()
-      return new Response(null, { status: 404 })
+      return new Response(null, {
+        status: 404,
+        headers: { "Cache-Control": "no-store" },
+      })
     }
     const size = Number(info.size)
     const modified = Math.floor(Number(info.mtimeMs) / 1000) * 1000
@@ -100,6 +106,9 @@ async function download(request: Request, { params }: Context, head: boolean) {
     })
   } catch {
     await file.close()
-    return new Response(null, { status: 500 })
+    return new Response(null, {
+      status: 500,
+      headers: { "Cache-Control": "no-store" },
+    })
   }
 }

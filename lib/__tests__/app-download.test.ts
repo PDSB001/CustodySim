@@ -95,7 +95,9 @@ const get = (kind: string) =>
 
 test("只提供 APK，缺失文件返回 404，源码即使存在也不开放下载", async () => {
   expect((await get("other")).status).toBe(404)
-  expect((await get("apk")).status).toBe(404)
+  const missing = await get("apk")
+  expect(missing.status).toBe(404)
+  expect(missing.headers.get("cache-control")).toBe("no-store")
   await writeFile(path.join(testFiles.root, "apk"), "apk-data")
   await writeFile(path.join(testFiles.root, "source"), "source-data")
   const response = await get("apk")
