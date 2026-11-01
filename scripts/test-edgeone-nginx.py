@@ -87,6 +87,8 @@ http {{
         assert request(authenticated=False) == 403
         assert Upstream.hits == 0, "unauthenticated origin request must not reach the app"
         assert request(body=b"x" * 17000) == 413
+        assert request("/api/auth/mfa/setup", body=b"x" * 17000) == 413
+        assert request("/api/auth/mfa/disable", body=b"x" * 17000) == 413
         assert Upstream.hits == 0, "oversized auth body must not reach the app"
         assert request() == 200
         results = [request() for _ in range(8)]

@@ -28,6 +28,7 @@ class ConfigurationTest(unittest.TestCase):
         self.assertIn("X-Real-IP $custodysim_client_ip", changed)
         self.assertEqual(changed.split("server {")[-1], SITE.split("server {")[-1])
         self.assertEqual(security.configured_site(changed).count(security.INCLUDE), 1)
+        self.assertEqual(security.configured_site(changed), changed)
 
     def test_auth_body_limit_retains_upstream_headers(self):
         location = security.auth_location(SITE)
@@ -39,6 +40,15 @@ class ConfigurationTest(unittest.TestCase):
     def test_refuses_ambiguous_https_sites(self):
         with self.assertRaises(ValueError): security.configured_site(SITE + SITE)
         with self.assertRaises(ValueError): security.configured_site("server { listen 80; }")
+
+    def test_password_computation_routes_share_the_pre_app_limit(self):
+        import re
+        for path in ["login", "register", "change-password", "mfa/verify", "mfa/setup", "mfa/disable", "security-email/send", "security-email/confirm"]:
+            self.assertRegex("/api/auth/" + path, security.AUTH_PATH)
+        for path in ["refresh", "logout", "mfa/devices"]:
+            self.assertIsNone(re.search(security.AUTH_PATH, "/api/auth/" + path))
+        template = Path(__file__).resolve().parent.parent / "deploy/nginx/edgeone-security-http.conf"
+        self.assertIn("~" + security.AUTH_PATH + " ", template.read_text())
 
 
 if __name__ == "__main__": unittest.main()

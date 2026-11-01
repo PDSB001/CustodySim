@@ -26,7 +26,7 @@ LOG = Path("/var/log/nginx/custodysim-security.log")
 INCLUDE = "    include /etc/nginx/snippets/custodysim-security.conf;"
 START = "    # BEGIN custodysim edge security"
 END = "    # END custodysim edge security"
-AUTH_PATH = r"^/api/auth/(login|register|change-password|mfa/verify|security-email/(send|confirm))$"
+AUTH_PATH = r"^/api/auth/(login|register|change-password|mfa/(verify|setup|disable)|security-email/(send|confirm))$"
 
 
 def auth_location(original):
@@ -57,7 +57,7 @@ def configured_site(original):
     if len(blocks) != 1:
         raise ValueError("Expected exactly one HTTPS server block")
     point = blocks[0]
-    return original[:point] + "\n" + START + "\n" + INCLUDE + "\n" + END + "\n" + original[point:]
+    return original[:point] + "\n" + START + "\n" + INCLUDE + "\n" + END + "\n" + original[point:].lstrip("\r\n")
 
 
 def probe(origin):
@@ -125,8 +125,9 @@ def main():
         atomic_write(filename, content, previous[filename][1] if previous[filename] else site.stat())
     try:
         write(HTTP, changes[HTTP])
-        # Preflight: add only a diagnostic log, with no new enforcement yet.
-        write(SERVER, "access_log /var/log/nginx/custodysim-security.log custodysim_security;\naccess_log /var/log/nginx/access.log combined;\n")
+        # Never temporarily remove an already-installed origin gate on reapply.
+        preflight = previous[SERVER][0] if previous[SERVER] and "$custodysim_origin_allowed" in previous[SERVER][0] else "access_log /var/log/nginx/custodysim-security.log custodysim_security;\naccess_log /var/log/nginx/access.log combined;\n"
+        write(SERVER, preflight)
         write(site, result)
         reload_nginx()
         probe(args.origin.rstrip("/"))
