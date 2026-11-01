@@ -1,4 +1,8 @@
 import { startPushWorker } from "./scripts/push-worker.mjs"
+import {
+  createRealtimeGuard,
+  realtimeClientIp,
+} from "./scripts/realtime-guard.mjs"
 import { createServer } from "node:http"
 
 import { jwtVerify } from "jose"
@@ -54,7 +58,15 @@ const httpServer = createServer((request, response) => {
   response.writeHead(404)
   response.end()
 })
-const maintenancePool = new pg.Pool({ connectionString: databaseUrl })
+const maintenancePool = new pg.Pool({
+  connectionString: databaseUrl,
+  max: 8,
+  connectionTimeoutMillis: 5000,
+  statement_timeout: 10_000,
+})
+const connectionGuard = createRealtimeGuard()
+const reservation = Symbol("realtime connection reservation")
+const authAttempts = Symbol("realtime authentication attempts")
 
 const io = new Server(httpServer, {
   path: "/socket.io",
@@ -63,14 +75,36 @@ const io = new Server(httpServer, {
     credentials: true,
   },
   transports: ["websocket", "polling"],
+  maxHttpBufferSize: 64 * 1024,
+  connectTimeout: 45_000,
+  upgradeTimeout: 10_000,
+  allowRequest(request, callback) {
+    const lease = connectionGuard.acquire(
+      realtimeClientIp(request, process.env.REALTIME_TRUST_PROXY === "true"),
+    )
+    if (!lease) return callback("Too many realtime connections", false)
+    request[reservation] = lease
+    callback(null, true)
+  },
   // Engine.IO sends actual text data frames (2/3), keeping CDN idle timers active.
   // Both Socket.IO Web clients and the existing Android client handle these frames.
   pingInterval: 20_000,
   pingTimeout: 10_000,
 })
 
+io.engine.on("connection", (socket) => {
+  socket.request[reservation]?.attach(socket)
+})
+
 io.use(async (socket, next) => {
   try {
+    // Failed namespace authentication otherwise leaves the transport reusable.
+    // Bound retries before JWT/SQL work, even on an already admitted transport.
+    socket.conn[authAttempts] = (socket.conn[authAttempts] || 0) + 1
+    if (socket.conn[authAttempts] > 3) {
+      socket.conn.close()
+      throw new Error("too many authentication attempts")
+    }
     const token = socket.handshake.auth?.token
     if (typeof token !== "string") throw new Error("missing token")
     const { payload } = await jwtVerify(
@@ -259,6 +293,10 @@ process.on("SIGTERM", async () => {
 connectListener()
 cleanupExpiredChatMessages()
 setInterval(cleanupExpiredChatMessages, cleanupIntervalMs).unref()
-httpServer.listen(port, "0.0.0.0", () => {
-  console.log(`> Chat realtime server listening on port ${port}`)
-})
+httpServer.listen(
+  port,
+  process.env.NODE_ENV === "production" ? "127.0.0.1" : "0.0.0.0",
+  () => {
+    console.log(`> Chat realtime server listening on port ${port}`)
+  },
+)

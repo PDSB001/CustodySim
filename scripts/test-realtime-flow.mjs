@@ -66,10 +66,12 @@ function heartbeatProbe(reply) {
     pings: 0,
     closed: false,
     error: null,
+    authErrors: 0,
   }
   probes.push(probe)
   socket.addEventListener("message", ({ data }) => {
     if (data.startsWith("0")) probe.handshake = JSON.parse(data.slice(1))
+    if (data.startsWith("44")) probe.authErrors += 1
     if (data === "2") {
       probe.pings += 1
       if (reply) socket.send("3")
@@ -100,6 +102,24 @@ try {
   await waitFor(() => alive.handshake && unresponsive.handshake)
   assert.equal(alive.handshake.pingInterval, 20_000)
   assert.equal(alive.handshake.pingTimeout, 10_000)
+  assert.equal(alive.handshake.maxPayload, 64 * 1024)
+
+  // Reject oversized frames before namespace auth or any database query.
+  const oversized = heartbeatProbe(true)
+  await waitFor(() => oversized.handshake)
+  oversized.socket.send("4" + "x".repeat(64 * 1024))
+  await waitFor(() => oversized.closed)
+  console.log("PASS oversized realtime frame rejected")
+
+  const retrying = heartbeatProbe(true)
+  await waitFor(() => retrying.handshake)
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    retrying.socket.send('40{"token":"invalid"}')
+    await waitFor(() => retrying.authErrors === attempt)
+  }
+  retrying.socket.send('40{"token":"invalid"}')
+  await waitFor(() => retrying.closed)
+  console.log("PASS repeated namespace authentication closes the transport")
 
   const attempts = () => output.split("[chat realtime connect]").length - 1
   await waitFor(() => attempts() >= 2)

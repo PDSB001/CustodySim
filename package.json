@@ -16,7 +16,7 @@
     "lint": "eslint . --max-warnings 0",
     "typecheck": "tsc --noEmit",
     "test": "vitest run && pnpm test:safety",
-    "test:safety": "node scripts/test-clean-guard.mjs && node scripts/test-realtime-flow.mjs && node scripts/test-deploy-flow.mjs",
+    "test:safety": "node scripts/test-clean-guard.mjs && node scripts/test-realtime-guard.mjs && node scripts/test-realtime-flow.mjs && node scripts/test-deploy-flow.mjs",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
     "test:e2e:production": "playwright test --config playwright.production.config.ts",

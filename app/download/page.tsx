@@ -1,11 +1,11 @@
 import { ArrowDownToLine, CheckCircle2, Smartphone } from "lucide-react"
 import Link from "next/link"
-import { appDownloadAvailable } from "@/lib/app-download"
+import { appDownloadUrl } from "@/lib/app-download"
 
 export const dynamic = "force-dynamic"
 
 export default async function DownloadPage() {
-  const apk = await appDownloadAvailable("apk")
+  const apk = await appDownloadUrl("apk")
   return (
     <main className="mesh-bg-strong min-h-svh px-5 py-10 sm:py-16">
       <div className="mx-auto max-w-4xl space-y-8">
@@ -30,7 +30,7 @@ export default async function DownloadPage() {
           <div className="mt-8 flex flex-wrap items-center gap-4">
             {apk ? (
               <Link
-                href="/api/app-download/apk"
+                href={apk}
                 prefetch={false}
                 download
                 className="bg-primary text-primary-foreground inline-flex min-h-11 items-center gap-2 rounded-xl px-5 font-medium"

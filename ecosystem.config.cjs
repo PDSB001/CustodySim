@@ -56,6 +56,7 @@ module.exports = {
         NODE_ENV: "production",
         TZ: "Asia/Shanghai",
         PORT: 3000,
+        HOSTNAME: "127.0.0.1",
       },
       // 这台机器总内存 1.9G，而 Node 默认的旧生代上限是按机器内存推算的（1G 量级），
       // 于是 V8 迟迟不做激进 GC，pm2 却按 RSS 到 300M 就把进程杀掉 —— 表现就是
@@ -80,6 +81,7 @@ module.exports = {
         NODE_ENV: "production",
         TZ: "Asia/Shanghai",
         REALTIME_PORT: 3001,
+        REALTIME_TRUST_PROXY: "true",
       },
       max_memory_restart: "200M",
       kill_timeout: 10000,

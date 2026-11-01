@@ -119,6 +119,13 @@ if [[ -n "${APP_RELEASE_NGINX_SITE:-}" ]]; then
     --site "$APP_RELEASE_NGINX_SITE" --template deploy/nginx/app-release.conf --apply
 fi
 
+if [[ -n "${EDGEONE_NGINX_SITE:-}" ]]; then
+  origin="$(public_origin)"
+  if [[ -z "$origin" ]]; then echo "APP_ORIGIN required for EdgeOne verification" >&2; exit 1; fi
+  sudo -n python3 scripts/configure-edgeone-security.py \
+    --site "$EDGEONE_NGINX_SITE" --origin "$origin" --apply
+fi
+
 echo "==> 6/7 重启 pm2"
 pm2 restart ecosystem.config.cjs --update-env
 pm2 list

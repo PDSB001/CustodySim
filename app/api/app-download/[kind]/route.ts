@@ -2,6 +2,7 @@ import { open } from "node:fs/promises"
 import { Readable } from "node:stream"
 import { appDownloadPath } from "@/lib/app-download"
 import { parseDownloadRange } from "@/lib/download-range"
+import { downloadVersion } from "@/lib/download-version"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -31,11 +32,22 @@ async function download(request: Request, { params }: Context, head: boolean) {
     }
     const size = Number(info.size)
     const modified = Math.floor(Number(info.mtimeMs) / 1000) * 1000
-    const etag = `"${info.ino.toString(16)}-${info.mtimeNs.toString(16)}-${info.size.toString(16)}"`
+    const version = downloadVersion(info)
+    const requestedVersion = new URL(request.url).searchParams.get("v")
+    if (requestedVersion !== null && requestedVersion !== version) {
+      await file.close()
+      return new Response(head ? null : "安装包已更新，请返回下载页重新下载", {
+        status: 404,
+        headers: { "Cache-Control": "no-store" },
+      })
+    }
+    const etag = `"${version}"`
     const headers = new Headers({
       "Content-Type": "application/vnd.android.package-archive",
       "Content-Disposition": 'attachment; filename="CustodySim.apk"',
-      "Cache-Control": "public, no-cache",
+      "Cache-Control": requestedVersion
+        ? "public, max-age=0, s-maxage=86400"
+        : "public, no-cache",
       "X-Content-Type-Options": "nosniff",
       "Accept-Ranges": "bytes",
       ETag: etag,

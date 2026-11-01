@@ -38,6 +38,17 @@ test("APK 支持范围续传、条件缓存、版本变化后完整重下和 HEA
   const full = await GET(request(), context)
   const etag = full.headers.get("etag")!
   expect(await full.text()).toBe("0123456789")
+  expect(full.headers.get("cache-control")).toBe("public, no-cache")
+  const versioned = await GET(
+    new Request(
+      `https://example.test/api/app-download/apk?v=${etag.slice(1, -1)}`,
+    ),
+    context,
+  )
+  expect(versioned.headers.get("cache-control")).toBe(
+    "public, max-age=0, s-maxage=86400",
+  )
+  expect(await versioned.text()).toBe("0123456789")
   const partial = await GET(
     request({ range: "bytes=4-", "if-range": etag }),
     context,
@@ -65,6 +76,14 @@ test("APK 支持范围续传、条件缓存、版本变化后完整重下和 HEA
   expect(changed.status).toBe(200)
   expect(changed.headers.get("etag")).not.toBe(etag)
   expect(await changed.text()).toBe("new-package")
+  const stale = await GET(
+    new Request(
+      `https://example.test/api/app-download/apk?v=${etag.slice(1, -1)}`,
+    ),
+    context,
+  )
+  expect(stale.status).toBe(404)
+  expect(stale.headers.get("cache-control")).toBe("no-store")
 })
 afterAll(async () => {
   if (testFiles.root) await rm(testFiles.root, { recursive: true, force: true })

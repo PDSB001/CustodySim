@@ -6,6 +6,12 @@
 
 ## 部署与排障
 
+`configure-edgeone-security.py` 由部署脚本按 `EDGEONE_NGINX_SITE` 显式启用，
+先验证实际回源认证与访客 IP，再安装源站拦截和接口限流；失败自动恢复 Nginx。
+用法、阈值、云控制台待办和回滚见[源站防护](../docs/ddos-protection.md)。
+`test-edgeone-security.py` 只测试配置生成；`test-edgeone-nginx.py` 在 Linux 上使用临时 Nginx 实例验证拦截，
+不接触生产端口、配置或数据库。
+
 | 脚本                          | 用途                            | 影响                                 |
 | ----------------------------- | ------------------------------- | ------------------------------------ |
 | deploy.sh                     | 增量拉取、构建、升级、PM2、自检 | 写数据库、重启服务                   |

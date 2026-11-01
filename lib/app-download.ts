@@ -1,6 +1,7 @@
 import "server-only"
 import { stat } from "node:fs/promises"
 import path from "node:path"
+import { downloadVersion } from "@/lib/download-version"
 
 // These fixed filenames are managed by the operator; requests never choose paths.
 const files = { apk: "CustodySim.apk" } as const
@@ -23,5 +24,18 @@ export async function appDownloadAvailable(kind: DownloadKind) {
     ).isFile()
   } catch {
     return false
+  }
+}
+
+export async function appDownloadUrl(kind: DownloadKind) {
+  try {
+    const info = await stat(/* turbopackIgnore: true */ appDownloadPath(kind), {
+      bigint: true,
+    })
+    return info.isFile()
+      ? `/api/app-download/${kind}?v=${downloadVersion(info)}`
+      : null
+  } catch {
+    return null
   }
 }
