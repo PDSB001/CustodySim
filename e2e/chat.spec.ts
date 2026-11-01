@@ -80,11 +80,14 @@ test("聊天完整链路：同监室、撤回、跨监室审批", async ({}, tes
       "/api/chat/realtime-token",
       { conversationId: direct.data.id },
     )
-    realtimeSocket = io("http://127.0.0.1:3001", {
-      path: "/socket.io",
-      auth: { token: realtime.data.token },
-      transports: ["websocket"],
-    })
+    realtimeSocket = io(
+      process.env.E2E_REALTIME_URL ?? "http://127.0.0.1:3001",
+      {
+        path: "/socket.io",
+        auth: { token: realtime.data.token },
+        transports: ["websocket"],
+      },
+    )
     await new Promise<void>((resolve, reject) => {
       realtimeSocket!.once("connect", resolve)
       realtimeSocket!.once("connect_error", reject)

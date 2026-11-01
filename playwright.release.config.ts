@@ -10,6 +10,7 @@ if (
   throw new Error("Release browser checks require custodysim_e2e")
 const baseURL = "http://127.0.0.1:3210"
 process.env.E2E_BASE_URL = baseURL
+process.env.E2E_REALTIME_URL = "http://127.0.0.1:3211"
 const env = {
   ...servers[0].env,
   AUTH_SECRET: "custodysim-release-browser-only-test-secret",
