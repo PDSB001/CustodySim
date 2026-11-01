@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, inArray, lt, notInArray } from "drizzle-orm"
+import { and, desc, eq, gte, inArray, lt, notInArray, sql } from "drizzle-orm"
 
 import { db } from "@/lib/db"
 import { enqueueCheckinReminders } from "@/lib/push-server"
@@ -199,6 +199,7 @@ export async function getOrCreateCheckinTask(
   },
   slotIndex: number,
   now = new Date(),
+  executor: Pick<typeof db, "insert" | "select"> = db,
 ) {
   const slot = parseSlots(rule.timeSlots)[slotIndex]
   if (!slot) throw new CheckinError("打卡时段不存在")
@@ -207,7 +208,7 @@ export async function getOrCreateCheckinTask(
   )
   const scheduleAt = dateAtSlot(now, slot)
   const supervisorIds = await getSupervisorIdsForSupervised(userId)
-  await db
+  await executor
     .insert(checkinTasks)
     .values({
       ruleId: rule.id,
@@ -221,7 +222,7 @@ export async function getOrCreateCheckinTask(
       ),
     })
     .onConflictDoNothing()
-  const [task] = await db
+  const [task] = await executor
     .select()
     .from(checkinTasks)
     .where(
@@ -240,21 +241,66 @@ export async function ensureTodayCheckinTasks(
   userId: string,
   now = new Date(),
 ) {
-  const checkinRules = await getCheckinRulesForUser(userId, now)
-  const [registration] = await db
-    .select({ createdAt: registrations.createdAt })
-    .from(registrations)
-    .where(eq(registrations.userId, userId))
-    .limit(1)
-  const tasks = []
-  for (const rule of checkinRules) {
-    for (const [slotIndex, slot] of parseSlots(rule.timeSlots).entries()) {
-      if (registration && dateAtSlot(now, slot) < registration.createdAt)
-        continue
-      tasks.push(await getOrCreateCheckinTask(userId, rule, slotIndex, now))
+  return db.transaction(async (tx) => {
+    await tx.execute(
+      sql`select pg_advisory_xact_lock(hashtext(${`checkin-plan:${userId}`}))`,
+    )
+    const checkinRules = await getCheckinRulesForUser(userId, now)
+    const { start, end } = getDayRange(now)
+    const presetIds = checkinRules
+      .filter((rule) => rule.custodyLevel)
+      .map((rule) => rule.id)
+    const previousPresets = await tx
+      .select({ ruleId: checkinTasks.ruleId })
+      .from(checkinTasks)
+      .innerJoin(rules, eq(rules.id, checkinTasks.ruleId))
+      .where(
+        and(
+          eq(checkinTasks.supervisedId, userId),
+          gte(checkinTasks.scheduleAt, start),
+          lt(checkinTasks.scheduleAt, end),
+          sql`${rules.custodyLevel} is not null`,
+        ),
+      )
+    const switchingPreset =
+      presetIds.length > 0 &&
+      previousPresets.some((task) => !presetIds.includes(task.ruleId))
+    if (switchingPreset) {
+      await tx
+        .delete(checkinTasks)
+        .where(
+          and(
+            eq(checkinTasks.supervisedId, userId),
+            eq(checkinTasks.status, "PENDING"),
+            sql`${checkinTasks.scheduleAt} > ${now}`,
+            lt(checkinTasks.scheduleAt, end),
+            notInArray(checkinTasks.ruleId, presetIds),
+            sql`exists (select 1 from rules r where r.id = ${checkinTasks.ruleId} and r.custody_level is not null)`,
+            sql`not exists (select 1 from checkin_records cr where cr.task_id = ${checkinTasks.id})`,
+            sql`not exists (select 1 from checkin_makeups cm where cm.task_id = ${checkinTasks.id})`,
+          ),
+        )
     }
-  }
-  return tasks
+    const [registration] = await db
+      .select({ createdAt: registrations.createdAt })
+      .from(registrations)
+      .where(eq(registrations.userId, userId))
+      .limit(1)
+    const tasks = []
+    for (const rule of checkinRules) {
+      for (const [slotIndex, slot] of parseSlots(rule.timeSlots).entries()) {
+        // A new preset applies prospectively; it cannot add missed obligations before the switch.
+        if (switchingPreset && rule.custodyLevel && dateAtSlot(now, slot) < now)
+          continue
+        if (registration && dateAtSlot(now, slot) < registration.createdAt)
+          continue
+        tasks.push(
+          await getOrCreateCheckinTask(userId, rule, slotIndex, now, tx),
+        )
+      }
+    }
+    return tasks
+  })
 }
 
 async function ensureAbsenceSystemMakeups(

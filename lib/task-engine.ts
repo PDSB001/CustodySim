@@ -25,11 +25,11 @@ import {
   type RuleFrequency,
 } from "@/lib/rule-cycle"
 import { getSupervisorIdsForSupervised } from "@/lib/supervision-scope"
+import { getTaskOutcomeWeekKey, recordScoreEvent } from "@/lib/scoring"
 import {
-  getTaskOutcomeWeekKey,
-  recordScoreEvent,
-  SCORE_POLICY,
-} from "@/lib/scoring"
+  getTaskExpiredPoints,
+  BALANCED_SCORING_START_DAY,
+} from "@/lib/score-policy"
 import { getShanghaiDateAtTime } from "@/lib/shanghai-datetime"
 import { reconcileReadingTasks } from "@/lib/reading-server"
 
@@ -274,12 +274,14 @@ export async function runReportTaskOutcomeSweep(now = new Date()) {
         id: reportTasks.id,
         supervisedId: reportTasks.supervisedId,
         scheduleAt: reportTasks.scheduleAt,
+        source: reportTasks.source,
       })
     const missingScoreEvents = await tx
       .select({
         id: reportTasks.id,
         supervisedId: reportTasks.supervisedId,
         scheduleAt: reportTasks.scheduleAt,
+        source: reportTasks.source,
       })
       .from(reportTasks)
       .leftJoin(
@@ -294,15 +296,18 @@ export async function runReportTaskOutcomeSweep(now = new Date()) {
           eq(reportTasks.status, "EXPIRED"),
           lt(reportTasks.deadline, now),
           isNull(scoreEvents.id),
+          sql`not (${reportTasks.source} = 'ISOLATION' and ${reportTasks.scheduleAt} >= ${new Date(`${BALANCED_SCORING_START_DAY}T00:00:00+08:00`)})`,
         ),
       )
     const tasks = new Map(
       [...newlyExpired, ...missingScoreEvents].map((task) => [task.id, task]),
     )
-    for (const task of tasks.values())
+    for (const task of tasks.values()) {
+      const points = getTaskExpiredPoints(task.source, task.scheduleAt)
+      if (points === 0) continue
       await recordScoreEvent({
         supervisedId: task.supervisedId,
-        points: SCORE_POLICY.taskExpired,
+        points,
         reason: "任务截止时仍未通过",
         source: "TASK_OUTCOME",
         sourceId: task.id,
@@ -310,6 +315,7 @@ export async function runReportTaskOutcomeSweep(now = new Date()) {
         weekKey: getTaskOutcomeWeekKey(task.scheduleAt),
         executor: tx,
       })
+    }
     return newlyExpired.length
   })
 }

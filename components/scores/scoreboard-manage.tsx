@@ -68,6 +68,29 @@ const PersonScore = z.object({
   canViewDetails: z.boolean(),
 })
 const Scoreboard = z.object({
+  policy: z
+    .object({
+      checkinCompleted: z.number(),
+      checkinMakeup: z.number(),
+      checkinMissing: z.number(),
+      checkinDailyMin: z.number().nullable().optional(),
+      checkinDailyMax: z.number().nullable().optional(),
+      taskFirstPass: z.number(),
+      taskReturnedThenPass: z.number(),
+      taskExpired: z.number(),
+      isolationTaskExpired: z.number().optional(),
+      effectiveDay: z.string(),
+      isolationMinAttendanceRatio: z.number(),
+      isolationThreshold: z.number(),
+      isolationDurationDays: z.number(),
+      weeklyReviewDelayMinutes: z.number(),
+      reading: z.object({
+        enabled: z.boolean(),
+        minutesPerPoint: z.number(),
+        dailyCap: z.number(),
+      }),
+    })
+    .optional(),
   selectedWeek: z.string(),
   currentWeek: z.string(),
   weeks: z.array(z.string()),
@@ -333,35 +356,58 @@ export function ScoreboardManage({
           <DialogHeader>
             <DialogTitle>积分计算规则公示</DialogTitle>
           </DialogHeader>
-          <div className="text-muted-foreground space-y-3 text-sm leading-6">
-            <p>
-              <strong className="text-foreground">打卡日结（按时段计分）：</strong>
-              每个打卡时段独立计分——完成 +1、补卡通过 -1、缺卡
-              -2，当天合计可正可负，没有保底分；系统补卡不参与计分。
-            </p>
-            <p>
-              <strong className="text-foreground">任务结果：</strong>
-              首次按时通过 +3；打回后在截止前通过
-              +2；截止时仍未通过、未提交或待审核 -3。评分不影响积分。
-            </p>
-            <p>
-              <strong className="text-foreground">图书馆阅读：</strong>
-              有效阅读时长自动折算积分（默认每 15 分钟 1 分、每日最多 2
-              分，可在图书馆设置中调整或关闭），按上海自然日结算后计入当周总分；
-              单次心跳超过 25 秒的间隔不计分。
-            </p>
-            <p>
-              <strong className="text-foreground">周结禁闭：</strong>
-              上一自然周于周一 00:00 截止，系统等待日结完成后于 00:10
-              起执行周结；周积分为负，且该周出勤率（完成 + 补卡通过）低于一半时，
-              才进入 3 天禁闭，加强打卡并每日提交检讨；只被任务扣分但全勤的人
-              不因此禁闭。
-            </p>
-            <p>
-              <strong className="text-foreground">请假：</strong>
-              请假期间系统补卡与自动通过任务不参与行为积分。
-            </p>
-          </div>
+          {data?.policy ? (
+            <div className="text-muted-foreground space-y-3 text-sm leading-6">
+              <p>
+                当前规则自 {data.policy.effectiveDay}{" "}
+                起生效；之前的日结、任务按各自发生日期的规则计算。
+              </p>
+              <p>
+                <strong className="text-foreground">
+                  打卡日结（按时段计分）：
+                </strong>
+                完成 {signedPoints(data.policy.checkinCompleted)}、补卡通过{" "}
+                {signedPoints(data.policy.checkinMakeup)}、缺卡{" "}
+                {signedPoints(data.policy.checkinMissing)}；系统补卡不参与计分。
+                {data.policy.checkinDailyMin != null &&
+                data.policy.checkinDailyMax != null
+                  ? `每日合计限制在 ${signedPoints(data.policy.checkinDailyMin)} 至 ${signedPoints(data.policy.checkinDailyMax)} 分。`
+                  : "当日合计可正可负，不设置上下限。"}
+              </p>
+              <p>
+                <strong className="text-foreground">任务结果：</strong>
+                首次按时通过 {signedPoints(data.policy.taskFirstPass)}
+                ；打回后在截止前通过{" "}
+                {signedPoints(data.policy.taskReturnedThenPass)}；截止仍未通过{" "}
+                {signedPoints(data.policy.taskExpired)}。评分不影响积分。
+                {data.policy.isolationTaskExpired === 0 &&
+                  "禁闭反思仍需提交和审核，但过期不再扣常规积分。"}
+              </p>
+              <p>
+                <strong className="text-foreground">图书馆阅读：</strong>
+                {data.policy.reading.enabled
+                  ? `有效阅读每 ${data.policy.reading.minutesPerPoint} 分钟 1 分，每日最多 ${data.policy.reading.dailyCap} 分，按上海自然日结算；单次心跳超过 25 秒的间隔不计分。`
+                  : "当前已关闭阅读积分。"}
+              </p>
+              <p>
+                <strong className="text-foreground">周结禁闭：</strong>
+                周一 00:00 截止，等待 {
+                  data.policy.weeklyReviewDelayMinutes
+                }{" "}
+                分钟后周结。周积分低于 {data.policy.isolationThreshold}{" "}
+                且出勤率（完成 + 补卡通过）低于{" "}
+                {data.policy.isolationMinAttendanceRatio * 100}% 时进入{" "}
+                {data.policy.isolationDurationDays}{" "}
+                天禁闭；该周无打卡排班时仅按积分判定。
+              </p>
+              <p>
+                <strong className="text-foreground">请假：</strong>
+                请假期间系统补卡与自动通过任务不参与行为积分。
+              </p>
+            </div>
+          ) : (
+            <p role="status">规则暂不可用，请稍后刷新。</p>
+          )}
         </DialogContent>
       </Dialog>
       <Dialog

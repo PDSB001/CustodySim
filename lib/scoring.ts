@@ -19,32 +19,9 @@ import { getSupervisorIdsForSupervised } from "@/lib/supervision-scope"
 import { getShanghaiDateKey } from "@/lib/shanghai-datetime"
 import { ensureIsolationReportTemplate } from "@/lib/isolation-report-template"
 import { publishGroupedNotice } from "@/lib/notice-events"
-
-export const SCORE_POLICY = {
-  /**
-   * 完成一个打卡时段，按次累计（不再有"每天 5 分"的基线）。
-   *
-   * 业务上只有"完成 / 补卡 / 缺卡"三档：`LATE` 只是截止后被清扫前
-   * 几分钟内提交的竞态产物，与按时完成同样计分，不单独设档。
-   */
-  checkinCompleted: 1,
-  /** 补卡通过：比缺卡轻，但不再等于"花小钱买回考勤"。 */
-  checkinMakeup: -1,
-  /** 缺卡：单次扣 2 分，日结可以为负，不再被地板截断。 */
-  checkinMissing: -2,
-  taskFirstPass: 3,
-  taskReturnedThenPass: 2,
-  taskExpired: -3,
-  /**
-   * 禁闭改为双条件：总分为负 **且** 当周出勤率低于该比例。
-   * 只看总分会让"按时到场但被任务扣分"的人被禁闭，只看出勤率又会放过
-   * 长期不到场却靠加分项转正的人。
-   */
-  isolationMinAttendanceRatio: 0.5,
-  /** 触发禁闭的分数线；该周没有打卡排班时退化为纯分数线判定。 */
-  isolationThreshold: 0,
-  isolationDurationDays: 3,
-} as const
+import { getScorePolicy } from "@/lib/score-policy"
+import { SCORE_POLICY } from "@/lib/score-policy"
+export { SCORE_POLICY } from "@/lib/score-policy"
 
 /**
  * 按次计分规则自该上海日期起生效。
@@ -71,24 +48,28 @@ export function getTaskOutcomeWeekKey(scheduleAt: Date) {
 }
 
 /**
- * 打卡日结：按时段线性累加，不再有基线分与 0 分地板。
- *
- * 旧口径 `max(0, 5 - 2×缺 - 1×补)` 会让"每天只打 1 次卡"和"缺一半"几乎同分，
- * 缺卡惩罚被地板吞掉；按次计分则缺多少扣多少，日结可正可负。
+ * 按业务日选择规则；新规则不会追溯改写旧日期的日结。
  */
-export function getDailyCheckinScore({
-  completedCount,
-  makeupCount,
-  missingCount,
-}: {
-  completedCount: number
-  makeupCount: number
-  missingCount: number
-}) {
-  return (
-    completedCount * SCORE_POLICY.checkinCompleted +
-    makeupCount * SCORE_POLICY.checkinMakeup +
-    missingCount * SCORE_POLICY.checkinMissing
+export function getDailyCheckinScore(
+  {
+    completedCount,
+    makeupCount,
+    missingCount,
+  }: {
+    completedCount: number
+    makeupCount: number
+    missingCount: number
+  },
+  dayKey = getShanghaiDateKey(),
+) {
+  const policy = getScorePolicy(dayKey)
+  const raw =
+    completedCount * policy.checkinCompleted +
+    makeupCount * policy.checkinMakeup +
+    missingCount * policy.checkinMissing
+  return Math.min(
+    policy.checkinDailyMax ?? Infinity,
+    Math.max(policy.checkinDailyMin ?? -Infinity, raw),
   )
 }
 
@@ -212,11 +193,14 @@ async function settleCheckinDailyScore(
       task.status,
     ),
   ).length
-  const points = getDailyCheckinScore({
-    completedCount,
-    makeupCount,
-    missingCount,
-  })
+  const points = getDailyCheckinScore(
+    {
+      completedCount,
+      makeupCount,
+      missingCount,
+    },
+    dayKey,
+  )
   const reason = `${dayKey} 打卡日结：完成 ${completedCount} 次，补卡 ${makeupCount} 次，缺卡 ${missingCount} 次`
   const weekKey = getShanghaiWeekKey(new Date(`${dayKey}T12:00:00+08:00`))
   const [existing] = await db
@@ -528,7 +512,7 @@ export async function getWeeklyAttendance(
   const [row] = await executor
     .select({
       slots: sql<number>`coalesce(sum(${checkinDailyScores.scheduledCount}), 0)::int`,
-      // 出勤 = 完成 + 补卡通过：补卡已另扣 1 分，不该再算作缺席。
+      // 出勤 = 完成 + 补卡通过；计分口径变更不改变出勤定义。
       attended: sql<number>`coalesce(sum(${checkinDailyScores.completedCount} + ${checkinDailyScores.makeupCount}), 0)::int`,
     })
     .from(checkinDailyScores)

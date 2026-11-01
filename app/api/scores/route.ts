@@ -16,11 +16,12 @@ import {
   getShanghaiWeekKey,
   recordScoreEvent,
   scoreBreakdown,
-  SCORE_POLICY,
   CHECKIN_SLOT_SCORING_START_DAY,
   WEEKLY_REVIEW_DELAY_MINUTES,
 } from "@/lib/scoring"
 import { getReadingScorePolicy } from "@/lib/reading-server"
+import { getScorePolicy, BALANCED_SCORING_START_DAY } from "@/lib/score-policy"
+import { getShanghaiDateKey } from "@/lib/shanghai-datetime"
 import { getSessionUser } from "@/lib/session"
 import {
   getSupervisedUserIdsForActor,
@@ -67,8 +68,12 @@ export async function GET(request: NextRequest) {
         : [...(await getSupervisedUserIdsForActor(actor))]
     const now = new Date()
     const policy = {
-      ...SCORE_POLICY,
-      effectiveDay: CHECKIN_SLOT_SCORING_START_DAY,
+      ...getScorePolicy(getShanghaiDateKey(now)),
+      effectiveDay:
+        getShanghaiDateKey(now) >= BALANCED_SCORING_START_DAY
+          ? BALANCED_SCORING_START_DAY
+          : CHECKIN_SLOT_SCORING_START_DAY,
+      balancedEffectiveDay: BALANCED_SCORING_START_DAY,
       weeklyReviewDelayMinutes: WEEKLY_REVIEW_DELAY_MINUTES,
       reading: await getReadingScorePolicy(),
     }

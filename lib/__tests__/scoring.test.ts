@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+import { getTaskExpiredPoints } from "@/lib/score-policy"
 
 import {
   getDailyCheckinScore,
@@ -50,7 +51,7 @@ describe("积分与周结算规则", () => {
     expect(getShanghaiWeekKey(mondayProcessingTime)).toBe("2026-08-31")
   })
 
-  it("按打卡时段线性计分，缺卡可以直接扣成负分", () => {
+  it("新规则按时段计分并限制日结上下限", () => {
     expect(
       getDailyCheckinScore({
         completedCount: 4,
@@ -64,7 +65,7 @@ describe("积分与周结算规则", () => {
         makeupCount: 1,
         missingCount: 0,
       }),
-    ).toBe(2)
+    ).toBe(3)
     // 只打 1 次、缺 3 次：旧口径被 0 分地板截断，新口径如实扣分。
     expect(
       getDailyCheckinScore({
@@ -72,32 +73,73 @@ describe("积分与周结算规则", () => {
         makeupCount: 0,
         missingCount: 3,
       }),
-    ).toBe(-5)
+    ).toBe(-2)
     expect(
       getDailyCheckinScore({
         completedCount: 0,
         makeupCount: 2,
         missingCount: 4,
       }),
-    ).toBe(-10)
+    ).toBe(-4)
+  })
+
+  it("历史日结与禁闭反思按业务日期选择旧口径，不被新规则追溯改写", () => {
+    const counts = { completedCount: 0, makeupCount: 0, missingCount: 8 }
+    expect(getDailyCheckinScore(counts, "2026-10-31")).toBe(-16)
+    expect(getDailyCheckinScore(counts, "2026-11-01")).toBe(-4)
+    expect(
+      getDailyCheckinScore(
+        { completedCount: 8, makeupCount: 0, missingCount: 0 },
+        "2026-11-01",
+      ),
+    ).toBe(4)
+    expect(
+      getTaskExpiredPoints("ISOLATION", new Date("2026-10-31T23:59:59+08:00")),
+    ).toBe(-3)
+    expect(
+      getTaskExpiredPoints("ISOLATION", new Date("2026-11-01T00:00:00+08:00")),
+    ).toBe(0)
+    expect(
+      getTaskExpiredPoints("RULE", new Date("2026-11-01T00:00:00+08:00")),
+    ).toBe(-3)
   })
 
   it("禁闭要总分为负且出勤不足一半，两个条件缺一不可", async () => {
     // 出勤 2/3，虽然分数为负但人一直到场 → 不禁闭。
     expect(
-      await getWeeklyReviewResult("u", "2026-10-19", -4, attendanceExecutor(30, 20)),
+      await getWeeklyReviewResult(
+        "u",
+        "2026-10-19",
+        -4,
+        attendanceExecutor(30, 20),
+      ),
     ).toBe("CLEAR")
     // 出勤 1/3 且分数为负 → 禁闭。
     expect(
-      await getWeeklyReviewResult("u", "2026-10-19", -2, attendanceExecutor(30, 10)),
+      await getWeeklyReviewResult(
+        "u",
+        "2026-10-19",
+        -2,
+        attendanceExecutor(30, 10),
+      ),
     ).toBe("ISOLATION")
     // 全勤但分数非负 → 不禁闭。
     expect(
-      await getWeeklyReviewResult("u", "2026-10-19", 6, attendanceExecutor(30, 30)),
+      await getWeeklyReviewResult(
+        "u",
+        "2026-10-19",
+        6,
+        attendanceExecutor(30, 30),
+      ),
     ).toBe("CLEAR")
     // 该周没有打卡排班：退回纯分数线判定。
     expect(
-      await getWeeklyReviewResult("u", "2026-10-19", -1, attendanceExecutor(0, 0)),
+      await getWeeklyReviewResult(
+        "u",
+        "2026-10-19",
+        -1,
+        attendanceExecutor(0, 0),
+      ),
     ).toBe("ISOLATION")
   })
 

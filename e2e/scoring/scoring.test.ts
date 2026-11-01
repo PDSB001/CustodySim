@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto"
+import { spawnSync } from "node:child_process"
 import { afterAll, beforeAll, beforeEach, expect, test, vi } from "vitest"
 import { and, eq, inArray, sql } from "drizzle-orm"
 import { NextRequest } from "next/server"
@@ -13,15 +14,19 @@ import { GET as getScores, POST as adjustScore } from "@/app/api/scores/route"
 import * as audit from "@/lib/audit"
 import { parseNoticeGroup } from "@/lib/notice-content"
 import { runReportTaskOutcomeSweep } from "@/lib/task-engine"
-import { runCheckinStatusSweep } from "@/lib/checkin"
+import {
+  runCheckinStatusSweep,
+  ensureTodayCheckinTasks,
+  getOrCreateCheckinTask,
+} from "@/lib/checkin"
 import {
   reconcileTaskOutcomeScoreWeeks,
   runWeeklyScoreReview,
   ensureIsolationReflectionTask,
   recordScoreEvent,
   runCheckinDailyScoreSweep,
-  SCORE_POLICY,
 } from "@/lib/scoring"
+import { getScorePolicy } from "@/lib/score-policy"
 
 // Only Next's request cookie adapter and wall clock are supplied by the harness.
 // JWT verification, authorization, route handlers, transactions and sweeps are real.
@@ -98,6 +103,72 @@ async function reviews() {
     .where(eq(s.scoreWeekReviews.supervisedId, user))
 }
 
+test("历史修复先预览，备份旧排班和积分后只豁免失效预设，并可幂等重跑", async () => {
+  const day = new Date("2026-10-26T00:05:00+08:00")
+  vi.setSystemTime(day)
+  const normal = await ensureTodayCheckinTasks(user, day)
+  const [preset] = await db
+    .select()
+    .from(s.rules)
+    .where(eq(s.rules.custodyLevel, "ISOLATION"))
+  expect(normal).toHaveLength(4)
+  for (let slot = 0; slot < 8; slot++)
+    await getOrCreateCheckinTask(user, preset!, slot, day)
+  await db
+    .insert(s.isolationOrders)
+    .values({
+      supervisedId: user,
+      weekKey: "2026-10-19",
+      triggerScore: -1,
+      startAt: new Date("2026-10-26T00:00:00+08:00"),
+      endAt: new Date("2026-10-29T00:00:00+08:00"),
+    })
+  await db
+    .update(s.checkinTasks)
+    .set({ status: "MISSED" })
+    .where(eq(s.checkinTasks.supervisedId, user))
+  await runCheckinDailyScoreSweep(new Date("2026-10-27T00:05:00+08:00"))
+  const run = (apply = false) => {
+    const result = spawnSync(
+      process.execPath,
+      [
+        "scripts/repair-checkin-plan-overlaps.mjs",
+        "--day=2026-10-26",
+        ...(apply ? ["--apply", "--confirm-database=custodysim_e2e"] : []),
+      ],
+      { env: process.env, encoding: "utf8", timeout: 20000 },
+    )
+    expect(result.status, result.stderr).toBe(0)
+    return result.stdout
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line))
+  }
+  const preview = run()[0]
+  expect(preview.tasks).toBe(4)
+  expect(preview.pointsAfter - preview.pointsBefore).toBe(8)
+  expect((await events())[0]!.points).toBe(-24)
+  const applied = run(true)
+  const backup = applied[1].backup as string
+  try {
+    expect(backup).toMatch(/^custodysim_backup_overlap_\d+$/)
+    expect((await events())[0]!.points).toBe(-16)
+    const snapshot = await db.execute(
+      sql.raw(`select count(*)::int n from "${backup}".checkin_tasks`),
+    )
+    expect(snapshot.rows[0]?.n).toBe(4)
+    expect(run(true)[0].tasks).toBe(0)
+    await runCheckinDailyScoreSweep(new Date("2026-10-27T00:05:00+08:00"))
+    expect((await events())[0]!.points).toBe(-16)
+  } finally {
+    await db
+      .delete(s.auditLogs)
+      .where(sql`${s.auditLogs.detail}->>'backup' = ${backup}`)
+    if (/^custodysim_backup_overlap_\d+$/.test(backup))
+      await db.execute(sql.raw(`drop schema "${backup}" cascade`))
+  }
+})
+
 test("从未访问页面或打卡：后台建立点名任务，次日日结扣 8 分且不重复", async () => {
   vi.setSystemTime(sunday)
   expect(
@@ -168,6 +239,67 @@ test("后台点名不为停用、未在押或无在押档案的账号建立任�
         inArray(s.checkinTasks.supervisedId, [user, disabled, withoutProfile]),
       ),
   ).toHaveLength(0)
+})
+
+test("午夜普通方案切换禁闭方案替换未来排班，不再叠加成十二次", async () => {
+  const initial = new Date("2026-11-02T00:05:00+08:00")
+  vi.setSystemTime(initial)
+  const normal = await ensureTodayCheckinTasks(user, initial)
+  expect(normal).toHaveLength(4)
+  await db.insert(s.isolationOrders).values({
+    supervisedId: user,
+    weekKey: "2026-10-26",
+    triggerScore: -1,
+    startAt: new Date("2026-11-02T00:00:00+08:00"),
+    endAt: new Date("2026-11-05T00:00:00+08:00"),
+  })
+  await db
+    .update(s.persons)
+    .set({ custodyStatus: "ISOLATION" })
+    .where(eq(s.persons.userId, user))
+  const changed = new Date("2026-11-02T00:10:00+08:00")
+  vi.setSystemTime(changed)
+  const strengthened = await ensureTodayCheckinTasks(user, changed)
+  expect(strengthened).toHaveLength(8)
+  await ensureTodayCheckinTasks(user, changed)
+  const stored = await db
+    .select()
+    .from(s.checkinTasks)
+    .where(eq(s.checkinTasks.supervisedId, user))
+  expect(stored).toHaveLength(8)
+  expect(stored.some((row) => normal.some((old) => old.id === row.id))).toBe(
+    false,
+  )
+})
+
+test("新日期日结有负分下限，禁闭反思过期不产生负分且重跑幂等", async () => {
+  const dayEnd = new Date("2026-11-01T23:45:00+08:00")
+  vi.setSystemTime(dayEnd)
+  await runCheckinStatusSweep(dayEnd)
+  const [reflection] = await db
+    .insert(s.reportTasks)
+    .values({
+      supervisedId: user,
+      title: "反思",
+      source: "ISOLATION",
+      scheduleAt: new Date("2026-11-01T00:00:00+08:00"),
+      deadline: new Date("2026-11-01T23:00:00+08:00"),
+      status: "PENDING",
+    })
+    .returning()
+  await runReportTaskOutcomeSweep(dayEnd)
+  await runReportTaskOutcomeSweep(dayEnd)
+  expect(
+    (await events()).filter((row) => row.sourceId === reflection!.id),
+  ).toHaveLength(0)
+  const nextDay = new Date("2026-11-02T00:05:00+08:00")
+  await runCheckinDailyScoreSweep(nextDay)
+  await runCheckinDailyScoreSweep(nextDay)
+  const scores = (await events()).filter(
+    (row) => row.source === "CHECKIN_DAILY",
+  )
+  expect(scores).toHaveLength(1)
+  expect(scores[0]!.points).toBe(-4)
 })
 
 beforeAll(async () => {
@@ -253,7 +385,7 @@ test("计分板向 App 返回当前结算规则与阅读设置", async () => {
   )
   expect(response.status).toBe(200)
   const data = (await response.json()).data
-  for (const [key, value] of Object.entries(SCORE_POLICY))
+  for (const [key, value] of Object.entries(getScorePolicy("2026-08-31")))
     expect(data.policy[key]).toBe(value)
   expect(data.policy.effectiveDay).toMatch(/^\d{4}-\d{2}-\d{2}$/)
   const [reading] = await db
