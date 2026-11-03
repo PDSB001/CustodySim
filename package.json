@@ -36,7 +36,7 @@
     "geoip:update": "tsx --env-file-if-exists=.env.local scripts/update-geoip.ts"
   },
   "dependencies": {
-    "@hookform/resolvers": "^5.9.1",
+    "@hookform/resolvers": "^7.0.0",
     "@neondatabase/serverless": "^1.2.0",
     "@tanstack/react-query": "^5.104.5",
     "@tanstack/react-table": "^9.3.1",
